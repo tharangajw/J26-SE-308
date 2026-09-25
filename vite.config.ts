@@ -8,4 +8,23 @@ export default defineConfig({
     tailwindcss(),
     react()
   ],
+  server: {
+    proxy: {
+      '/proxy/prometheus': {
+        target: 'http://localhost:9090',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy\/prometheus/, '')
+      },
+      '/proxy/loki': {
+        target: 'http://localhost:3100',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy\/loki/, '')
+      },
+      '/proxy/jaeger': {
+        target: 'http://localhost:16686',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy\/jaeger/, '')
+      }
+    }
+  }
 })

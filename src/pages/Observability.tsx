@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useTelemetry } from '../context/TelemetryContext';
 import { PageContainer } from '../components/layout/PageContainer';
 import { AlertCircle, Database, Server, BarChart2, ShieldCheck, Radio, Zap, GitBranch, Activity, Calculator } from 'lucide-react';
 
@@ -76,6 +77,7 @@ const SourceBadge = ({ name, status }: { name: string, status: string }) => {
 export const Observability: React.FC = () => {
   const { pathname } = useLocation();
   const isCalculationView = pathname.endsWith('/calculation');
+  const { oScore } = useTelemetry();
 
   const [activeTab, setActiveTab] = useState('overview');
   const [rcaReport, setRcaReport] = useState<any>(null);
@@ -225,7 +227,7 @@ export const Observability: React.FC = () => {
                   <div className="lg:col-span-1 obs-glass p-8 flex flex-col items-center justify-center obs-lift relative overflow-hidden group">
                     <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                     <h2 className="text-xl font-medium text-slate-300 mb-6">Real-Time O-Score</h2>
-                    <ScoreRing score={mockData.oscore} />
+                    <ScoreRing score={oScore} />
                     
                     {mockCci.blind_spots.length > 0 && (
                       <div className="mt-6 px-4 py-2 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm flex items-center gap-2 font-medium">
