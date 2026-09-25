@@ -64,7 +64,7 @@ export function runAHP(matrix: number[][], labels: string[]): AHPResult {
   const weights = normalisedMatrix.map(row => row.reduce((a, b) => a + b, 0) / n);
 
   // 4 – λ_max  (weighted sum vector ÷ weights)
-  const weightedSumVector = matrix.map((row, i) =>
+  const weightedSumVector = matrix.map((row, _i) =>
     row.reduce((acc, val, j) => acc + val * weights[j], 0)
   );
   const lambdaMax = weightedSumVector.reduce((acc, val, i) => acc + val / weights[i], 0) / n;

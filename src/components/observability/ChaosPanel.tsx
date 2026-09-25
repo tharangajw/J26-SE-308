@@ -1,7 +1,11 @@
 import { Skull, RefreshCw, Activity, CheckCircle, XCircle } from 'lucide-react';
 import { useChaosContext } from '../../context/ChaosContext';
 
-export default function ChaosPanel() {
+interface ChaosPanelProps {
+  onExperimentRun?: (expId: string) => void;
+}
+
+export default function ChaosPanel({ onExperimentRun: _onExperimentRun }: ChaosPanelProps) {
   const { activeChaosEvent, chaosHistory } = useChaosContext();
 
   return (
