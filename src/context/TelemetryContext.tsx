@@ -2,9 +2,23 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { TelemetryService } from '../services/telemetry';
 import type { TelemetryData } from '../services/telemetry';
 
+export interface HistoryRecord {
+  date: string;
+  oscore: number;
+  cci: number;
+  metrics: number;
+  traces: number;
+  logs: number;
+  blindSpots: number;
+  errorRate: number;
+  latency: number;
+  status: string;
+}
+
 interface TelemetryContextProps {
   telemetry: TelemetryData | null;
   oScore: number;
+  history: HistoryRecord[];
 }
 
 const TelemetryContext = createContext<TelemetryContextProps | undefined>(undefined);
@@ -12,6 +26,7 @@ const TelemetryContext = createContext<TelemetryContextProps | undefined>(undefi
 export const TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [oScore, setOScore] = useState<number>(87.4); // default base score
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -20,11 +35,30 @@ export const TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       if (data) {
         // Simple O-Score calculation for sync across tabs
-        // (Metrics 35% + Logs 30% + Traces 35%)
-        // This is a placeholder calculation that you can adjust
         const baseScore = 80;
         const dynamicAdjustment = (data.metrics.cpuUsage < 80 ? 5 : 0) + (data.logs.errorCount === 0 ? 5 : 0);
-        setOScore(baseScore + dynamicAdjustment);
+        const newScore = baseScore + dynamicAdjustment;
+        setOScore(newScore);
+
+        // Add to history
+        setHistory(prev => {
+          const newRecord: HistoryRecord = {
+            date: new Date().toISOString(),
+            oscore: newScore,
+            cci: 92, // Placeholder
+            metrics: 0.98,
+            traces: 0.95,
+            logs: 0.99,
+            blindSpots: data.logs.errorCount > 0 ? 1 : 0,
+            errorRate: data.traces.errorRate,
+            latency: data.traces.latency,
+            status: newScore >= 80 ? 'HEALTHY' : newScore >= 60 ? 'WARNING' : 'CRITICAL'
+          };
+          const updated = [...prev, newRecord];
+          // Keep last 30 entries
+          if (updated.length > 30) return updated.slice(updated.length - 30);
+          return updated;
+        });
       }
     };
     
@@ -34,7 +68,7 @@ export const TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   return (
-    <TelemetryContext.Provider value={{ telemetry, oScore }}>
+    <TelemetryContext.Provider value={{ telemetry, oScore, history }}>
       {children}
     </TelemetryContext.Provider>
   );

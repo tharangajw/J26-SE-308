@@ -11,6 +11,7 @@ import {
   ReferenceLine, BarChart, Bar
 } from 'recharts';
 import { OBS_AHP } from '../lib/ahpEngine';
+import { useTelemetry } from '../context/TelemetryContext';
 
 /* ─── Extended history data ──────────────────────────────────────────────────── */
 const FULL_HISTORY = [
@@ -64,22 +65,23 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-/* ─── Main Component ─────────────────────────────────────────────────────────── */
 export const ObservabilityHistory: React.FC = () => {
+  const { history: liveHistory } = useTelemetry();
   const [filter, setFilter] = useState<'ALL' | 'HEALTHY' | 'WARNING' | 'CRITICAL'>('ALL');
   const [chartMode, setChartMode] = useState<'oscore' | 'pillars' | 'blindspots'>('oscore');
 
-  const filtered = filter === 'ALL' ? FULL_HISTORY : FULL_HISTORY.filter(r => r.status === filter);
+  const combinedHistory = [...FULL_HISTORY, ...liveHistory];
+  const filtered = filter === 'ALL' ? combinedHistory : combinedHistory.filter(r => r.status === filter);
 
-  const avgScore   = (FULL_HISTORY.reduce((a, r) => a + r.oscore, 0) / FULL_HISTORY.length).toFixed(1);
-  const bestScore  = Math.max(...FULL_HISTORY.map(r => r.oscore)).toFixed(1);
-  const worstScore = Math.min(...FULL_HISTORY.map(r => r.oscore)).toFixed(1);
-  const totalBlindSpots = FULL_HISTORY.reduce((a, r) => a + r.blindSpots, 0);
+  const avgScore = combinedHistory.length > 0 ? (combinedHistory.reduce((a, r) => a + r.oscore, 0) / combinedHistory.length).toFixed(1) : "0";
+  const bestScore = combinedHistory.length > 0 ? Math.max(...combinedHistory.map(r => r.oscore)).toFixed(1) : "0";
+  const worstScore = combinedHistory.length > 0 ? Math.min(...combinedHistory.map(r => r.oscore)).toFixed(1) : "0";
+  const totalBlindSpots = combinedHistory.reduce((a, r) => a + r.blindSpots, 0);
 
   /* Export CSV */
   const handleExport = () => {
     const header = 'Date,O-Score,CCI,Metrics%,Traces%,Logs%,BlindSpots,ErrorRate%,Latency(ms),Status';
-    const rows = FULL_HISTORY.map(r =>
+    const rows = combinedHistory.map(r =>
       `${r.date},${r.oscore},${r.cci},${(r.metrics * 100).toFixed(1)},${(r.traces * 100).toFixed(1)},${(r.logs * 100).toFixed(1)},${r.blindSpots},${r.errorRate},${r.latency},${r.status}`
     );
     const csv = [header, ...rows].join('\n');
@@ -101,7 +103,7 @@ export const ObservabilityHistory: React.FC = () => {
             <Activity className="w-7 h-7 text-indigo-400" />
             O-Score Full History
           </h1>
-          <p className="text-sm text-slate-400 mt-1">Complete AHP-weighted observability score timeline — {FULL_HISTORY.length} evaluations</p>
+          <p className="text-sm text-slate-400 mt-1">Complete AHP-weighted observability score timeline — {combinedHistory.length} evaluations</p>
         </div>
         <button
           onClick={handleExport}
@@ -167,7 +169,7 @@ export const ObservabilityHistory: React.FC = () => {
 
         <ResponsiveContainer width="100%" height={280}>
           {chartMode === 'oscore' ? (
-            <AreaChart data={FULL_HISTORY} margin={{ left: -10, right: 10 }}>
+            <AreaChart data={combinedHistory} margin={{ left: -10, right: 10 }}>
               <defs>
                 <linearGradient id="gradOs" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#818cf8" stopOpacity={0.3} />
@@ -188,7 +190,7 @@ export const ObservabilityHistory: React.FC = () => {
               <Area type="monotone" dataKey="cci" name="CCI Index" stroke="#34d399" strokeWidth={1.5} strokeDasharray="4 2" fill="url(#gradCci)" dot={false} />
             </AreaChart>
           ) : chartMode === 'pillars' ? (
-            <LineChart data={FULL_HISTORY} margin={{ left: -10, right: 10 }}>
+            <LineChart data={combinedHistory} margin={{ left: -10, right: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={d => d.slice(5)} />
               <YAxis domain={[0.7, 1]} tickFormatter={v => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 10, fill: '#64748b' }} />
@@ -199,7 +201,7 @@ export const ObservabilityHistory: React.FC = () => {
               <Line type="monotone" dataKey="logs"    name={`Logs (${(OBS_AHP.weights[2]*100).toFixed(1)}%)`}    stroke="#22d3ee" strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>
           ) : (
-            <BarChart data={FULL_HISTORY} margin={{ left: -10, right: 10 }}>
+            <BarChart data={combinedHistory} margin={{ left: -10, right: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={d => d.slice(5)} />
               <YAxis tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
@@ -310,7 +312,7 @@ export const ObservabilityHistory: React.FC = () => {
             <div className="text-center py-10 text-slate-500">No records match the selected filter.</div>
           )}
         </div>
-        <div className="mt-3 text-xs text-slate-600">Showing {filtered.length} of {FULL_HISTORY.length} evaluations</div>
+        <div className="mt-3 text-xs text-slate-600">Showing {filtered.length} of {combinedHistory.length} evaluations</div>
       </div>
     </PageContainer>
   );

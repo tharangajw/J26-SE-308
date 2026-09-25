@@ -13,21 +13,78 @@ const GUARDRAIL_CONFIG: any = {
   dangerous:        { icon: '🚨', color: '#f43f5e', label: 'Dangerous — Manual Review' },
 };
 
+const GEMINI_MODEL = 'gemini-3.8-flash';
+
 export default function RemediationPanel({ rcaReport }: any) {
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [remediation, setRemediation] = useState<any>(null);
   const [copied, setCopied]         = useState(false);
+  const [aiProvider, setAiProvider] = useState<'claude' | 'gemini'>('claude');
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!rcaReport) return;
     setLoading(true); setError(null);
     
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+    if (aiProvider === 'gemini' && geminiKey) {
+      try {
+        const prompt = `You are a Kubernetes SRE. An issue was detected: ${rcaReport.summary || 'Database connection timeout in order-service'}. Generate a Kubernetes YAML patch to fix this issue. Return ONLY a JSON object with the following schema, no markdown blocks around it: { "script": "string (the yaml code)", "description": "string", "risk_level": "Low|Medium|High|Critical", "estimated_impact": "string", "rollback_steps": ["string", "string"] }`;
+        
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(geminiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        });
+
+        const responseBody = await response.text();
+        let data: any;
+        try {
+          data = JSON.parse(responseBody);
+        } catch {
+          throw new Error(`Gemini returned invalid JSON (${response.status})`);
+        }
+        if (!response.ok) {
+          throw new Error(data.error?.message || `Gemini request failed (${response.status})`);
+        }
+        const textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!textOutput) throw new Error('Gemini returned no generated content');
+        const parsed = JSON.parse(textOutput);
+
+        setRemediation({
+          script_type: 'kubernetes_yaml',
+          script: parsed.script,
+          guardrail_status: parsed.risk_level === 'Critical' ? 'dangerous' : parsed.risk_level === 'High' ? 'review_required' : 'safe',
+          description: parsed.description,
+          risk_level: parsed.risk_level,
+          estimated_impact: parsed.estimated_impact,
+          rollback_steps: parsed.rollback_steps,
+          mode: 'live',
+          provider: 'gemini'
+        });
+      } catch (err) {
+        console.error('Gemini API error:', err);
+        setError(`Gemini API Error: ${err instanceof Error ? err.message : 'Unknown error'}. Falling back to Demo Mode.`);
+        generateMock('gemini');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      generateMock(aiProvider);
+    }
+  };
+
+  const generateMock = (provider: string) => {
     // Mock the backend generation
     setTimeout(() => {
       setRemediation({
         script_type: 'kubernetes_yaml',
-        script: `apiVersion: apps/v1
+        script: provider === 'claude' 
+          ? `apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: order-service
@@ -40,7 +97,23 @@ spec:
           requests:
             memory: "256Mi"
           limits:
-            memory: "512Mi"`,
+            memory: "512Mi"` 
+          : `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: order-service
+        resources:
+          limits:
+            memory: "512Mi" # Gemini optimization suggestion
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "250m"`,
         guardrail_status: 'safe',
         description: 'Update memory limits for order-service to prevent OOM errors.',
         risk_level: 'Low',
@@ -49,7 +122,8 @@ spec:
           'Run `kubectl rollout undo deployment/order-service`',
           'Verify pods are running with previous memory limits.'
         ],
-        mode: 'demo'
+        mode: 'demo',
+        provider
       });
       setLoading(false);
     }, 1500);
@@ -91,12 +165,39 @@ spec:
             AI-generated fix script for: <strong style={{ color: '#a78bfa' }}>{rcaReport.summary?.substring(0, 55)}…</strong>
           </p>
         </div>
-        <button className="obs-btn-emerald" onClick={handleGenerate} disabled={loading} style={{ flexShrink: 0 }}>
-          {loading
-            ? <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⚙</span> Generating Fix…</>
-            : <><span style={{ fontSize: 16 }}>🛠</span> Generate Fix Script</>
-          }
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+          
+          {/* AI Toggle */}
+          <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: 4, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)' }}>
+            <button
+              onClick={() => setAiProvider('claude')}
+              style={{
+                padding: '6px 12px', fontSize: 13, fontWeight: 600, borderRadius: 6, border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                background: aiProvider === 'claude' ? 'rgba(99,102,241,0.2)' : 'transparent',
+                color: aiProvider === 'claude' ? '#a5b4fc' : '#64748b'
+              }}
+            >
+              Claude 3.5
+            </button>
+            <button
+              onClick={() => setAiProvider('gemini')}
+              style={{
+                padding: '6px 12px', fontSize: 13, fontWeight: 600, borderRadius: 6, border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                background: aiProvider === 'gemini' ? 'rgba(16,185,129,0.2)' : 'transparent',
+                color: aiProvider === 'gemini' ? '#6ee7b7' : '#64748b'
+              }}
+            >
+              Gemini Pro
+            </button>
+          </div>
+
+          <button className="obs-btn-emerald" onClick={handleGenerate} disabled={loading}>
+            {loading
+              ? <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⚙</span> Generating Fix…</>
+              : <><span style={{ fontSize: 16 }}>🛠</span> Generate Fix Script</>
+            }
+          </button>
+        </div>
       </div>
 
       {/* ── Error ── */}
@@ -181,7 +282,7 @@ spec:
             {/* Mode notice */}
             {remediation.mode === 'demo' && (
               <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 12, color: '#92400e' }}>
-                <strong style={{ color: '#fbbf24' }}>Demo Mode</strong> · Set ANTHROPIC_API_KEY for Claude-generated scripts
+                <strong style={{ color: '#fbbf24' }}>Demo Mode</strong> · Set {remediation.provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'GEMINI_API_KEY'} for {remediation.provider === 'claude' ? 'Claude' : 'Gemini'}-generated scripts
               </div>
             )}
           </div>
