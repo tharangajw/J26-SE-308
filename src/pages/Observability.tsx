@@ -16,7 +16,6 @@ import ChaosPanel from '../components/observability/ChaosPanel';
 import { ObservabilityMethodology } from '../components/observability/ObservabilityMethodology';
 
 import { INITIAL_MOCK_HISTORY, INITIAL_MOCK_DATA, INITIAL_MOCK_CCI } from '../components/observability/mockData';
-import { calculateOScore } from '../lib/ahpEngine';
 
 const ScoreRing = ({ score }: { score: number }) => {
   const color = score >= 80 ? '#34d399' : score >= 50 ? '#fbbf24' : '#f43f5e';
@@ -77,7 +76,7 @@ const SourceBadge = ({ name, status }: { name: string, status: string }) => {
 export const Observability: React.FC = () => {
   const { pathname } = useLocation();
   const isCalculationView = pathname.endsWith('/calculation');
-  const { oScore } = useTelemetry();
+  const { telemetry, oScore, cciIndex, history: liveHistory } = useTelemetry();
 
   const [activeTab, setActiveTab] = useState('overview');
   const [rcaReport, setRcaReport] = useState<any>(null);
@@ -85,50 +84,44 @@ export const Observability: React.FC = () => {
   const [mockData, setMockData] = useState(INITIAL_MOCK_DATA);
   const [mockCci, setMockCci] = useState(INITIAL_MOCK_CCI);
   const [mockHistory, setMockHistory] = useState(INITIAL_MOCK_HISTORY);
+  const chartHistory = liveHistory.map(record => ({
+    timestamp: record.date,
+    oscore: record.oscore,
+    cci_index: record.cci,
+    blind_spot_count: record.blindSpots,
+  }));
 
-  // Real-time fluctuation effect
+  // Bind the detail page to the real telemetry response instead of random mock fluctuations.
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMockData(prev => {
-        const latVar = (Math.random() - 0.5) * 8;
-        const metricsVar = (Math.random() - 0.5) * 0.01;
-        const tracesVar  = (Math.random() - 0.5) * 0.01;
-        const logsVar    = (Math.random() - 0.5) * 0.005;
+    if (!telemetry) return;
 
-        const newMetrics = Math.min(1, Math.max(0.5, prev.details.metrics_coverage_rate + metricsVar));
-        const newTraces  = Math.min(1, Math.max(0.5, prev.details.trace_id_propagation_rate + tracesVar));
-        const newLogs    = Math.min(1, Math.max(0.5, prev.details.log_structural_integrity + logsVar));
+    setMockData(prev => ({
+      ...prev,
+      oscore: oScore,
+      details: {
+        ...prev.details,
+        metrics_coverage_rate: telemetry.sources.prometheus ? 1 : 0,
+        system_error_rate: telemetry.traces.errorRate / 100,
+        service_latency_p95_ms: telemetry.traces.latency,
+        service_count: telemetry.traces.serviceCount,
+        log_structural_integrity: telemetry.sources.loki ? 1 : 0,
+        log_error_count: telemetry.logs.errorCount,
+        trace_id_propagation_rate: telemetry.sources.jaeger ? 1 : 0,
+        avg_trace_duration_ms: telemetry.traces.latency,
+      },
+    }));
 
-        const blindSpotCount = mockCci.blind_spots.length;
-        const newOScore = calculateOScore(newMetrics, newTraces, newLogs, blindSpotCount, prev.scoring_weights.blind_spot_penalty);
-
-        return {
-          ...prev,
-          oscore: newOScore,
-          details: {
-            ...prev.details,
-            metrics_coverage_rate: newMetrics,
-            trace_id_propagation_rate: newTraces,
-            log_structural_integrity: newLogs,
-            service_latency_p95_ms: Math.max(10, prev.details.service_latency_p95_ms + latVar)
-          }
-        };
-      });
-
-      setMockCci(prev => {
-        const cciVar = (Math.random() - 0.5) * 0.8;
-        let newCci = prev.cci_index + cciVar;
-        if (newCci > 100) newCci = 100;
-        if (newCci < 10) newCci = 10;
-        
-        return {
-          ...prev,
-          cci_index: newCci
-        };
-      });
-    }, 3500);
-    return () => clearInterval(interval);
-  }, []);
+    setMockCci(prev => ({
+      ...prev,
+      cci_index: cciIndex,
+      pillar_coverage: {
+        metric: telemetry.sources.prometheus ? 1 : 0,
+        trace: telemetry.sources.jaeger ? 1 : 0,
+        log: telemetry.sources.loki ? 1 : 0,
+      },
+      blind_spots: Object.values(telemetry.sources).every(Boolean) ? [] : prev.blind_spots,
+    }));
+  }, [telemetry, oScore, cciIndex]);
 
   const handleChaosExperiment = (expId: string) => {
     let newData = JSON.parse(JSON.stringify(mockData));
@@ -190,9 +183,9 @@ export const Observability: React.FC = () => {
               <span className="text-sm font-medium">Live</span>
             </div>
             <div className="flex gap-2 flex-wrap justify-end">
-              <SourceBadge name="Prometheus" status="live" />
-              <SourceBadge name="Loki"       status="live" />
-              <SourceBadge name="Jaeger"     status="live" />
+              <SourceBadge name="Prometheus" status={telemetry?.sources.prometheus ? 'live' : 'offline'} />
+              <SourceBadge name="Loki"       status={telemetry?.sources.loki ? 'live' : 'offline'} />
+              <SourceBadge name="Jaeger"     status={telemetry?.sources.jaeger ? 'live' : 'offline'} />
             </div>
           </div>
         </div>
@@ -239,7 +232,7 @@ export const Observability: React.FC = () => {
 
                   {/* History Chart */}
                   <div className="lg:col-span-2 flex flex-col justify-end">
-                    <ScoreHistory history={mockHistory} />
+                    <ScoreHistory history={chartHistory.length ? chartHistory : mockHistory} />
                   </div>
                 </div>
 
@@ -277,13 +270,13 @@ export const Observability: React.FC = () => {
 
             {activeTab === 'cci' && (
               <div className="obs-fade-up">
-                <CCIPanel cciData={mockCci} />
+                <CCIPanel cciData={{ ...mockCci, cci_index: cciIndex }} />
               </div>
             )}
 
             {activeTab === 'rca' && (
               <div className="obs-fade-up">
-                <RCAPanel cciData={mockCci} onRcaComplete={(report: any) => { setRcaReport(report); setActiveTab('remediation'); }} />
+                <RCAPanel cciData={{ ...mockCci, cci_index: cciIndex }} onRcaComplete={(report: any) => { setRcaReport(report); setActiveTab('remediation'); }} />
               </div>
             )}
 

@@ -58,7 +58,7 @@ const pipelinePhases = [
     title: 'CCI Correlation',
     subtitle: '±2s Time Window',
     metric: 'Correlation',
-    value: '92%',
+    value: 'LIVE',
     threshold: '> 80%',
     status: 'PASS',
     icon: Activity,
@@ -147,7 +147,13 @@ const TimelineItem = ({ title, time, status, icon, isLast = false }: any) => (
 
 /* ── Main Component ───────────────────────────────────────── */
 export const ObservabilityDashboard = () => {
-  const { telemetry, oScore } = useTelemetry();
+  const { telemetry, oScore, cciIndex, history } = useTelemetry();
+  const liveChartData = history.map((record) => ({
+    name: new Date(record.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    oscore: record.oscore,
+    cci: record.cci,
+    errorRate: record.errorRate,
+  }));
 
   return (
     <div className="h-full bg-background text-text-primary p-4 lg:p-6 overflow-y-auto">
@@ -248,10 +254,10 @@ export const ObservabilityDashboard = () => {
             {/* CCI Index */}
             <div className="bg-surface border border-border rounded-xl p-5 flex flex-col">
               <div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-2">CCI Correlation Index</div>
-              <div className="text-3xl font-bold text-brand-obs mb-2">92%</div>
+              <div className="text-3xl font-bold text-brand-obs mb-2">{cciIndex}%</div>
               <div className="h-16 w-full -ml-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={oscoreHistory.slice(-5)}>
+                  <LineChart data={(liveChartData.length ? liveChartData : oscoreHistory).slice(-5)}>
                     <Line type="monotone" dataKey="cci" stroke="#818cf8" strokeWidth={2} dot={false} isAnimationActive={false} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -326,7 +332,7 @@ export const ObservabilityDashboard = () => {
                     {/* Metric */}
                     <div>
                       <div className="text-[9px] text-text-muted uppercase tracking-wider">{p.metric}</div>
-                      <div className={`text-lg font-black mt-0.5 ${p.valueCls}`}>{p.value}</div>
+                      <div className={`text-lg font-black mt-0.5 ${p.valueCls}`}>{p.step === 2 ? `${cciIndex}%` : p.value}</div>
                       <div className="text-[9px] text-text-muted">Threshold: {p.threshold}</div>
                     </div>
 
@@ -353,7 +359,7 @@ export const ObservabilityDashboard = () => {
               </div>
               <div className="h-48 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={oscoreHistory}>
+                  <LineChart data={liveChartData.length ? liveChartData : oscoreHistory}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#252C35" vertical={false} />
                     <XAxis dataKey="name" stroke="#5E6875" fontSize={10} tickLine={false} axisLine={false} />
                     <YAxis stroke="#5E6875" fontSize={10} tickLine={false} axisLine={false} width={25} />

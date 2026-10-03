@@ -8,6 +8,19 @@ export interface PrometheusMetrics {
   rps: number;
 }
 
+export interface LokiLogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  labels: Record<string, string>;
+}
+
+export interface LokiMetrics {
+  errorCount: number;
+  totalCount: number;
+  entries: LokiLogEntry[];
+}
+
 export interface JaegerTraceSummary {
   traceId: string;
   rootService: string;
@@ -28,6 +41,13 @@ export interface RawTelemetrySnapshot {
   serviceId: string;
   timestamp: number; // UTC Epoch millis
   prometheus: PrometheusMetrics;
+  loki: LokiMetrics;
   jaeger: JaegerTraceSummary[];
   k8s: K8sClusterState;
+  sources: {
+    prometheus: boolean;
+    loki: boolean;
+    jaeger: boolean;
+    kubernetes: boolean;
+  };
 }

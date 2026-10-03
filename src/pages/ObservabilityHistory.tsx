@@ -66,7 +66,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const ObservabilityHistory: React.FC = () => {
-  const { history: liveHistory } = useTelemetry();
+  const { history: liveHistory, cciIndex } = useTelemetry();
   const [filter, setFilter] = useState<'ALL' | 'HEALTHY' | 'WARNING' | 'CRITICAL'>('ALL');
   const [chartMode, setChartMode] = useState<'oscore' | 'pillars' | 'blindspots'>('oscore');
 
@@ -127,6 +127,11 @@ export const ObservabilityHistory: React.FC = () => {
             <div className="text-xs text-slate-500 mt-1">{c.sub}</div>
           </div>
         ))}
+      </div>
+
+      <div className="mb-6 obs-glass px-5 py-3 flex items-center justify-between">
+        <span className="text-sm text-slate-400">Current CCI Index</span>
+        <span className="text-2xl font-black font-mono text-emerald-400">{cciIndex}%</span>
       </div>
 
       {/* ── AHP Weights reminder banner ── */}

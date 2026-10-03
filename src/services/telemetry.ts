@@ -11,7 +11,14 @@ export interface TelemetryData {
   traces: {
     latency: number;
     errorRate: number;
+    serviceCount: number;
   };
+  sources: {
+    prometheus: boolean;
+    loki: boolean;
+    jaeger: boolean;
+  };
+  lastUpdated: string;
 }
 
 // Use Vite proxies to bypass CORS issues
@@ -46,12 +53,18 @@ async function fetchJson(
 }
 
 export class TelemetryService {
-  
+  static async fetchPrometheusQuery(query: string): Promise<any> {
+    return fetchJson(`${PROMETHEUS_URL}/api/v1/query`, { query }, 'Prometheus');
+  }
+
   static async fetchPrometheusMetrics(): Promise<any> {
     try {
-      return await fetchJson(`${PROMETHEUS_URL}/api/v1/query`, {
-        query: 'sum(rate(container_cpu_usage_seconds_total[1m])) * 100',
-      }, 'Prometheus');
+      const [cpu, memory, requests] = await Promise.all([
+        this.fetchPrometheusQuery('sum(rate(container_cpu_usage_seconds_total[1m])) * 100'),
+        this.fetchPrometheusQuery('sum(container_memory_working_set_bytes) / sum(container_spec_memory_limit_bytes) * 100'),
+        this.fetchPrometheusQuery('sum(rate(http_requests_total[1m]))'),
+      ]);
+      return { cpu, memory, requests };
     } catch (error) {
       console.warn('Prometheus fetch failed. Start the telemetry stack if metrics are needed.', error);
       return null;
@@ -90,23 +103,37 @@ export class TelemetryService {
       this.fetchJaegerTraces(),
     ]);
 
-    // Parse the actual data from the responses. 
-    // Here we provide mock parsed values as placeholders.
-    // You will need to adjust the parsing logic based on your specific PromQL/LogQL queries.
+    const promValue = prom?.cpu?.data?.result?.[0]?.value?.[1];
+    const lokiStreams = loki?.data?.result ?? [];
+    const jaegerServices = jaeger?.data ?? [];
+    const cpuUsage = promValue == null ? 0 : Number(promValue);
+    const errorCount = lokiStreams.reduce((count: number, stream: any) => (
+      count + (Array.isArray(stream.values) ? stream.values.length : 0)
+    ), 0);
+
     return {
       metrics: {
-        cpuUsage: prom ? parseFloat(prom.data?.result?.[0]?.value?.[1] || 45.2) : 45.2,
-        memoryUsage: 68.5,
-        requestCount: 1205,
+        cpuUsage: Number.isFinite(cpuUsage) ? cpuUsage : 0,
+        memoryUsage: Number(prom?.memory?.data?.result?.[0]?.value?.[1] ?? 0),
+        requestCount: Number(prom?.requests?.data?.result?.[0]?.value?.[1] ?? 0),
       },
       logs: {
-        errorCount: loki ? loki.data?.result?.length || 12 : 12,
-        recentErrors: ['payment-service connection refused', 'order-service db timeout'],
+        errorCount,
+        recentErrors: lokiStreams.flatMap((stream: any) => (
+          (stream.values ?? []).slice(-5).map((entry: string[]) => entry[1])
+        )),
       },
       traces: {
-        latency: jaeger ? 124 : 124, // ms
-        errorRate: 1.2, // %
-      }
+        latency: 0,
+        errorRate: 0,
+        serviceCount: Array.isArray(jaegerServices) ? jaegerServices.length : 0,
+      },
+      sources: {
+        prometheus: prom !== null,
+        loki: loki !== null,
+        jaeger: jaeger !== null,
+      },
+      lastUpdated: new Date().toISOString(),
     };
   }
 }

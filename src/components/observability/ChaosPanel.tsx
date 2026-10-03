@@ -38,7 +38,7 @@ export default function ChaosPanel({ onExperimentRun: _onExperimentRun }: ChaosP
               <p className="text-sm">No recent experiments</p>
             </div>
           ) : (
-            chaosHistory.map((hist, i) => (
+            chaosHistory.map((hist) => (
               <div key={hist.id} className="group relative bg-gradient-to-r from-slate-900/80 to-slate-800/50 p-4 rounded-xl border border-white/5 text-sm hover:border-white/10 transition-colors shadow-inner overflow-hidden">
                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-rose-500/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                 <div className="flex justify-between items-center mb-2">

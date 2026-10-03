@@ -18,6 +18,7 @@ export interface HistoryRecord {
 interface TelemetryContextProps {
   telemetry: TelemetryData | null;
   oScore: number;
+  cciIndex: number;
   history: HistoryRecord[];
 }
 
@@ -26,6 +27,7 @@ const TelemetryContext = createContext<TelemetryContextProps | undefined>(undefi
 export const TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [oScore, setOScore] = useState<number>(87.4); // default base score
+  const [cciIndex, setCciIndex] = useState<number>(0);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
 
   useEffect(() => {
@@ -40,16 +42,20 @@ export const TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const newScore = baseScore + dynamicAdjustment;
         setOScore(newScore);
 
+        const availableSources = Object.values(data.sources).filter(Boolean).length;
+        const newCciIndex = Math.round((availableSources / 3) * 100);
+        setCciIndex(newCciIndex);
+
         // Add to history
         setHistory(prev => {
           const newRecord: HistoryRecord = {
             date: new Date().toISOString(),
             oscore: newScore,
-            cci: 92, // Placeholder
-            metrics: 0.98,
-            traces: 0.95,
-            logs: 0.99,
-            blindSpots: data.logs.errorCount > 0 ? 1 : 0,
+            cci: newCciIndex,
+            metrics: data.sources.prometheus ? 1 : 0,
+            traces: data.sources.jaeger ? 1 : 0,
+            logs: data.sources.loki ? 1 : 0,
+            blindSpots: 3 - availableSources,
             errorRate: data.traces.errorRate,
             latency: data.traces.latency,
             status: newScore >= 80 ? 'HEALTHY' : newScore >= 60 ? 'WARNING' : 'CRITICAL'
@@ -68,7 +74,7 @@ export const TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   return (
-    <TelemetryContext.Provider value={{ telemetry, oScore, history }}>
+    <TelemetryContext.Provider value={{ telemetry, oScore, cciIndex, history }}>
       {children}
     </TelemetryContext.Provider>
   );
