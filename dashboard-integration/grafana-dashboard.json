@@ -1,0 +1,54 @@
+{
+  "title": "Microservice P-Score Performance Maturity Dashboard",
+  "tags": ["p-score", "maturity", "observability", "microservices"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Real-Time Composite P-Score",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "orange", "value": 40 },
+              { "color": "yellow", "value": 65 },
+              { "color": "green", "value": 85 }
+            ]
+          }
+        }
+      },
+      "targets": [{ "expr": "pscore_composite_score", "legendFormat": "{{service}}" }]
+    },
+    {
+      "id": 2,
+      "title": "P95 Latency Historical Drift Trend",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "pscore_p95_latency_ms", "legendFormat": "Current P95" },
+        { "expr": "pscore_p95_historical_baseline_ms", "legendFormat": "Historical Baseline" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Jaeger Trace Fan-Out Depth & Legitimate Attenuation",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 9, "x": 15, "y": 0 },
+      "targets": [{ "expr": "pscore_fanout_depth", "legendFormat": "{{service}} Depth" }]
+    },
+    {
+      "id": 4,
+      "title": "Isolation Forest Anomaly Alert Stream",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "targets": [{ "expr": "pscore_isolation_forest_anomalies_total" }]
+    }
+  ]
+}
