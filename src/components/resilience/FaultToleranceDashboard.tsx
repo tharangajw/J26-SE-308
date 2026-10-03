@@ -23,7 +23,7 @@ import {
   type AiFailurePrediction,
   type SelfHealingMetrics
 } from '../../data/mockData';
-// import { ChaosEngineeringSuite } from './ChaosEngineeringSuite';
+import { ChaosEngineeringSuite } from './ChaosEngineeringSuite';
 // import { TelemetryTrends } from './TelemetryTrends';
 import './FaultToleranceDashboard.css';
 
@@ -974,22 +974,22 @@ export const FaultToleranceDashboard: React.FC = () => {
 
         {/* VIEW MODE 2: Historical Telemetry Trends */}
         {/* {mainViewMode === 'telemetry' && (
-          // <TelemetryTrends history={history} />
+          <TelemetryTrends history={history} />
         )} */}
 
         {/* VIEW MODE 3: Chaos Engineering Fault Injection Suite */}
-        {/* {mainViewMode === 'chaos' && (
-          // <ChaosEngineeringSuite
-          //   services={services}
-          //   activeFaults={activeFaults}
-          //   activeChaosEvent={activeChaosEvent}
-          //   cardSettings={cardSettings}
-          //   onInjectFault={injectChaosFault}
-          //   onHealService={healService}
-          //   onClearAllChaos={clearAllChaos}
-          //   onUpdateCardSetting={updateCardSetting}
-          // />
-        )} */}
+        {mainViewMode === 'chaos' && (
+          <ChaosEngineeringSuite
+            services={services}
+            activeFaults={activeFaults}
+            activeChaosEvent={activeChaosEvent}
+            cardSettings={cardSettings}
+            onInjectFault={injectChaosFault}
+            onHealService={healService}
+            onClearAllChaos={clearAllChaos}
+            onUpdateCardSetting={updateCardSetting}
+          />
+        )}
       </main>
 
       {/* Footer */}
