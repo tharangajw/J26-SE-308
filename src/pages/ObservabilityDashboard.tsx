@@ -22,7 +22,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Link } from 'react-router-dom';
-
+import { useTelemetry } from '../context/TelemetryContext';
 /* ── Mock Data ────────────────────────────────────────────── */
 const oscoreHistory = [
   { name: 'Jun 1', oscore: 84, cci: 88, errorRate: 2.1 },
@@ -147,6 +147,8 @@ const TimelineItem = ({ title, time, status, icon, isLast = false }: any) => (
 
 /* ── Main Component ───────────────────────────────────────── */
 export const ObservabilityDashboard = () => {
+  const { telemetry, oScore } = useTelemetry();
+
   return (
     <div className="h-full bg-background text-text-primary p-4 lg:p-6 overflow-y-auto">
 
@@ -187,9 +189,11 @@ export const ObservabilityDashboard = () => {
           <div className="text-right">
             <div className="text-sm font-semibold flex items-center gap-2 justify-end">
               <Activity className="w-4 h-4 text-brand-obs" />
-              O-Score: <span className="text-brand-obs">87.4</span>
+              O-Score: <span className="text-brand-obs">{oScore.toFixed(1)}</span>
             </div>
-            <div className="text-xs text-text-muted mt-0.5">Updated: 3s ago</div>
+            <div className="text-xs text-text-muted mt-0.5">
+              {telemetry ? `Live: ${telemetry.metrics.cpuUsage.toFixed(1)}% CPU` : 'Loading...'}
+            </div>
           </div>
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
             <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
@@ -217,7 +221,7 @@ export const ObservabilityDashboard = () => {
                   Blind Spots: <span className="text-yellow-400 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400" />1</span>
                 </div>
                 <div className="text-xs bg-surface-secondary/80 px-3 py-1.5 rounded-full border border-border/50 text-text-secondary font-medium">
-                  O-Score: <span className="text-text-primary">87.4 / 100</span>
+                  O-Score: <span className="text-text-primary">{oScore.toFixed(1)} / 100</span>
                 </div>
               </div>
               <div className="absolute -right-4 -bottom-4 opacity-5">
@@ -234,7 +238,7 @@ export const ObservabilityDashboard = () => {
                   <path d="M 78 18 A 40 40 0 0 1 85 23" fill="none" stroke="#10b981" strokeWidth="10" strokeLinecap="round" />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-end -bottom-6">
-                  <span className="text-3xl font-bold text-text-primary">87.4</span>
+                  <span className="text-3xl font-bold text-text-primary">{oScore.toFixed(1)}</span>
                   <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider mt-1">O-SCORE</span>
                 </div>
               </div>

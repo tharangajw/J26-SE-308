@@ -1,5 +1,6 @@
 import { Routes, Route, BrowserRouter } from 'react-router-dom';
 import { ChaosProvider } from './context/ChaosContext';
+import { TelemetryProvider } from './context/TelemetryContext';
 import { Layout } from './components/layout/Layout';
 import { Overview } from './pages/Overview';
 import { DimensionPage } from './pages/DimensionPage';
@@ -14,7 +15,8 @@ import { FaultToleranceDashboard } from './components/resilience/FaultToleranceD
 function App() {
   return (
     <ChaosProvider>
-      <BrowserRouter>
+      <TelemetryProvider>
+        <BrowserRouter>
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Overview />} />
@@ -33,6 +35,7 @@ function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      </TelemetryProvider>
     </ChaosProvider>
   )
 }
