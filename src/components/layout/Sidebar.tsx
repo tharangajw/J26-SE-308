@@ -1,16 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Activity, 
   Settings, 
-  Search, 
   Network, 
   FileCheck, 
   FileText,
   Calculator,
   History,
   ServerCog
+  Eye,
+  Zap,
+  Shield,
+  GitMerge,
+  ChevronDown
 } from 'lucide-react';
 import clsx from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -43,6 +47,37 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label }) => {
   );
 };
 
+interface NavGroupProps {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}
+
+const NavGroup: React.FC<NavGroupProps> = ({ icon, label, children, defaultOpen = false }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors text-text-secondary hover:bg-surface-secondary hover:text-text-primary"
+      >
+        <div className="flex items-center gap-3">
+          {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4' })}
+          {label}
+        </div>
+        <ChevronDown className={clsx('w-4 h-4 transition-transform', { '-rotate-90': !isOpen })} />
+      </button>
+      {isOpen && (
+        <div className="ml-4 space-y-1 border-l border-border/60 pl-3 mt-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const Sidebar: React.FC = () => {
   return (
     <aside className="w-64 h-screen border-r border-border bg-background flex flex-col fixed left-0 top-0">
@@ -61,22 +96,26 @@ export const Sidebar: React.FC = () => {
           <nav className="space-y-1">
             <NavItem to="/" icon={<LayoutDashboard />} label="Overview" />
             <NavItem to="/assessment" icon={<Activity />} label="Assessment" />
-          </nav>
-        </div>
-
-        <div>
-          <div className="px-3 mb-2 text-[10px] uppercase tracking-wider font-semibold text-text-muted">Observability</div>
-          <nav className="space-y-1">
-            <NavItem to="/dimensions/observability/overview" icon={<Search />} label="Dashboard" />
-            <div className="ml-4 space-y-1 border-l border-border/60 pl-3">
+            <NavGroup icon={<Eye />} label="Observability">
               <NavItem to="/dimensions/observability/overview" icon={<LayoutDashboard />} label="Overview" />
               <NavItem to="/dimensions/observability/detail" icon={<Activity />} label="Telemetry Explorer" />
               <NavItem to="/dimensions/observability/history" icon={<History />} label="O-Score History" />
               <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Performance Collection" />
               <NavItem to="/dimensions/observability/calculation" icon={<Calculator />} label="Calculation Logic" />
-            </div>
+            </NavGroup>
+            <NavGroup icon={<Zap />} label="Performance">
+              <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" />
+            </NavGroup>
+            <NavGroup icon={<Shield />} label="Resilience">
+              <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
+            </NavGroup>
+            <NavGroup icon={<GitMerge />} label="CI/CD Integration">
+              <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />
+            </NavGroup>
           </nav>
         </div>
+
+
 
         <div>
           <div className="px-3 mb-2 text-[10px] uppercase tracking-wider font-semibold text-text-muted">Analysis</div>
