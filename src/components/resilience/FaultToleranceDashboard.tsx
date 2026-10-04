@@ -24,7 +24,7 @@ import {
   type SelfHealingMetrics
 } from '../../data/mockData';
 import { ChaosEngineeringSuite } from './ChaosEngineeringSuite';
-// import { TelemetryTrends } from './TelemetryTrends';
+import { TelemetryTrends } from './TelemetryTrends';
 import './FaultToleranceDashboard.css';
 
 export const FaultToleranceDashboard: React.FC = () => {
@@ -973,9 +973,9 @@ export const FaultToleranceDashboard: React.FC = () => {
         )}
 
         {/* VIEW MODE 2: Historical Telemetry Trends */}
-        {/* {mainViewMode === 'telemetry' && (
+        {mainViewMode === 'telemetry' && (
           <TelemetryTrends history={history} />
-        )} */}
+        )}
 
         {/* VIEW MODE 3: Chaos Engineering Fault Injection Suite */}
         {mainViewMode === 'chaos' && (
