@@ -8,52 +8,12 @@ export interface MaturityDimension {
   weaknesses: string[];
 }
 
-export interface Service {
-  name: string;
-  id: string;
-  status: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
-  faultType: string | null;
-  port: number;
-  restarts: number;
-  cpu: number;
-  memory: number;
-  latency: number;
-}
-
 export interface FaultType {
   id: string;
   name: string;
   icon: string;
   badgeClass: string;
   desc: string;
-}
-
-export interface FaultMetrics {
-  cpu: number;
-  memory: number;
-  availability: number;
-  latency: number;
-  errorRate: number;
-  restarts: number;
-  mttr: number;
-  failoverSuccess: number;
-  score: number;
-  maturity: 'Initial' | 'Developing' | 'Mature' | 'Optimized';
-}
-
-export interface AiFailurePrediction {
-  failureProbability: number;
-  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  predictedFailureTimeSec: number;
-  targetService: string;
-  confidence: number;
-}
-
-export interface SelfHealingMetrics {
-  podRestartSuccessRate: number;
-  replicaReplacementSuccessRate: number;
-  hpaEffectiveness: number;
-  circuitBreakerEffectiveness: number;
 }
 
 export interface TelemetrySource {
@@ -68,87 +28,6 @@ export const mockTelemetrySources: TelemetrySource[] = [
   { name: 'ELK Stack', category: 'Logs & System Exceptions', status: 'STREAMING' },
   { name: 'Kubernetes API', category: 'Pods & Auto-Scaling', status: 'CONNECTED' },
   { name: 'Istio Service Mesh', category: 'Circuit Breakers & Retries', status: 'STREAMING' }
-];
-
-export interface HistoryPoint {
-  timestamp: string;
-  cpu: number;
-  memory: number;
-  latency: number;
-  errorRate: number;
-  availability: number;
-  score: number;
-}
-
-export interface CardSetting {
-  target: string;
-  duration: number;
-  latencyMs: number;
-  errorRate: number;
-}
-
-export interface ActiveFault {
-  id: string;
-  targetId: string;
-  faultType: string;
-  faultName: string;
-  badgeClass: string;
-  duration: number;
-  endTime: number;
-  remainingSec: number;
-}
-
-export interface ActiveChaosEvent {
-  service: string;
-  targetId: string;
-  time: string;
-  type: string;
-  status: string;
-  recoveryTime?: string;
-}
-
-export interface AiRecommendation {
-  level: 'critical' | 'warning' | 'info';
-  icon: string;
-  title: string;
-  detail: string;
-  action: string;
-}
-
-export interface RecentActivity {
-  id: string;
-  timestamp: string;
-  type: 'INJECT' | 'HEAL' | 'RULE_ALERT' | 'AI_RECOMMEND' | 'SYSTEM';
-  title: string;
-  description: string;
-  status: 'info' | 'success' | 'warning' | 'danger';
-}
-
-export const mockInitialActivities: RecentActivity[] = [
-  {
-    id: 'act-1',
-    timestamp: 'Just now',
-    type: 'SYSTEM',
-    title: 'Cluster Telemetry Initialized',
-    description: 'Real-time telemetry monitoring active across 4 microservices.',
-    status: 'info'
-  },
-  {
-    id: 'act-2',
-    timestamp: '2 mins ago',
-    type: 'HEAL',
-    title: 'Self-Healing Engine Executed',
-    description: 'gateway container restarted successfully after health check failure.',
-    status: 'success'
-  },
-  {
-    id: 'act-3',
-    timestamp: '5 mins ago',
-    type: 'RULE_ALERT',
-    title: 'SLA Rule Evaluation Passed',
-    description: 'Resilience score reached 100/100 (+100 pts rule rewards).',
-    status: 'success'
-  }
 ];
 
 export interface ArchitectureAssessment {
@@ -189,110 +68,6 @@ export interface ArchitectureAssessment {
   }[];
 }
 
-// Mock Microservices List
-export const mockFaultToleranceServices: Service[] = [
-  { name: 'API Gateway', id: 'gateway', status: 'ONLINE', faultType: null, port: 3000, restarts: 0, cpu: 22, memory: 35, latency: 15 },
-  { name: 'User Service', id: 'user-service', status: 'ONLINE', faultType: null, port: 3002, restarts: 0, cpu: 18, memory: 44, latency: 28 },
-  { name: 'Order Service', id: 'order-service', status: 'ONLINE', faultType: null, port: 3003, restarts: 0, cpu: 25, memory: 52, latency: 45 },
-  { name: 'Book Service', id: 'book-service', status: 'ONLINE', faultType: null, port: 3001, restarts: 0, cpu: 19, memory: 41, latency: 22 }
-];
-
-// Mock Fault Injection Types
-export const mockFaultTypes: FaultType[] = [
-  { 
-    id: 'SERVICE_DOWN', 
-    name: 'Service Outage / Pod Kill', 
-    icon: 'Power', 
-    badgeClass: 'fault-down',
-    desc: 'Simulates target container crash or complete network kill' 
-  },
-  { 
-    id: 'LATENCY', 
-    name: 'Network Latency Delay', 
-    icon: 'Clock', 
-    badgeClass: 'fault-latency',
-    desc: 'Injects high response latency (+1500ms to +4000ms delay)' 
-  },
-  { 
-    id: 'API_ERROR', 
-    name: 'API Error Spike (500)', 
-    icon: 'AlertTriangle', 
-    badgeClass: 'fault-error',
-    desc: 'Forces HTTP 500 / 502 Internal Server Error responses' 
-  },
-  { 
-    id: 'HIGH_CPU', 
-    name: 'High CPU Stress (90%+)', 
-    icon: 'Cpu', 
-    badgeClass: 'fault-cpu',
-    desc: 'Triggers CPU burn computation overload on target node' 
-  },
-  { 
-    id: 'HIGH_MEMORY', 
-    name: 'High Memory Pressure', 
-    icon: 'HardDrive', 
-    badgeClass: 'fault-memory',
-    desc: 'Consumes target RAM, pushing memory load above 90%' 
-  },
-  { 
-    id: 'RATE_LIMIT', 
-    name: 'Rate Limit (HTTP 429)', 
-    icon: 'ShieldAlert', 
-    badgeClass: 'fault-ratelimit',
-    desc: 'Simulates request throttling & 429 Too Many Requests errors' 
-  },
-  { 
-    id: 'CASCADING_FAILURE', 
-    name: 'Cascading Outage', 
-    icon: 'Flame', 
-    badgeClass: 'fault-cascading',
-    desc: 'Triggers multi-point upstream service failures simultaneously' 
-  }
-];
-
-// Mock Initial Telemetry Metrics
-export const mockInitialFaultMetrics: FaultMetrics = {
-  cpu: 45,
-  memory: 55,
-  availability: 99.85,
-  latency: 120,
-  errorRate: 0.25,
-  restarts: 0,
-  mttr: 12,
-  failoverSuccess: 100,
-  score: 100,
-  maturity: 'Optimized'
-};
-
-// Mock Default Fault Card Studio Parameters
-export const mockDefaultCardSettings: Record<string, CardSetting> = {
-  SERVICE_DOWN: { target: 'gateway', duration: 15, latencyMs: 2500, errorRate: 35 },
-  LATENCY: { target: 'order-service', duration: 15, latencyMs: 2500, errorRate: 35 },
-  API_ERROR: { target: 'user-service', duration: 15, latencyMs: 2500, errorRate: 35 },
-  HIGH_CPU: { target: 'order-service', duration: 15, latencyMs: 2500, errorRate: 35 },
-  HIGH_MEMORY: { target: 'user-service', duration: 15, latencyMs: 2500, errorRate: 35 },
-  RATE_LIMIT: { target: 'gateway', duration: 12, latencyMs: 2500, errorRate: 35 },
-  CASCADING_FAILURE: { target: 'all', duration: 15, latencyMs: 3000, errorRate: 40 }
-};
-
-// Mock Initial Telemetry History Generator
-export const generateInitialHistory = (): HistoryPoint[] => {
-  const data: HistoryPoint[] = [];
-  const now = new Date();
-  for (let i = 20; i >= 0; i--) {
-    const time = new Date(now.getTime() - i * 15 * 1000);
-    data.push({
-      timestamp: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      cpu: Math.floor(Math.random() * 10) + 40,
-      memory: Math.floor(Math.random() * 5) + 50,
-      latency: Math.floor(Math.random() * 20) + 110,
-      errorRate: parseFloat((Math.random() * 0.3 + 0.1).toFixed(2)),
-      availability: parseFloat((Math.random() * 0.1 + 99.85).toFixed(2)),
-      score: 100
-    });
-  }
-  return data;
-};
 
 export const mockAssessmentData: ArchitectureAssessment = {
   id: "ARCH-042",
@@ -414,4 +189,244 @@ export const mockAssessmentData: ArchitectureAssessment = {
     { assessmentId: "ARCH-028", date: "2026-06-10", overall: 72.1, cicd: 78, performance: 68, observability: 80, faultTolerance: 64 },
     { assessmentId: "ARCH-042", date: "2026-08-17", overall: 78.4, cicd: 82, performance: 74, observability: 86, faultTolerance: 71 },
   ]
+};
+
+
+// Mock Data: Resilience & Fault Tolerance Engine
+
+// Mock Microservices Type
+export interface Service {
+  name: string;
+  id: string;
+  status: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
+  faultType: string | null;
+  port: number;
+  restarts: number;
+  cpu: number;
+  memory: number;
+  latency: number;
+}
+
+// Mock Fault Metrics Type
+export interface FaultMetrics {
+  cpu: number;
+  memory: number;
+  availability: number;
+  latency: number;
+  errorRate: number;
+  restarts: number;
+  mttr: number;
+  failoverSuccess: number;
+  score: number;
+  maturity: 'Initial' | 'Developing' | 'Mature' | 'Optimized';
+}
+
+// Mock AI Failure Prediction Type
+export interface AiFailurePrediction {
+  failureProbability: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  predictedFailureTimeSec: number;
+  targetService: string;
+  confidence: number;
+}
+
+// Mock Self-Healing Metrics Type
+export interface SelfHealingMetrics {
+  podRestartSuccessRate: number;
+  replicaReplacementSuccessRate: number;
+  hpaEffectiveness: number;
+  circuitBreakerEffectiveness: number;
+}
+
+// Mock Telemetry History Point Type
+export interface HistoryPoint {
+  timestamp: string;
+  cpu: number;
+  memory: number;
+  latency: number;
+  errorRate: number;
+  availability: number;
+  score: number;
+}
+
+// Mock Fault Card Settings Type
+export interface CardSetting {
+  target: string;
+  duration: number;
+  latencyMs: number;
+  errorRate: number;
+}
+
+// Mock Active Fault Type
+export interface ActiveFault {
+  id: string;
+  targetId: string;
+  faultType: string;
+  faultName: string;
+  badgeClass: string;
+  duration: number;
+  endTime: number;
+  remainingSec: number;
+}
+
+// Mock Active Chaos Event Type
+export interface ActiveChaosEvent {
+  service: string;
+  targetId: string;
+  time: string;
+  type: string;
+  status: string;
+  recoveryTime?: string;
+}
+
+// Mock AI Recommendation Type
+export interface AiRecommendation {
+  level: 'critical' | 'warning' | 'info';
+  icon: string;
+  title: string;
+  detail: string;
+  action: string;
+}
+
+// Mock Recent Activity Type
+export interface RecentActivity {
+  id: string;
+  timestamp: string;
+  type: 'INJECT' | 'HEAL' | 'RULE_ALERT' | 'AI_RECOMMEND' | 'SYSTEM';
+  title: string;
+  description: string;
+  status: 'info' | 'success' | 'warning' | 'danger';
+}
+
+// Mock Microservices List
+export const mockFaultToleranceServices: Service[] = [
+  { name: 'API Gateway', id: 'gateway', status: 'ONLINE', faultType: null, port: 3000, restarts: 0, cpu: 22, memory: 35, latency: 15 },
+  { name: 'User Service', id: 'user-service', status: 'ONLINE', faultType: null, port: 3002, restarts: 0, cpu: 18, memory: 44, latency: 28 },
+  { name: 'Order Service', id: 'order-service', status: 'ONLINE', faultType: null, port: 3003, restarts: 0, cpu: 25, memory: 52, latency: 45 },
+  { name: 'Book Service', id: 'book-service', status: 'ONLINE', faultType: null, port: 3001, restarts: 0, cpu: 19, memory: 41, latency: 22 }
+];
+
+// Mock Fault Injection Types
+export const mockFaultTypes: FaultType[] = [
+  { 
+    id: 'SERVICE_DOWN', 
+    name: 'Service Outage / Pod Kill', 
+    icon: 'Power', 
+    badgeClass: 'fault-down',
+    desc: 'Simulates target container crash or complete network kill' 
+  },
+  { 
+    id: 'LATENCY', 
+    name: 'Network Latency Delay', 
+    icon: 'Clock', 
+    badgeClass: 'fault-latency',
+    desc: 'Injects high response latency (+1500ms to +4000ms delay)' 
+  },
+  { 
+    id: 'API_ERROR', 
+    name: 'API Error Spike (500)', 
+    icon: 'AlertTriangle', 
+    badgeClass: 'fault-error',
+    desc: 'Forces HTTP 500 / 502 Internal Server Error responses' 
+  },
+  { 
+    id: 'HIGH_CPU', 
+    name: 'High CPU Stress (90%+)', 
+    icon: 'Cpu', 
+    badgeClass: 'fault-cpu',
+    desc: 'Triggers CPU burn computation overload on target node' 
+  },
+  { 
+    id: 'HIGH_MEMORY', 
+    name: 'High Memory Pressure', 
+    icon: 'HardDrive', 
+    badgeClass: 'fault-memory',
+    desc: 'Consumes target RAM, pushing memory load above 90%' 
+  },
+  { 
+    id: 'RATE_LIMIT', 
+    name: 'Rate Limit (HTTP 429)', 
+    icon: 'ShieldAlert', 
+    badgeClass: 'fault-ratelimit',
+    desc: 'Simulates request throttling & 429 Too Many Requests errors' 
+  },
+  { 
+    id: 'CASCADING_FAILURE', 
+    name: 'Cascading Outage', 
+    icon: 'Flame', 
+    badgeClass: 'fault-cascading',
+    desc: 'Triggers multi-point upstream service failures simultaneously' 
+  }
+];
+
+// Mock Initial Fault Metrics
+export const mockInitialFaultMetrics: FaultMetrics = {
+  cpu: 45,
+  memory: 55,
+  availability: 99.85,
+  latency: 120,
+  errorRate: 0.25,
+  restarts: 0,
+  mttr: 12,
+  failoverSuccess: 100,
+  score: 100,
+  maturity: 'Optimized'
+};
+
+// Mock Default Fault Card Studio Parameters
+export const mockDefaultCardSettings: Record<string, CardSetting> = {
+  SERVICE_DOWN: { target: 'gateway', duration: 15, latencyMs: 2500, errorRate: 35 },
+  LATENCY: { target: 'order-service', duration: 15, latencyMs: 2500, errorRate: 35 },
+  API_ERROR: { target: 'user-service', duration: 15, latencyMs: 2500, errorRate: 35 },
+  HIGH_CPU: { target: 'order-service', duration: 15, latencyMs: 2500, errorRate: 35 },
+  HIGH_MEMORY: { target: 'user-service', duration: 15, latencyMs: 2500, errorRate: 35 },
+  RATE_LIMIT: { target: 'gateway', duration: 12, latencyMs: 2500, errorRate: 35 },
+  CASCADING_FAILURE: { target: 'all', duration: 15, latencyMs: 3000, errorRate: 40 }
+};
+
+// Mock Recent Activity Feed
+export const mockInitialActivities: RecentActivity[] = [
+  {
+    id: 'act-1',
+    timestamp: 'Just now',
+    type: 'SYSTEM',
+    title: 'Cluster Telemetry Initialized',
+    description: 'Real-time telemetry monitoring active across 4 microservices.',
+    status: 'info'
+  },
+  {
+    id: 'act-2',
+    timestamp: '2 mins ago',
+    type: 'HEAL',
+    title: 'Self-Healing Engine Executed',
+    description: 'gateway container restarted successfully after health check failure.',
+    status: 'success'
+  },
+  {
+    id: 'act-3',
+    timestamp: '5 mins ago',
+    type: 'RULE_ALERT',
+    title: 'SLA Rule Evaluation Passed',
+    description: 'Resilience score reached 100/100 (+100 pts rule rewards).',
+    status: 'success'
+  }
+];
+
+// Mock Initial Telemetry History Generator
+export const generateInitialHistory = (): HistoryPoint[] => {
+  const data: HistoryPoint[] = [];
+  const now = new Date();
+  for (let i = 20; i >= 0; i--) {
+    const time = new Date(now.getTime() - i * 15 * 1000);
+    data.push({
+      timestamp: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      cpu: Math.floor(Math.random() * 10) + 40,
+      memory: Math.floor(Math.random() * 5) + 50,
+      latency: Math.floor(Math.random() * 20) + 110,
+      errorRate: parseFloat((Math.random() * 0.3 + 0.1).toFixed(2)),
+      availability: parseFloat((Math.random() * 0.1 + 99.85).toFixed(2)),
+      score: 100
+    });
+  }
+  return data;
 };
