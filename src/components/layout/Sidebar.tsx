@@ -106,6 +106,7 @@ export const Sidebar: React.FC = () => {
             </NavGroup>
             <NavGroup icon={<Shield />} label="Resilience">
               <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
+              <NavItem to="/dimensions/fault-tolerance/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
             <NavGroup icon={<GitMerge />} label="CI/CD Integration">
               <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />
