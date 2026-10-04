@@ -11,6 +11,7 @@ import {
   Area as RechartsArea
 } from 'recharts';
 import { type HistoryPoint } from '../../data/mockData';
+import './TelemetryTrends.css';
 
 interface TelemetryTrendsProps {
   history: HistoryPoint[];

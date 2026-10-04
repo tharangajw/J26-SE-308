@@ -1,0 +1,48 @@
+/* TelemetryTrends.css */
+/* Charts section */
+.ft-dashboard-scope .chart-card {
+  padding: 24px;
+}
+.ft-dashboard-scope .chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+@media (max-width: 640px) {
+  .ft-dashboard-scope .chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+.ft-dashboard-scope .tab-buttons {
+  display: flex;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+.ft-dashboard-scope .tab-buttons button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+.ft-dashboard-scope .tab-buttons button:hover {
+  color: var(--text-main);
+}
+.ft-dashboard-scope .tab-buttons button.active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+.ft-dashboard-scope .chart-container {
+  width: 100%;
+}

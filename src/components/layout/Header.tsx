@@ -23,6 +23,7 @@ const getPageTitle = (pathname: string): string => {
 
   // --- Fault Tolerance sub-routes ---
   if (pathname.includes('/dimensions/fault-tolerance/calculation')) return 'Fault Tolerance Maturity - Calculation Logic';
+  if (pathname.includes('/dimensions/fault-tolerance/history')) return 'Fault Tolerance Maturity - R-Score History';
   if (pathname.includes('/dimensions/FaultToleranceDashboard')) return 'Fault Tolerance Maturity';
   
 

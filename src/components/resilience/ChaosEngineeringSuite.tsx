@@ -7,6 +7,7 @@ import {
   type ActiveFault,
   type ActiveChaosEvent
 } from '../../data/mockData';
+import './ChaosEngineeringSuite.css';
 
 interface ChaosEngineeringSuiteProps {
   services: Service[];

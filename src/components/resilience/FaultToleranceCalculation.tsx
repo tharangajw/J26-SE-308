@@ -93,8 +93,8 @@ const iconMap: Record<string, any> = {
 
 export const FaultToleranceCalculation: React.FC = () => {
   return (
-    <div className="h-full bg-background text-text-primary p-6 overflow-y-auto">
-      <div className="mb-8 max-w-4xl">
+    <div className="h-full bg-background text-text-primary p-6 overflow-y-auto w-full">
+      <div className="mb-8 w-full">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-text-muted mb-4">
           <ShieldAlert className="h-4 w-4 text-brand-fault" aria-hidden="true" />
           Engineering dimension
@@ -108,10 +108,10 @@ export const FaultToleranceCalculation: React.FC = () => {
         </p>
       </div>
 
-      <div className="space-y-8 max-w-5xl pb-10">
+      <div className="space-y-8 w-full pb-10">
         
         {/* Phase 1: Runtime Resilience Score */}
-        <section className="bg-surface border border-border rounded-xl p-6 shadow-sm">
+        <section className="bg-surface border border-border rounded-xl p-6 shadow-sm w-full">
           <div className="flex items-start gap-4 mb-6">
             <div className="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
               <Activity className="w-5 h-5" />
