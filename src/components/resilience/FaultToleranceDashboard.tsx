@@ -30,7 +30,7 @@ import './FaultToleranceDashboard.css';
 export const FaultToleranceDashboard: React.FC = () => {
   const [isSimulation, setIsSimulation] = useState(true);
   const [metrics, setMetrics] = useState<FaultMetrics>(mockInitialFaultMetrics);
-  const [, setHistory] = useState<HistoryPoint[]>(generateInitialHistory());
+  const [history, setHistory] = useState<HistoryPoint[]>(generateInitialHistory());
   const [services, setServices] = useState<Service[]>(mockFaultToleranceServices);
   const [mainViewMode, setMainViewMode] = useState<'overview' | 'telemetry' | 'chaos'>('overview');
 
