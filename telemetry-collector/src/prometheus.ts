@@ -1,4 +1,4 @@
-import { PrometheusMetrics } from './types';
+import { PrometheusMetrics } from './types.js';
 
 export class PrometheusCollector {
   private endpoint: string;

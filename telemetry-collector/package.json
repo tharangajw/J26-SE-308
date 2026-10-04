@@ -1,0 +1,7 @@
+{
+  "name": "performance-telemetry-collector",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "tsc", "start": "node dist/server.js" },
+  "devDependencies": { "@types/node": "^24.13.3", "typescript": "^6.0.2" }
+}

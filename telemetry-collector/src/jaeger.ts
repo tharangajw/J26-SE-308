@@ -1,4 +1,4 @@
-import { JaegerTraceSummary } from './types';
+import { JaegerTraceSummary } from './types.js';
 
 export class JaegerCollector {
   private endpoint: string;

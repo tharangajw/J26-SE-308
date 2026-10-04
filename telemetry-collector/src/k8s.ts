@@ -1,4 +1,4 @@
-import { K8sClusterState } from './types';
+import { K8sClusterState } from './types.js';
 
 export class K8sCollector {
   private endpoint: string;

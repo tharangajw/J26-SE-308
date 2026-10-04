@@ -9,7 +9,8 @@ import {
   FileCheck, 
   FileText,
   Calculator,
-  History
+  History,
+  ServerCog
 } from 'lucide-react';
 import clsx from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -71,6 +72,7 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/observability/overview" icon={<LayoutDashboard />} label="Overview" />
               <NavItem to="/dimensions/observability/detail" icon={<Activity />} label="Telemetry Explorer" />
               <NavItem to="/dimensions/observability/history" icon={<History />} label="O-Score History" />
+              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Performance Collection" />
               <NavItem to="/dimensions/observability/calculation" icon={<Calculator />} label="Calculation Logic" />
             </div>
           </nav>

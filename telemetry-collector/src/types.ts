@@ -30,4 +30,12 @@ export interface RawTelemetrySnapshot {
   prometheus: PrometheusMetrics;
   jaeger: JaegerTraceSummary[];
   k8s: K8sClusterState;
+  sourceErrors?: { source: 'prometheus' | 'jaeger' | 'k8s'; message: string }[];
+}
+
+export interface MultiServiceSnapshot {
+  requestedServices: string[];
+  collectedAt: number;
+  snapshots: RawTelemetrySnapshot[];
+  errors: { serviceId: string; message: string }[];
 }

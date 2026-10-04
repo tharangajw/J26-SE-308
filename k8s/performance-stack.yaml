@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: performance-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: performance-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: api-gateway }
+  template:
+    metadata:
+      labels: { app: api-gateway }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "80", prometheus.io/path: "/metrics" }
+    spec:
+      containers: [{ name: api-gateway, image: nginx:1.27-alpine, ports: [{ containerPort: 80 }], resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: api-gateway, namespace: performance-demo }
+spec:
+  selector: { app: api-gateway }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: performance-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: order-service }
+  template:
+    metadata:
+      labels: { app: order-service }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "80", prometheus.io/path: "/metrics" }
+    spec:
+      containers: [{ name: order-service, image: nginx:1.27-alpine, ports: [{ containerPort: 80 }], resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: order-service, namespace: performance-demo }
+spec:
+  selector: { app: order-service }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: performance-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: inventory-service }
+  template:
+    metadata: { labels: { app: inventory-service } }
+    spec:
+      containers: [{ name: inventory-service, image: nginx:1.27-alpine, ports: [{ containerPort: 80 }] }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: inventory-service, namespace: performance-demo }
+spec:
+  selector: { app: inventory-service }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: performance-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: payment-service }
+  template:
+    metadata: { labels: { app: payment-service } }
+    spec:
+      containers: [{ name: payment-service, image: nginx:1.27-alpine, ports: [{ containerPort: 80 }] }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: payment-service, namespace: performance-demo }
+spec:
+  selector: { app: payment-service }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: order-service, namespace: performance-demo }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: order-service }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } } }]

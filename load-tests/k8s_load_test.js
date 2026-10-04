@@ -14,8 +14,15 @@ export const options = {
   },
 };
 
+const services = [
+  'http://localhost:3000/api/v1/orders',
+  'http://localhost:3000/api/v1/users/1',
+  'http://localhost:3000/api/v1/inventory/1',
+  'http://localhost:3000/api/v1/payments/1',
+];
+
 export default function () {
-  const res = http.get('http://localhost:3000/api/v1/orders');
+  const res = http.get(services[__VU % services.length]);
   check(res, {
     'status is 200': (r) => r.status === 200,
   });
