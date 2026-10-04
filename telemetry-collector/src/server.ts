@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type ServerResponse, type IncomingMessage } from 'http';
 import { TelemetryCollectorEngine } from './collector.js';
 
 const port = Number(process.env.PORT ?? 8787);
@@ -8,12 +8,12 @@ const engine = new TelemetryCollectorEngine({
   kubernetes: process.env.KUBERNETES_URL ?? 'http://localhost:8001',
 });
 
-const sendJson = (response: import('node:http').ServerResponse, status: number, body: unknown) => {
+const sendJson = (response: ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
   response.end(JSON.stringify(body));
 };
 
-createServer(async (request, response) => {
+createServer(async (request: IncomingMessage, response: ServerResponse) => {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
   if (request.method === 'OPTIONS') return sendJson(response, 204, {});
   if (request.method !== 'GET') return sendJson(response, 405, { error: 'Only GET is supported' });
