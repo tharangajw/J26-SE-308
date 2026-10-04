@@ -22,7 +22,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Link } from 'react-router-dom';
-
+import { useTelemetry } from '../context/TelemetryContext';
 /* ── Mock Data ────────────────────────────────────────────── */
 const oscoreHistory = [
   { name: 'Jun 1', oscore: 84, cci: 88, errorRate: 2.1 },
@@ -58,7 +58,7 @@ const pipelinePhases = [
     title: 'CCI Correlation',
     subtitle: '±2s Time Window',
     metric: 'Correlation',
-    value: '92%',
+    value: 'LIVE',
     threshold: '> 80%',
     status: 'PASS',
     icon: Activity,
@@ -147,6 +147,14 @@ const TimelineItem = ({ title, time, status, icon, isLast = false }: any) => (
 
 /* ── Main Component ───────────────────────────────────────── */
 export const ObservabilityDashboard = () => {
+  const { telemetry, oScore, cciIndex, history } = useTelemetry();
+  const liveChartData = history.map((record) => ({
+    name: new Date(record.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    oscore: record.oscore,
+    cci: record.cci,
+    errorRate: record.errorRate,
+  }));
+
   return (
     <div className="h-full bg-background text-text-primary p-4 lg:p-6 overflow-y-auto">
 
@@ -187,9 +195,11 @@ export const ObservabilityDashboard = () => {
           <div className="text-right">
             <div className="text-sm font-semibold flex items-center gap-2 justify-end">
               <Activity className="w-4 h-4 text-brand-obs" />
-              O-Score: <span className="text-brand-obs">87.4</span>
+              O-Score: <span className="text-brand-obs">{oScore.toFixed(1)}</span>
             </div>
-            <div className="text-xs text-text-muted mt-0.5">Updated: 3s ago</div>
+            <div className="text-xs text-text-muted mt-0.5">
+              {telemetry ? `Live: ${telemetry.metrics.cpuUsage.toFixed(1)}% CPU` : 'Loading...'}
+            </div>
           </div>
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
             <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
@@ -217,7 +227,7 @@ export const ObservabilityDashboard = () => {
                   Blind Spots: <span className="text-yellow-400 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400" />1</span>
                 </div>
                 <div className="text-xs bg-surface-secondary/80 px-3 py-1.5 rounded-full border border-border/50 text-text-secondary font-medium">
-                  O-Score: <span className="text-text-primary">87.4 / 100</span>
+                  O-Score: <span className="text-text-primary">{oScore.toFixed(1)} / 100</span>
                 </div>
               </div>
               <div className="absolute -right-4 -bottom-4 opacity-5">
@@ -234,7 +244,7 @@ export const ObservabilityDashboard = () => {
                   <path d="M 78 18 A 40 40 0 0 1 85 23" fill="none" stroke="#10b981" strokeWidth="10" strokeLinecap="round" />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-end -bottom-6">
-                  <span className="text-3xl font-bold text-text-primary">87.4</span>
+                  <span className="text-3xl font-bold text-text-primary">{oScore.toFixed(1)}</span>
                   <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider mt-1">O-SCORE</span>
                 </div>
               </div>
@@ -244,10 +254,10 @@ export const ObservabilityDashboard = () => {
             {/* CCI Index */}
             <div className="bg-surface border border-border rounded-xl p-5 flex flex-col">
               <div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-2">CCI Correlation Index</div>
-              <div className="text-3xl font-bold text-brand-obs mb-2">92%</div>
+              <div className="text-3xl font-bold text-brand-obs mb-2">{cciIndex}%</div>
               <div className="h-16 w-full -ml-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={oscoreHistory.slice(-5)}>
+                  <LineChart data={(liveChartData.length ? liveChartData : oscoreHistory).slice(-5)}>
                     <Line type="monotone" dataKey="cci" stroke="#818cf8" strokeWidth={2} dot={false} isAnimationActive={false} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -322,7 +332,7 @@ export const ObservabilityDashboard = () => {
                     {/* Metric */}
                     <div>
                       <div className="text-[9px] text-text-muted uppercase tracking-wider">{p.metric}</div>
-                      <div className={`text-lg font-black mt-0.5 ${p.valueCls}`}>{p.value}</div>
+                      <div className={`text-lg font-black mt-0.5 ${p.valueCls}`}>{p.step === 2 ? `${cciIndex}%` : p.value}</div>
                       <div className="text-[9px] text-text-muted">Threshold: {p.threshold}</div>
                     </div>
 
@@ -349,7 +359,7 @@ export const ObservabilityDashboard = () => {
               </div>
               <div className="h-48 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={oscoreHistory}>
+                  <LineChart data={liveChartData.length ? liveChartData : oscoreHistory}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#252C35" vertical={false} />
                     <XAxis dataKey="name" stroke="#5E6875" fontSize={10} tickLine={false} axisLine={false} />
                     <YAxis stroke="#5E6875" fontSize={10} tickLine={false} axisLine={false} width={25} />

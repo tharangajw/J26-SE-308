@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Shield, Zap, Activity, Cpu, HardDrive, Clock, 
   AlertTriangle, RotateCcw, CheckCircle, Server, 
-  Database, TrendingUp, Play, Flame, RefreshCw,
+  Database, TrendingUp, Flame, RefreshCw,
   Sparkles, X, Brain, Trash2, History
 } from 'lucide-react';
 import {
@@ -14,8 +14,8 @@ import {
   generateInitialHistory,
   type Service,
   type FaultMetrics,
-  type HistoryPoint,
   type CardSetting,
+  type HistoryPoint,
   type ActiveFault,
   type ActiveChaosEvent,
   type AiRecommendation,
@@ -30,7 +30,7 @@ import './FaultToleranceDashboard.css';
 export const FaultToleranceDashboard: React.FC = () => {
   const [isSimulation, setIsSimulation] = useState(true);
   const [metrics, setMetrics] = useState<FaultMetrics>(mockInitialFaultMetrics);
-  const [history, setHistory] = useState<HistoryPoint[]>(generateInitialHistory());
+  const [, setHistory] = useState<HistoryPoint[]>(generateInitialHistory());
   const [services, setServices] = useState<Service[]>(mockFaultToleranceServices);
   const [mainViewMode, setMainViewMode] = useState<'overview' | 'telemetry' | 'chaos'>('overview');
 
