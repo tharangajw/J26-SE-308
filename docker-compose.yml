@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
   prometheus:
     image: prom/prometheus:v2.45.0
     container_name: pscore-prometheus
     ports:
-      - "9090:9090"
+      - "9091:9090"
     volumes:
-      - ./k8s/prometheus-jaeger-manifests.yaml:/etc/prometheus/prometheus.yml
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     networks:
       - pscore-net
 
@@ -28,6 +26,23 @@ services:
     container_name: pscore-anomaly-detection
     ports:
       - "8000:8000"
+    networks:
+      - pscore-net
+
+  telemetry-collector:
+    build:
+      context: ./telemetry-collector
+      dockerfile: Dockerfile
+    container_name: pscore-telemetry-collector
+    ports:
+      - "8787:8787"
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      JAEGER_URL: http://jaeger:16686
+      KUBERNETES_URL: http://host.docker.internal:8001
+    depends_on:
+      - prometheus
+      - jaeger
     networks:
       - pscore-net
 
