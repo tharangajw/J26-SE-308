@@ -3,6 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { Search, Filter, AlertTriangle } from 'lucide-react';
+import { ChartTooltip } from './ChartTooltip';
 
 const generateLogStats = () => {
   const data = [];
@@ -31,21 +32,7 @@ const MOCK_LOGS = [
 export default function LogsDashboard({ data }: any) {
   const logData = useMemo(() => generateLogStats(), []);
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-lg shadow-xl backdrop-blur-md text-slate-200">
-          <p className="text-slate-300 text-sm mb-1">{label}</p>
-          {payload.map((p: any, i: number) => (
-            <p key={i} style={{ color: p.color }} className="text-sm font-semibold">
-              {p.name}: {p.value}
-            </p>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
+
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -70,7 +57,7 @@ export default function LogsDashboard({ data }: any) {
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
               <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickMargin={10} minTickGap={30} />
               <YAxis stroke="#64748b" fontSize={12} />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<ChartTooltip />} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
               <Bar dataKey="info" name="Info Logs" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} />
               <Bar dataKey="error" name="Error Logs" stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} />

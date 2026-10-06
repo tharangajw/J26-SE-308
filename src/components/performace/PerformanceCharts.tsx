@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useChaosContext } from '../../context/ChaosContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
 const tooltipStyle = { backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', borderRadius: '6px', fontSize: 12 };
@@ -22,11 +23,58 @@ const ChartCard = ({ title, children, className = '' }: { title: string; childre
   </Card>
 );
 
-export const PerformanceCharts: React.FC = () => (
+export const PerformanceCharts: React.FC = () => {
+  const { activeChaosEvent } = useChaosContext();
+
+  const currentData = useMemo(() => {
+    if (!activeChaosEvent || !activeChaosEvent.status.includes('Active')) return hourly;
+    
+    // Create a copy of the data to mutate the latest entry
+    const data = [...hourly.map(d => ({...d}))];
+    const last = data[data.length - 1];
+    
+    const type = activeChaosEvent.type.toLowerCase();
+    
+    // Simulate real-time performance degradation based on chaos fault type
+    if (type.includes('cpu') || type.includes('stress')) {
+      last.cpu = Math.min(100, last.cpu + 45 + Math.random() * 10);
+      last.score = Math.max(0, last.score - 15);
+      last.p99 = last.p99 + 100;
+    } 
+    else if (type.includes('network') || type.includes('latency') || type.includes('delay')) {
+      last.p95 = last.p95 + 400 + Math.random() * 200;
+      last.p99 = last.p99 + 800 + Math.random() * 400;
+      last.score = Math.max(0, last.score - 20);
+    } 
+    else if (type.includes('memory') || type.includes('leak')) {
+      last.memory = Math.min(100, last.memory + 35 + Math.random() * 5);
+      last.score = Math.max(0, last.score - 10);
+    }
+    else {
+      // Generic degradation for other faults (like pod failure)
+      last.score = Math.max(0, last.score - 12);
+      last.rps = Math.max(0, last.rps - 200);
+      last.p99 = last.p99 + 150;
+    }
+    
+    return data;
+  }, [activeChaosEvent]);
+
+  return (
   <div className="space-y-6">
+    {activeChaosEvent && activeChaosEvent.status.includes('Active') && (
+      <div className="bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-4">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></div>
+          <p className="text-sm text-rose-200 font-medium tracking-wide">
+            Resilience Event Impacting Performance: <span className="font-bold text-rose-400">{activeChaosEvent.type}</span>
+          </p>
+        </div>
+      </div>
+    )}
     <ChartCard title="P-Score trend · last 24 hours" className="h-[320px]">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={hourly} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
+        <LineChart data={currentData} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
           <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} />
           <YAxis domain={[60, 85]} tick={axis} axisLine={false} tickLine={false} />
@@ -40,24 +88,25 @@ export const PerformanceCharts: React.FC = () => (
     <div className="grid gap-4 md:grid-cols-2">
       <ChartCard title="CPU usage · last 1 hour">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={hourly} margin={{ top: 8, right: 8, left: -25, bottom: 0 }}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} /><YAxis domain={[0, 100]} tick={axis} axisLine={false} tickLine={false} /><Tooltip contentStyle={tooltipStyle} /><Area type="monotone" dataKey="cpu" name="CPU %" stroke="#f97316" fill="#f97316" fillOpacity={0.18} /></AreaChart>
+          <AreaChart data={currentData} margin={{ top: 8, right: 8, left: -25, bottom: 0 }}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} /><YAxis domain={[0, 100]} tick={axis} axisLine={false} tickLine={false} /><Tooltip contentStyle={tooltipStyle} /><Area type="monotone" dataKey="cpu" name="CPU %" stroke="#f97316" fill="#f97316" fillOpacity={0.18} /></AreaChart>
         </ResponsiveContainer>
       </ChartCard>
       <ChartCard title="Memory usage · last 1 hour">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={hourly} margin={{ top: 8, right: 8, left: -25, bottom: 0 }}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} /><YAxis domain={[0, 100]} tick={axis} axisLine={false} tickLine={false} /><Tooltip contentStyle={tooltipStyle} /><Area type="monotone" dataKey="memory" name="Memory %" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.18} /></AreaChart>
+          <AreaChart data={currentData} margin={{ top: 8, right: 8, left: -25, bottom: 0 }}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} /><YAxis domain={[0, 100]} tick={axis} axisLine={false} tickLine={false} /><Tooltip contentStyle={tooltipStyle} /><Area type="monotone" dataKey="memory" name="Memory %" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.18} /></AreaChart>
         </ResponsiveContainer>
       </ChartCard>
       <ChartCard title="P95 / P99 latency · ms">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={hourly} margin={{ top: 8, right: 8, left: -25, bottom: 0 }}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} /><YAxis tick={axis} axisLine={false} tickLine={false} /><Tooltip contentStyle={tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line type="monotone" dataKey="p95" name="P95" stroke="#22c55e" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="p99" name="P99" stroke="#ef4444" strokeWidth={2} dot={false} /></LineChart>
+          <LineChart data={currentData} margin={{ top: 8, right: 8, left: -25, bottom: 0 }}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} /><YAxis tick={axis} axisLine={false} tickLine={false} /><Tooltip contentStyle={tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line type="monotone" dataKey="p95" name="P95" stroke="#22c55e" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="p99" name="P99" stroke="#ef4444" strokeWidth={2} dot={false} /></LineChart>
         </ResponsiveContainer>
       </ChartCard>
       <ChartCard title="Requests / transactions per second">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={hourly} margin={{ top: 8, right: 8, left: -25, bottom: 0 }}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} /><YAxis tick={axis} axisLine={false} tickLine={false} /><Tooltip contentStyle={tooltipStyle} /><Bar dataKey="rps" name="Requests / sec" fill="var(--color-brand-perf)" radius={[3, 3, 0, 0]} /></BarChart>
+          <BarChart data={currentData} margin={{ top: 8, right: 8, left: -25, bottom: 0 }}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} /><YAxis tick={axis} axisLine={false} tickLine={false} /><Tooltip contentStyle={tooltipStyle} /><Bar dataKey="rps" name="Requests / sec" fill="var(--color-brand-perf)" radius={[3, 3, 0, 0]} /></BarChart>
         </ResponsiveContainer>
       </ChartCard>
     </div>
-  </div>
-);
+    </div>
+  );
+};

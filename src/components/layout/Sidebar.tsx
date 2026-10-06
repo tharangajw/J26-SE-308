@@ -4,7 +4,6 @@ import {
   LayoutDashboard, 
   Activity, 
   Settings, 
-  Search, 
   Network, 
   FileCheck, 
   FileText,
@@ -106,7 +105,7 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" />
             </NavGroup>
             <NavGroup icon={<Shield />} label="Resilience">
-              <NavItem to="/dimensions/resilience" icon={<LayoutDashboard />} label="Overview" />
+              <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
             </NavGroup>
             <NavGroup icon={<GitMerge />} label="CI/CD Integration">
               <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />

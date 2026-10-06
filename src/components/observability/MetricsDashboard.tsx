@@ -4,6 +4,7 @@ import {
 } from 'recharts';
 import { Activity, Cpu, HardDrive, Network, Database, AlertCircle } from 'lucide-react';
 import { AnomalyPanel } from '../performace/AnomalyPanel';
+import { ChartTooltip } from './ChartTooltip';
 
 const generateTimeseries = (dataPoints: number, baseValue: number, variance: number) => {
   const data = [];
@@ -30,41 +31,28 @@ export default function MetricsDashboard({ data }: any) {
   const reqRate = data?.details?.metrics_coverage_rate ? 150 : 20;
   const reqData = useMemo(() => generateTimeseries(30, reqRate, 40), [reqRate]);
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-lg shadow-xl backdrop-blur-md text-slate-200">
-          <p className="text-slate-300 text-sm mb-1">{label}</p>
-          {payload.map((p: any, i: number) => (
-            <p key={i} style={{ color: p.color }} className="text-sm font-semibold">
-              {p.name}: {p.value.toFixed(1)} {p.unit}
-            </p>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
+
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
       {/* Prometheus Telemetry Banner */}
-      <div className="obs-glass p-4 border border-orange-500/30 bg-orange-500/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
-            <Database className="w-5 h-5" />
+      <div className="obs-glass obs-lift p-5 border border-orange-500/20 bg-gradient-to-r from-orange-500/10 to-amber-500/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative overflow-hidden shadow-lg shadow-orange-900/10">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-orange-500/10 via-transparent to-transparent opacity-50 pointer-events-none"></div>
+        <div className="flex items-center gap-4 relative z-10">
+          <div className="p-3 rounded-xl bg-gradient-to-br from-orange-500/20 to-amber-500/10 text-orange-400 border border-orange-500/30 shadow-inner">
+            <Database className="w-5 h-5 drop-shadow-md" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Prometheus Scraped Telemetry Metrics</h3>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold uppercase">1st Pillar Active</span>
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-orange-300 to-amber-200 uppercase tracking-wider">Prometheus Scraped Telemetry Metrics</h3>
+              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold uppercase shadow-[0_0_10px_rgba(16,185,129,0.2)]">1st Pillar Active</span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">Real-time resource footprint, latency tails, and HTTP request throughput feeds</p>
+            <p className="text-xs text-slate-400 mt-1 font-medium">Real-time resource footprint, latency tails, and HTTP request throughput feeds</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-800">
-          <AlertCircle className="w-4 h-4 text-orange-400" />
+        <div className="relative z-10 flex items-center gap-2 text-xs font-mono text-slate-300 bg-slate-900/80 px-4 py-2 rounded-lg border border-slate-700 shadow-inner">
+          <AlertCircle className="w-4 h-4 text-orange-400 animate-pulse drop-shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
           Cross-Engine Telemetry Integration Active
         </div>
       </div>
@@ -87,7 +75,7 @@ export default function MetricsDashboard({ data }: any) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                 <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickMargin={10} minTickGap={30} />
                 <YAxis stroke="#64748b" fontSize={12} unit="%" domain={[0, 100]} />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="value" name="CPU" stroke="#818cf8" fillOpacity={1} fill="url(#colorCpu)" unit="%" />
               </AreaChart>
             </ResponsiveContainer>
@@ -111,7 +99,7 @@ export default function MetricsDashboard({ data }: any) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                 <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickMargin={10} minTickGap={30} />
                 <YAxis stroke="#64748b" fontSize={12} unit="%" domain={[0, 100]} />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="value" name="Memory" stroke="#34d399" fillOpacity={1} fill="url(#colorMem)" unit="%" />
               </AreaChart>
             </ResponsiveContainer>
@@ -131,7 +119,7 @@ export default function MetricsDashboard({ data }: any) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                 <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickMargin={10} minTickGap={30} />
                 <YAxis stroke="#64748b" fontSize={12} unit="ms" />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<ChartTooltip />} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                 <Line type="monotone" dataKey="value" name="p95 Latency" stroke="#fbbf24" strokeWidth={2} dot={false} unit="ms" />
                 <Line type="monotone" dataKey="value2" name="p50 Latency" stroke="#fcd34d" strokeWidth={2} strokeDasharray="5 5" dot={false} unit="ms" />
@@ -157,7 +145,7 @@ export default function MetricsDashboard({ data }: any) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                 <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickMargin={10} minTickGap={30} />
                 <YAxis stroke="#64748b" fontSize={12} unit=" req/s" />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<ChartTooltip />} />
                 <Area type="step" dataKey="value" name="Requests" stroke="#38bdf8" fillOpacity={1} fill="url(#colorReq)" unit=" req/s" />
               </AreaChart>
             </ResponsiveContainer>
