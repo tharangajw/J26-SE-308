@@ -5,13 +5,28 @@ import { mockAssessmentData } from '../../data/mockData';
 import * as XLSX from 'xlsx';
 
 const getPageTitle = (pathname: string): string => {
+  
   if (pathname === '/') return 'Overview Dashboard';
   if (pathname === '/assessment') return 'Architecture Assessment';
+
+  // --- CI/CD sub-routes MUST come before the generic parent ---
   if (pathname.includes('/dimensions/cicd')) return 'CI/CD Maturity';
+
+  // --- Performance sub-routes MUST come before the generic parent ---
   if (pathname.includes('/dimensions/performance')) return 'Performance Maturity';
-  if (pathname === '/dimensions/observability/history') return 'Observability — O-Score History';
+
+  // --- Observability sub-routes MUST come before the generic parent ---
+  if (pathname.includes('/dimensions/observability/detail')) return 'Observability Maturity - Telemetry Explorer';
+  if (pathname.includes('/dimensions/observability/history')) return 'Observability Maturity - O-Score History';
+  if (pathname.includes('/dimensions/observability/calculation')) return 'Observability Maturity - Calculation Logic';
   if (pathname.includes('/dimensions/observability')) return 'Observability Maturity';
-  if (pathname.includes('/dimensions/fault-tolerance')) return 'Fault Tolerance Maturity';
+
+  // --- Fault Tolerance sub-routes ---
+  if (pathname.includes('/dimensions/fault-tolerance/calculation')) return 'Fault Tolerance Maturity - Calculation Logic';
+  if (pathname.includes('/dimensions/fault-tolerance/history')) return 'Fault Tolerance Maturity - R-Score History';
+  if (pathname.includes('/dimensions/FaultToleranceDashboard')) return 'Fault Tolerance Maturity';
+  
+
   if (pathname === '/architecture') return 'Architecture Graph';
   if (pathname === '/evidence') return 'Evidence Review';
   if (pathname === '/reports') return 'Assessment Reports';
@@ -49,24 +64,24 @@ export const Header: React.FC = () => {
     const summaryRows = [
       ['Architecture Maturity Assessment Report'],
       [''],
-      ['Assessment ID',       data.id],
-      ['Project Name',        data.projectName],
-      ['Architecture Type',   data.architectureType],
-      ['Generated At',        new Date().toLocaleString()],
+      ['Assessment ID', data.id],
+      ['Project Name', data.projectName],
+      ['Architecture Type', data.architectureType],
+      ['Generated At', new Date().toLocaleString()],
       [''],
       ['OVERALL RESULTS', ''],
-      ['Overall Score',       `${data.overallScore} / 100`],
-      ['Maturity Level',      data.overallLevel],
-      ['Confidence',          `${data.confidence}%`],
+      ['Overall Score', `${data.overallScore} / 100`],
+      ['Maturity Level', data.overallLevel],
+      ['Confidence', `${data.confidence}%`],
       ['Evaluation Duration', data.evaluationDuration],
-      ['Baseline Improvement',`+${data.baselineComparison} pts vs previous`],
+      ['Baseline Improvement', `+${data.baselineComparison} pts vs previous`],
       [''],
       ['DIMENSION SCORES', ''],
-      ['Dimension',           'Score', 'Level'],
-      ['CI/CD',               data.dimensions.cicd.score,           data.dimensions.cicd.level],
-      ['Performance',         data.dimensions.performance.score,    data.dimensions.performance.level],
-      ['Observability',       data.dimensions.observability.score,  data.dimensions.observability.level],
-      ['Fault Tolerance',     data.dimensions.faultTolerance.score, data.dimensions.faultTolerance.level],
+      ['Dimension', 'Score', 'Level'],
+      ['CI/CD', data.dimensions.cicd.score, data.dimensions.cicd.level],
+      ['Performance', data.dimensions.performance.score, data.dimensions.performance.level],
+      ['Observability', data.dimensions.observability.score, data.dimensions.observability.level],
+      ['Fault Tolerance', data.dimensions.faultTolerance.score, data.dimensions.faultTolerance.level],
     ];
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
     wsSummary['!cols'] = [{ wch: 28 }, { wch: 22 }, { wch: 18 }];
@@ -76,9 +91,9 @@ export const Header: React.FC = () => {
     const metricsHeader = ['Dimension', 'Metric', 'Score', 'Weight', 'Weighted Score'];
     const metricsRows: (string | number)[][] = [metricsHeader];
     const dims = [
-      { name: 'CI/CD',           d: data.dimensions.cicd },
-      { name: 'Performance',     d: data.dimensions.performance },
-      { name: 'Observability',   d: data.dimensions.observability },
+      { name: 'CI/CD', d: data.dimensions.cicd },
+      { name: 'Performance', d: data.dimensions.performance },
+      { name: 'Observability', d: data.dimensions.observability },
       { name: 'Fault Tolerance', d: data.dimensions.faultTolerance },
     ];
     dims.forEach(({ name, d }) => {
@@ -120,7 +135,7 @@ export const Header: React.FC = () => {
       <div>
         <h1 className="text-sm font-semibold tracking-tight text-text-primary">{title}</h1>
       </div>
-      
+
       <div className="flex items-center gap-4">
         <div className="hidden md:flex items-center gap-3 text-xs border-r border-border/50 pr-4">
           <span className="text-text-secondary font-mono">#ARCH-042</span>

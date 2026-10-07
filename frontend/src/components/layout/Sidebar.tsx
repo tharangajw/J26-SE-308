@@ -108,8 +108,10 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Telemetry Collection Data" />
               <NavItem to="/dimensions/performance/pipeline" icon={<Activity />} label="Data Pipeline Outputs" />
             </NavGroup>
-            <NavGroup icon={<Shield />} label="Resilience">
+            <NavGroup icon={<Shield />} label="Fault Tolerance">
               <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
+              <NavItem to="/dimensions/fault-tolerance/history" icon={<History />} label="R-Score History" />
+              <NavItem to="/dimensions/fault-tolerance/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
             <NavGroup icon={<GitMerge />} label="CI/CD Integration">
               <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />
