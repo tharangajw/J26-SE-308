@@ -2,17 +2,13 @@
   "name": "performance-telemetry-collector",
   "private": true,
   "type": "module",
-  "scripts": { "build": "tsc", "start": "node dist/server.js" },
-  "devDependencies": { "@types/node": "^24.13.3", "typescript": "^6.0.2" }
-}
-  "name": "j26-se-308-telemetry-collector",
-  "private": true,
-  "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "tsx test/collector.test.ts"
+    "build": "tsc",
+    "start": "npx tsx src/server.ts",
+    "test": "npx tsx test/collector.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "tsx": "^4.19.2",
     "typescript": "^6.0.2"
   }
