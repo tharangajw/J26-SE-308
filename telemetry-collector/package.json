@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "tsx test/collector.test.ts"
+    "test": "npx tsx test/collector.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
