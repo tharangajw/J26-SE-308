@@ -21,7 +21,7 @@ services:
 
   anomaly-detection:
     build:
-      context: ./anomaly-detection
+      context: ./performance/anomaly-detection
       dockerfile: Dockerfile
     container_name: pscore-anomaly-detection
     ports:
