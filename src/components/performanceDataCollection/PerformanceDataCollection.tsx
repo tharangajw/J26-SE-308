@@ -1,15 +1,35 @@
 import React, { useState } from 'react';
-import { Activity, CheckCircle2, Copy, Database, ExternalLink, GitBranch, Network, Play, Radio, Server, TriangleAlert } from 'lucide-react';
+import {
+  Activity,
+  CheckCircle2,
+  Copy,
+  Database,
+  ExternalLink,
+  GitBranch,
+  Network,
+  Play,
+  Radio,
+  Server,
+  Sparkles,
+  TriangleAlert
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { collectionSources, performanceServices } from './serviceCatalog';
+import { PipelineNormalization } from './PipelineNormalization';
 
 const statusStyle = { healthy: 'text-emerald-400', degraded: 'text-amber-400', offline: 'text-rose-400' };
 
 export const PerformanceDataCollection: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'phase1' | 'phase2'>('phase2');
   const [selectedServices, setSelectedServices] = useState(performanceServices.map((service) => service.id));
   const [requestState, setRequestState] = useState('Ready to collect');
   const endpoint = '/api/telemetry/snapshot';
-  const toggleService = (serviceId: string) => setSelectedServices((current) => current.includes(serviceId) ? current.filter((id) => id !== serviceId) : [...current, serviceId]);
+
+  const toggleService = (serviceId: string) =>
+    setSelectedServices((current) =>
+      current.includes(serviceId) ? current.filter((id) => id !== serviceId) : [...current, serviceId]
+    );
+
   const collectSnapshot = async () => {
     setRequestState('Collecting metrics, traces and Kubernetes state...');
     try {
@@ -23,9 +43,188 @@ export const PerformanceDataCollection: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-perf">Performance data collection</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Connect the service graph once</h1><p className="mt-2 max-w-3xl text-sm leading-relaxed text-text-secondary">The collector fans one request out to every selected service, then joins Prometheus metrics, Jaeger traces and Kubernetes state by service ID and timestamp.</p></div><button type="button" onClick={collectSnapshot} disabled={selectedServices.length === 0} className="inline-flex items-center gap-2 rounded-md bg-brand-perf px-4 py-2.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"><Play className="h-4 w-4" /> Collect snapshot</button></div>
-      <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]"><Card><CardHeader className="border-b border-border/60"><CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary"><Network className="h-4 w-4 text-brand-perf" /> Multi-service connection map</CardTitle><p className="mt-1 text-xs text-text-muted">Select the complete request path. The gateway calls all selected services in parallel.</p></CardHeader><CardContent className="space-y-3 pt-5">{performanceServices.map((service) => { const selected = selectedServices.includes(service.id); return <button key={service.id} type="button" onClick={() => toggleService(service.id)} className={`flex w-full items-center justify-between gap-3 rounded-md border p-3 text-left transition-colors ${selected ? 'border-brand-perf/60 bg-brand-perf/10' : 'border-border bg-surface-secondary/20 hover:bg-surface-secondary/50'}`}><span className="flex min-w-0 items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${selected ? 'bg-brand-perf' : 'bg-text-muted'}`} /><span className="min-w-0"><span className="block font-mono text-sm text-text-primary">{service.id}</span><span className="mt-1 block text-xs text-text-muted">{service.role} · :{service.port} · {service.dependencies.length ? `calls ${service.dependencies.join(', ')}` : 'no downstream calls'}</span></span></span><span className={`flex shrink-0 items-center gap-1 text-xs ${statusStyle[service.status]}`}>{service.status === 'degraded' ? <TriangleAlert className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}{service.status}</span></button>; })}<div className="flex items-center gap-2 border-t border-border/60 pt-4 text-xs text-text-secondary"><GitBranch className="h-4 w-4 text-brand-perf" /> {selectedServices.length} services selected · {requestState}</div></CardContent></Card><Card><CardHeader className="border-b border-border/60"><CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary"><Radio className="h-4 w-4 text-emerald-400" /> Collection sources</CardTitle></CardHeader><CardContent className="space-y-4 pt-5">{collectionSources.map((source) => <div key={source.name} className="border-b border-border/60 pb-4 last:border-0 last:pb-0"><div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-sm font-medium"><Database className="h-4 w-4 text-text-muted" />{source.name}</span><span className={`text-[10px] font-semibold uppercase tracking-wider ${source.status === 'connected' ? 'text-emerald-400' : 'text-amber-400'}`}>{source.status}</span></div><p className="mt-1 text-xs text-text-muted">{source.purpose}</p><p className="mt-2 break-all font-mono text-[11px] text-text-secondary">{source.endpoint}</p></div>)}</CardContent></Card></div>
-      <Card><CardHeader><CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary"><Server className="h-4 w-4 text-brand-perf" /> Postman check</CardTitle><p className="mt-1 text-xs text-text-muted">Use the same request from Postman or the dashboard.</p></CardHeader><CardContent className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-secondary/30 p-3"><code className="font-mono text-xs text-brand-perf">GET http://localhost:8787{endpoint}?services=api-gateway,order-service,payment-service</code><button type="button" onClick={() => navigator.clipboard?.writeText(`http://localhost:8787${endpoint}?services=api-gateway,order-service,payment-service`)} className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary"><Copy className="h-3.5 w-3.5" /> Copy URL</button></div><div className="grid gap-3 text-xs text-text-secondary md:grid-cols-3"><p><Activity className="mb-1 h-4 w-4 text-brand-perf" />Returns one snapshot per selected service.</p><p><ExternalLink className="mb-1 h-4 w-4 text-cyan-400" />Open Prometheus at <span className="font-mono">:9090</span> and Jaeger at <span className="font-mono">:16686</span>.</p><p><Server className="mb-1 h-4 w-4 text-amber-400" />Check response fields: <span className="font-mono">prometheus</span>, <span className="font-mono">jaeger</span>, <span className="font-mono">k8s</span>.</p></div></CardContent></Card>
+      {/* Header Banner */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-perf">
+            Performance Engineering Pipeline
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Telemetry Preprocessing & Normalization</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-text-secondary">
+            Phase 1 connects heterogeneous service streams. Phase 2 aligns timestamps onto a uniform 5s grid, imputes Prometheus scrape gaps, and normalizes heterogeneous units into standard 0.0–1.0 ranges.
+          </p>
+        </div>
+
+        {/* Phase Navigation Tabs */}
+        <div className="flex rounded-lg border border-border/80 bg-surface-secondary/40 p-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('phase1')}
+            className={`flex items-center gap-2 rounded-md px-3.5 py-1.5 text-xs font-semibold transition-all ${
+              activeTab === 'phase1'
+                ? 'bg-surface text-brand-perf shadow-sm border border-border/50'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Network className="h-3.5 w-3.5" /> Phase 1: Data Collection
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('phase2')}
+            className={`flex items-center gap-2 rounded-md px-3.5 py-1.5 text-xs font-semibold transition-all ${
+              activeTab === 'phase2'
+                ? 'bg-surface text-brand-perf shadow-sm border border-border/50'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-brand-perf" /> Phase 2: Preprocessing & Normalization
+          </button>
+        </div>
+      </div>
+
+      {/* Tab 1: Collection Map */}
+      {activeTab === 'phase1' && (
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={collectSnapshot}
+              disabled={selectedServices.length === 0}
+              className="inline-flex items-center gap-2 rounded-md bg-brand-perf px-4 py-2.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Play className="h-4 w-4" /> Collect snapshot
+            </button>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+            <Card>
+              <CardHeader className="border-b border-border/60">
+                <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
+                  <Network className="h-4 w-4 text-brand-perf" /> Multi-service connection map
+                </CardTitle>
+                <p className="mt-1 text-xs text-text-muted">
+                  Select the complete request path. The gateway calls all selected services in parallel.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-5">
+                {performanceServices.map((service) => {
+                  const selected = selectedServices.includes(service.id);
+                  return (
+                    <button
+                      key={service.id}
+                      type="button"
+                      onClick={() => toggleService(service.id)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-md border p-3 text-left transition-colors ${
+                        selected
+                          ? 'border-brand-perf/60 bg-brand-perf/10'
+                          : 'border-border bg-surface-secondary/20 hover:bg-surface-secondary/50'
+                      }`}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <span className={`h-2.5 w-2.5 rounded-full ${selected ? 'bg-brand-perf' : 'bg-text-muted'}`} />
+                        <span className="min-w-0">
+                          <span className="block font-mono text-sm text-text-primary">{service.id}</span>
+                          <span className="mt-1 block text-xs text-text-muted">
+                            {service.role} · :{service.port} ·{' '}
+                            {service.dependencies.length
+                              ? `calls ${service.dependencies.join(', ')}`
+                              : 'no downstream calls'}
+                          </span>
+                        </span>
+                      </span>
+                      <span className={`flex shrink-0 items-center gap-1 text-xs ${statusStyle[service.status]}`}>
+                        {service.status === 'degraded' ? (
+                          <TriangleAlert className="h-3.5 w-3.5" />
+                        ) : (
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        )}
+                        {service.status}
+                      </span>
+                    </button>
+                  );
+                })}
+                <div className="flex items-center gap-2 border-t border-border/60 pt-4 text-xs text-text-secondary">
+                  <GitBranch className="h-4 w-4 text-brand-perf" /> {selectedServices.length} services selected · {requestState}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="border-b border-border/60">
+                <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
+                  <Radio className="h-4 w-4 text-emerald-400" /> Collection sources
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-5">
+                {collectionSources.map((source) => (
+                  <div key={source.name} className="border-b border-border/60 pb-4 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        <Database className="h-4 w-4 text-text-muted" />
+                        {source.name}
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wider ${
+                          source.status === 'connected' ? 'text-emerald-400' : 'text-amber-400'
+                        }`}
+                      >
+                        {source.status}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-text-muted">{source.purpose}</p>
+                    <p className="mt-2 break-all font-mono text-[11px] text-text-secondary">{source.endpoint}</p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
+                <Server className="h-4 w-4 text-brand-perf" /> Postman check
+              </CardTitle>
+              <p className="mt-1 text-xs text-text-muted">Use the same request from Postman or the dashboard.</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-secondary/30 p-3">
+                <code className="font-mono text-xs text-brand-perf">
+                  GET http://localhost:8787{endpoint}?services=api-gateway,order-service,payment-service
+                </code>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigator.clipboard?.writeText(
+                      `http://localhost:8787${endpoint}?services=api-gateway,order-service,payment-service`
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Copy URL
+                </button>
+              </div>
+              <div className="grid gap-3 text-xs text-text-secondary md:grid-cols-3">
+                <p>
+                  <Activity className="mb-1 h-4 w-4 text-brand-perf" />
+                  Returns one snapshot per selected service.
+                </p>
+                <p>
+                  <ExternalLink className="mb-1 h-4 w-4 text-cyan-400" />
+                  Open Prometheus at <span className="font-mono">:9090</span> and Jaeger at <span className="font-mono">:16686</span>.
+                </p>
+                <p>
+                  <Server className="mb-1 h-4 w-4 text-amber-400" />
+                  Check response fields: <span className="font-mono">prometheus</span>, <span className="font-mono">jaeger</span>,{' '}
+                  <span className="font-mono">k8s</span>.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Tab 2: Phase 2 Preprocessing & Normalization */}
+      {activeTab === 'phase2' && <PipelineNormalization />}
     </div>
   );
 };
