@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "npx tsx src/server.ts",
+    "start": "node dist/server.js",
     "test": "npx tsx test/collector.test.ts"
   },
   "devDependencies": {

@@ -11,6 +11,7 @@ import { Observability } from './pages/Observability';
 import { ObservabilityDashboard } from './pages/ObservabilityDashboard';
 import { ObservabilityHistory } from './pages/ObservabilityHistory';
 import { PerformanceDataCollection } from './pages/PerformanceDataCollection';
+import { DataPipelineOutputs } from './pages/DataPipelineOutputs';
 import { FaultToleranceDashboard } from './components/resilience/FaultToleranceDashboard';
 
 function App() {
@@ -27,6 +28,7 @@ function App() {
             <Route path="dimensions/observability/calculation" element={<Observability />} />
             <Route path="dimensions/observability/history" element={<ObservabilityHistory />} />
             <Route path="dimensions/performance/collection" element={<PerformanceDataCollection />} />
+            <Route path="dimensions/performance/pipeline" element={<DataPipelineOutputs />} />
             <Route path="dimensions/FaultToleranceDashboard" element={<FaultToleranceDashboard />} />
             <Route path="dimensions/:dimensionId" element={<DimensionPage />} />
             <Route path="assessment" element={<Assessment />} />
