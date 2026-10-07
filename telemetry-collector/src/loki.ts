@@ -1,4 +1,4 @@
-import { LokiLogEntry, LokiMetrics } from './types.js';
+import { LokiLogEntry, LokiMetrics } from './types';
 
 export class LokiCollector {
   constructor(private readonly endpoint: string = 'http://localhost:3100') {}

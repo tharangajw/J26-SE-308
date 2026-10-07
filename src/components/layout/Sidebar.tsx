@@ -9,7 +9,7 @@ import {
   FileText,
   Calculator,
   History,
-  ServerCog,
+  ServerCog
   Eye,
   Zap,
   Shield,
