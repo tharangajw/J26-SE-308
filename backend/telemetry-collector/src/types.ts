@@ -51,10 +51,3 @@ export interface RawTelemetrySnapshot {
     kubernetes: boolean;
   };
 }
-
-export interface MultiServiceSnapshot {
-  requestedServices: string[];
-  collectedAt: number;
-  snapshots: RawTelemetrySnapshot[];
-  errors: { serviceId: string; message: string }[];
-}
