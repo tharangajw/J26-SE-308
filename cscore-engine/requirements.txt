@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+pydantic
+joblib
+numpy
+scikit-learn
+xgboost
+requests
+PyJWT
+cryptography
+pytest
+httpx
