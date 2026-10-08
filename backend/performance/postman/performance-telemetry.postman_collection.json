@@ -1,0 +1,7 @@
+{
+  "info": { "name": "Performance telemetry collection", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+  "item": [
+    { "name": "Collector health", "request": { "method": "GET", "url": "http://localhost:8787/health" } },
+    { "name": "Collect multiple service snapshots", "request": { "method": "GET", "url": "http://localhost:8787/api/telemetry/snapshot?services=api-gateway,order-service,inventory-service,payment-service" }, "event": [{ "listen": "test", "script": { "exec": ["pm.test('collector returned a response', function () { pm.response.to.have.status(200); });", "const body = pm.response.json();", "pm.test('all requested services are represented', function () { pm.expect(body.requestedServices.length).to.be.above(1); });", "pm.test('snapshot has telemetry sections', function () { if (body.snapshots.length) pm.expect(body.snapshots[0]).to.have.all.keys('serviceId', 'timestamp', 'prometheus', 'jaeger', 'k8s'); });"] } }] }
+  ]
+}
