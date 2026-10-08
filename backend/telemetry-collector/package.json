@@ -4,9 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "tsx test/collector.test.ts"
+    "test": "npx tsx test/collector.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "tsx": "^4.19.2",
     "typescript": "^6.0.2"
   }

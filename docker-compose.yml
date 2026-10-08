@@ -5,7 +5,7 @@ services:
     ports:
       - "9091:9090"
     volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./backend/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     networks:
       - pscore-net
 
@@ -21,7 +21,7 @@ services:
 
   anomaly-detection:
     build:
-      context: ./performance/anomaly-detection
+      context: ./backend/performance/anomaly-detection
       dockerfile: Dockerfile
     container_name: pscore-anomaly-detection
     ports:
@@ -31,7 +31,7 @@ services:
 
   telemetry-collector:
     build:
-      context: ./telemetry-collector
+      context: ./backend/telemetry-collector
       dockerfile: Dockerfile
     container_name: pscore-telemetry-collector
     ports:
