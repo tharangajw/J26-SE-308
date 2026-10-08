@@ -13,14 +13,19 @@ import {
   Server,
   Sparkles,
   Trash2,
-  TriangleAlert
+  TriangleAlert,
+  XCircle
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { collectionSources } from './serviceCatalog';
 import { PipelineNormalization } from './PipelineNormalization';
 import type { PerformanceService } from './types';
 
-const statusStyle = { healthy: 'text-emerald-400', degraded: 'text-amber-400', offline: 'text-rose-400' };
+const statusStyle = {
+  healthy: 'text-emerald-400',
+  degraded: 'text-amber-400',
+  offline: 'text-rose-400',
+};
 
 export const PerformanceDataCollection: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'phase1' | 'phase2'>('phase1');
@@ -51,9 +56,9 @@ export const PerformanceDataCollection: React.FC = () => {
         id: trimmed,
         name: customInput.trim(),
         port: 8080,
-        role: 'Active running service',
+        role: 'Target microservice',
         dependencies: [],
-        status: 'healthy',
+        status: 'offline', // Default to offline until snapshot collection verifies live metrics
       };
       setServicesList((prev) => [...prev, newService]);
       setSelectedServices((prev) => [...prev, trimmed]);
@@ -84,6 +89,44 @@ export const PerformanceDataCollection: React.FC = () => {
       }
 
       setCollectedData(data);
+
+      // Dynamically update status based on real telemetry data received
+      if (data && Array.isArray(data.snapshots)) {
+        setServicesList((prevServices) =>
+          prevServices.map((service) => {
+            const snap = data.snapshots.find((s: any) => s.serviceId === service.id);
+            if (!snap) return { ...service, status: 'offline' };
+
+            const hasRealActivity =
+              (snap.prometheus?.cpuUsageMillicores > 0) ||
+              (snap.prometheus?.memoryUsageMB > 0) ||
+              (snap.prometheus?.rps > 0) ||
+              (snap.prometheus?.avgResponseTimeMs > 0) ||
+              (snap.k8s?.podReplicaCount > 0) ||
+              (snap.k8s?.uptimeSeconds > 0) ||
+              (Array.isArray(snap.jaeger) && snap.jaeger.length > 0) ||
+              (snap.loki?.totalCount > 0);
+
+            let computedStatus: 'healthy' | 'degraded' | 'offline' = 'offline';
+
+            if (hasRealActivity) {
+              if (snap.loki?.errorCount > 10 || snap.prometheus?.p95LatencyMs > 500) {
+                computedStatus = 'degraded';
+              } else {
+                computedStatus = 'healthy';
+              }
+            } else {
+              computedStatus = 'offline';
+            }
+
+            return {
+              ...service,
+              status: computedStatus,
+            };
+          })
+        );
+      }
+
       setRequestState(`Snapshot collected for ${selectedServices.length} service(s)`);
     } catch (err: any) {
       setRequestState(`Collection failed: ${err.message || 'Make sure telemetry-collector (port 8787) is running'}`);
@@ -159,7 +202,7 @@ export const PerformanceDataCollection: React.FC = () => {
                   <Network className="h-4 w-4 text-brand-perf" /> Multi-Service Target Connection Map
                 </CardTitle>
                 <p className="mt-1 text-xs text-text-muted">
-                  Add or select microservice IDs running in your environment (e.g. payment-service, notification-service).
+                  Add or select microservice IDs running in your environment (e.g. order-service-1, user-service-1). Status is verified via live telemetry.
                 </p>
               </CardHeader>
               <CardContent className="space-y-4 pt-5">
@@ -169,7 +212,7 @@ export const PerformanceDataCollection: React.FC = () => {
                     type="text"
                     value={customInput}
                     onChange={(e) => setCustomInput(e.target.value)}
-                    placeholder="Enter microservice ID (e.g. payment-service, auth-api)..."
+                    placeholder="Enter microservice ID (e.g. order-service-1, payment-service)..."
                     className="flex-1 rounded-md border border-border bg-surface-secondary/40 px-3 py-2 text-xs text-text-primary placeholder:text-text-muted focus:border-brand-perf focus:outline-none"
                   />
                   <button
@@ -212,10 +255,12 @@ export const PerformanceDataCollection: React.FC = () => {
 
                           <div className="flex items-center gap-2">
                             <span className={`flex shrink-0 items-center gap-1 text-xs ${statusStyle[service.status]}`}>
-                              {service.status === 'degraded' ? (
+                              {service.status === 'healthy' ? (
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                              ) : service.status === 'degraded' ? (
                                 <TriangleAlert className="h-3.5 w-3.5" />
                               ) : (
-                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                <XCircle className="h-3.5 w-3.5" />
                               )}
                               {service.status}
                             </span>

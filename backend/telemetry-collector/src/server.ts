@@ -10,6 +10,7 @@ import {
 const port = Number(process.env.PORT ?? 8787);
 const engine = new TelemetryCollectorEngine({
   prometheus: process.env.PROMETHEUS_URL ?? 'http://localhost:9090',
+  loki: process.env.LOKI_URL ?? 'http://localhost:3100',
   jaeger: process.env.JAEGER_URL ?? 'http://localhost:16686',
   kubernetes: process.env.KUBERNETES_URL ?? 'http://localhost:8001',
 });

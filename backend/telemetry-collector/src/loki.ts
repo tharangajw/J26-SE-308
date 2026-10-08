@@ -20,25 +20,33 @@ export class LokiCollector {
       direction: 'backward',
     });
 
-    const response = await fetch(`${this.endpoint}/loki/api/v1/query_range?${params}`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Loki logs: ${response.status} ${response.statusText}`);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 800);
+      const response = await fetch(`${this.endpoint}/loki/api/v1/query_range?${params}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        return { errorCount: 0, totalCount: 0, entries: [] };
+      }
+
+      const payload = await response.json();
+      const entries: LokiLogEntry[] = (payload.data?.result ?? []).flatMap((stream: any) =>
+        (stream.values ?? []).map((value: string[]) => ({
+          timestamp: value[0],
+          level: stream.stream?.level ?? 'unknown',
+          message: value[1],
+          labels: stream.stream ?? {},
+        }))
+      );
+
+      return {
+        errorCount: entries.length,
+        totalCount: entries.length,
+        entries,
+      };
+    } catch {
+      return { errorCount: 0, totalCount: 0, entries: [] };
     }
-
-    const payload = await response.json();
-    const entries: LokiLogEntry[] = (payload.data?.result ?? []).flatMap((stream: any) =>
-      (stream.values ?? []).map((value: string[]) => ({
-        timestamp: value[0],
-        level: stream.stream?.level ?? 'unknown',
-        message: value[1],
-        labels: stream.stream ?? {},
-      }))
-    );
-
-    return {
-      errorCount: entries.length,
-      totalCount: entries.length,
-      entries,
-    };
   }
 }
