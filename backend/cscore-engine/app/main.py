@@ -126,3 +126,78 @@ def get_dashboard_data():
         "history": history_data,
         "serviceDist": service_dist
     }
+
+
+@app.get("/api/phase2/dashboard")
+def get_phase2_dashboard():
+    # Get recent PR runs for blast radius data
+    runs = db.get_runs(limit=20)
+    
+    prs = []
+    total_blast = 0
+    total_api_changes = 0
+    count = 0
+    
+    for r in runs:
+        features = json.loads(r["features"])
+        api_changes = features.get("api_changes", 0)
+        downstream = features.get("downstream_count", 0)
+        blast = r.get("blast_radius") or (api_changes * downstream)
+        
+        prs.append({
+            "id": f"PR #{r['pr_number']}",
+            "title": f"Update {r['service_name']}",
+            "services": [r["service_name"]],
+            "apiChanges": api_changes,
+            "downstreamCount": downstream,
+            "blastRadius": blast,
+            "status": "Passed" if r["decision"] == "LOW_RISK" else "Blocked",
+            "time": r["created_at"]
+        })
+        
+        total_blast += blast
+        total_api_changes += api_changes
+        count += 1
+        
+    avg_blast = round(total_blast / count, 1) if count > 0 else 0
+    avg_api_changes = round(total_api_changes / count, 1) if count > 0 else 0
+
+    # Get dependencies for the graph
+    # Assume repo 1 for the dashboard
+    deps = db.get_all_dependencies(repo_id=1)
+    
+    # Format graph nodes and edges
+    nodes_set = set()
+    edges = []
+    for d in deps:
+        nodes_set.add(d["consumer"])
+        nodes_set.add(d["provider"])
+        edges.append({"source": d["consumer"], "target": d["provider"]})
+        
+    nodes = [{"id": n, "label": n} for n in nodes_set]
+    # Default mock graph if db is empty
+    if not nodes:
+        nodes = [
+            {"id": "gateway", "label": "gateway"},
+            {"id": "order-service", "label": "order-service"},
+            {"id": "payment-service", "label": "payment-service"},
+            {"id": "inventory-service", "label": "inventory-service"},
+        ]
+        edges = [
+            {"source": "gateway", "target": "order-service"},
+            {"source": "gateway", "target": "payment-service"},
+            {"source": "order-service", "target": "payment-service"},
+            {"source": "order-service", "target": "inventory-service"},
+        ]
+
+    return {
+        "averages": {
+            "blastRadius": avg_blast,
+            "apiChanges": avg_api_changes
+        },
+        "recentPRs": prs,
+        "graph": {
+            "nodes": nodes,
+            "edges": edges
+        }
+    }

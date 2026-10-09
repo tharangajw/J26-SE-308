@@ -133,6 +133,15 @@ def get_consumers(repo_id, provider):
     return [r["consumer"] for r in rows]
 
 
+def get_all_dependencies(repo_id):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT consumer, provider FROM service_registry WHERE repo_id=?", (repo_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ---------- deploy events (Phase 1) ----------
 def add_deploy_event(repo_id, service_name, commit_sha, services_touched):
     conn = get_conn()
