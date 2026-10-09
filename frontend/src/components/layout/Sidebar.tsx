@@ -111,8 +111,9 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/fault-tolerance/history" icon={<History />} label="R-Score History" />
               <NavItem to="/dimensions/fault-tolerance/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
-            <NavGroup icon={<GitMerge />} label="CI/CD Integration">
+            <NavGroup icon={<GitMerge />} label="CI/CD Integration" defaultOpen={true}>
               <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />
+              <NavItem to="/phase1/coupling" icon={<GitMerge />} label="Phase 1: Assessor Dashboard" />
             </NavGroup>
           </nav>
         </div>
