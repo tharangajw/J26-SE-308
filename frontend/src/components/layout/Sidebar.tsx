@@ -101,7 +101,6 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/observability/overview" icon={<LayoutDashboard />} label="Overview" />
               <NavItem to="/dimensions/observability/detail" icon={<Activity />} label="Telemetry Explorer" />
               <NavItem to="/dimensions/observability/history" icon={<History />} label="O-Score History" />
-              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Performance Collection" />
               <NavItem to="/dimensions/observability/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
             <NavGroup icon={<Zap />} label="Performance">
@@ -109,14 +108,17 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Telemetry Collection Data" />
               <NavItem to="/dimensions/performance/pipeline" icon={<Activity />} label="Data Pipeline Outputs" />
               <NavItem to="/dimensions/performance/drift" icon={<TrendingUp />} label="Historical Drift Analyzer" />
+              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Performance Collection" />
             </NavGroup>
             <NavGroup icon={<Shield />} label="Fault Tolerance">
               <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
               <NavItem to="/dimensions/fault-tolerance/history" icon={<History />} label="R-Score History" />
               <NavItem to="/dimensions/fault-tolerance/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
-            <NavGroup icon={<GitMerge />} label="CI/CD Integration">
+            <NavGroup icon={<GitMerge />} label="CI/CD Integration" defaultOpen={true}>
               <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />
+              <NavItem to="/phase1/coupling" icon={<GitMerge />} label="Phase 1: Assessor Dashboard" />
+              <NavItem to="/phase2/blast-radius" icon={<Network />} label="Phase 2: Blast Radius" />
             </NavGroup>
           </nav>
         </div>
