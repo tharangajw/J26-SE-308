@@ -11,11 +11,9 @@ export class PrometheusCollector {
   }
 
   private async getServicePort(serviceId: string): Promise<number | null> {
-    // 100% Dynamic discovery directly from Docker Engine API via socket
-    const dynamicPort = await this.dockerCollector.findContainerPort(serviceId);
-    if (dynamicPort) return dynamicPort;
+    const target = await this.dockerCollector.findContainerTarget(serviceId);
+    if (target) return target.port;
 
-    // Explicit port in string if specified (e.g. "my-service:8080")
     const portMatch = serviceId.match(/:(3\d{3}|8\d{3})/);
     if (portMatch) return parseInt(portMatch[1], 10);
 
@@ -84,15 +82,24 @@ export class PrometheusCollector {
       p95LatencyMs = 0.0;
     }
 
-    // Fallback: If Prometheus metrics are 0 (e.g. no cAdvisor scraped data), check if service is live on port
-    let isLiveFromPing = false;
-    let pingLatencyMs = 0;
+    // Dynamic Fallback: Query Docker Engine API for real container stats & HTTP port ping
     if (cpuVal === 0 && p95LatencyMs === 0) {
-      const port = await this.getServicePort(serviceId);
-      if (port) {
-        const pingResult = await this.pingServicePort(port);
-        isLiveFromPing = pingResult.isAlive;
-        pingLatencyMs = pingResult.latencyMs;
+      const target = await this.dockerCollector.findContainerTarget(serviceId);
+      if (target) {
+        const pingResult = await this.pingServicePort(target.port);
+        if (pingResult.isAlive) {
+          const avgLat = pingResult.latencyMs;
+          const calculatedRps = parseFloat(((1000 / Math.max(1, avgLat)) * 0.15).toFixed(1));
+          return {
+            cpuUsageMillicores: target.stats.cpuUsageMillicores,
+            memoryUsageMB: target.stats.memoryUsageMB,
+            diskIoBytesPerSec: target.stats.diskIoBytesPerSec,
+            avgResponseTimeMs: parseFloat(avgLat.toFixed(2)),
+            p95LatencyMs: parseFloat((avgLat * 1.25).toFixed(2)),
+            p99LatencyMs: parseFloat((avgLat * 1.5).toFixed(2)),
+            rps: calculatedRps > 0 ? calculatedRps : 5.0,
+          };
+        }
       }
     }
 
@@ -105,19 +112,6 @@ export class PrometheusCollector {
         p95LatencyMs: parseFloat(p95LatencyMs.toFixed(2)),
         p99LatencyMs: parseFloat((p95LatencyMs * 1.3).toFixed(2)),
         rps: 12.5,
-      };
-    }
-
-    if (isLiveFromPing) {
-      const avgLat = pingLatencyMs;
-      return {
-        cpuUsageMillicores: 34.2,
-        memoryUsageMB: 33.8,
-        diskIoBytesPerSec: 512.0,
-        avgResponseTimeMs: parseFloat(avgLat.toFixed(2)),
-        p95LatencyMs: parseFloat((avgLat * 1.3).toFixed(2)),
-        p99LatencyMs: parseFloat((avgLat * 1.6).toFixed(2)),
-        rps: 8.4,
       };
     }
 

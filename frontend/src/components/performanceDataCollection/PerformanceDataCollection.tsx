@@ -380,7 +380,17 @@ export const PerformanceDataCollection: React.FC = () => {
       )}
 
       {/* Tab 2: Phase 2 Preprocessing & Normalization */}
-      {activeTab === 'phase2' && <PipelineNormalization />}
+      {activeTab === 'phase2' && (
+        <PipelineNormalization
+          services={
+            selectedServices.length > 0
+              ? selectedServices
+              : servicesList.length > 0
+              ? servicesList.map((s) => s.id)
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 };
