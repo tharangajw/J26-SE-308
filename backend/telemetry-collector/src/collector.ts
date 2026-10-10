@@ -40,10 +40,10 @@ export class TelemetryCollectorEngine {
       jaeger: fallback(jaeger, 'jaeger', []) as RawTelemetrySnapshot['jaeger'],
       k8s: fallback(k8s, 'k8s', { podReplicaCount: 0, hpaTriggerEvents: 0, podSpinUpLagSec: 0, uptimeSeconds: 0 }) as RawTelemetrySnapshot['k8s'],
       sources: {
-        prometheus: prometheus.status === 'fulfilled',
-        loki: loki.status === 'fulfilled',
-        jaeger: jaeger.status === 'fulfilled',
-        kubernetes: k8s.status === 'fulfilled',
+        prometheus: prometheusResult.status === 'fulfilled',
+        loki: lokiResult.status === 'fulfilled',
+        jaeger: jaegerResult.status === 'fulfilled',
+        kubernetes: k8sResult.status === 'fulfilled',
       },
     };
     if (errors.length > 0) snapshot.sourceErrors = errors;

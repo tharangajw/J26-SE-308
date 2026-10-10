@@ -7,13 +7,20 @@ import {
   generateTelemetrySamples
 } from './pipeline.js';
 
+import { HistoricalDriftAnalyzer } from './drift.js';
+import { FanOutEngine } from './fanout.js';
+
 const port = Number(process.env.PORT ?? 8787);
 const engine = new TelemetryCollectorEngine({
   prometheus: process.env.PROMETHEUS_URL ?? 'http://localhost:9090',
+  loki: process.env.LOKI_URL ?? 'http://localhost:3100',
   jaeger: process.env.JAEGER_URL ?? 'http://localhost:16686',
   loki: process.env.LOKI_URL ?? 'http://localhost:3100',
   kubernetes: process.env.KUBERNETES_URL ?? 'http://localhost:8001',
 });
+
+const driftAnalyzer = new HistoricalDriftAnalyzer();
+const fanOutEngine = new FanOutEngine();
 
 const sendJson = (response: import('node:http').ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
@@ -53,6 +60,33 @@ createServer(async (request, response) => {
       requestedServices: services,
       totalNormalizedSamples: normalized.length,
       dataset: normalized
+    });
+  }
+
+  if (url.pathname === '/api/telemetry/phase3') {
+    const servicesParam = url.searchParams.get('services') ?? 'gateway-1,book-service-1,user-service-1,order-service-1';
+    const services = servicesParam.split(',').map((s) => s.trim()).filter(Boolean);
+
+    const snapshotData = await engine.collectServiceSnapshots(services);
+
+    const driftResults = services.map((serviceId) => {
+      const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
+      const liveP95 = snap ? (snap.prometheus.p95LatencyMs || snap.prometheus.avgResponseTimeMs * 1.3 || 25.0) : 25.0;
+      return driftAnalyzer.analyzeDrift(serviceId, liveP95);
+    });
+
+    const fanOutResults = services.map((serviceId) => {
+      const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
+      const liveLatency = snap ? (snap.prometheus.avgResponseTimeMs || 20.0) : 20.0;
+      return fanOutEngine.analyzeTopology(serviceId, liveLatency);
+    });
+
+    return sendJson(response, 200, {
+      pipeline: 'Phase 3: Core Signal Sub-Modules (Drift Analysis & Fan-Out Engine)',
+      requestedServices: services,
+      evaluatedAt: Date.now(),
+      historicalDriftAnalysis: driftResults,
+      fanOutTopologyAnalysis: fanOutResults,
     });
   }
 

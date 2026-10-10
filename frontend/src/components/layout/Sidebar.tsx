@@ -14,7 +14,8 @@ import {
   Zap,
   Shield,
   GitMerge,
-  ChevronDown
+  ChevronDown,
+  TrendingUp
 } from 'lucide-react';
 import clsx from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -104,6 +105,9 @@ export const Sidebar: React.FC = () => {
             </NavGroup>
             <NavGroup icon={<Zap />} label="Performance">
               <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" />
+              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Telemetry Collection Data" />
+              <NavItem to="/dimensions/performance/pipeline" icon={<Activity />} label="Data Pipeline Outputs" />
+              <NavItem to="/dimensions/performance/drift" icon={<TrendingUp />} label="Historical Drift Analyzer" />
               <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Performance Collection" />
             </NavGroup>
             <NavGroup icon={<Shield />} label="Fault Tolerance">

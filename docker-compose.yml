@@ -1,16 +1,16 @@
 services:
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.45.0
     container_name: pscore-prometheus
     ports:
-      - "9090:9090"
+      - "9091:9090"
     volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./backend/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     networks:
       - pscore-net
 
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:1.46
     container_name: pscore-jaeger
     ports:
       - "16686:16686"
@@ -19,18 +19,9 @@ services:
     networks:
       - pscore-net
 
-  loki:
-    image: grafana/loki:latest
-    container_name: pscore-loki
-    ports:
-      - "3100:3100"
-    command: -config.file=/etc/loki/local-config.yaml
-    networks:
-      - pscore-net
-
   anomaly-detection:
     build:
-      context: ./performance/anomaly-detection
+      context: ./backend/performance/anomaly-detection
       dockerfile: Dockerfile
     container_name: pscore-anomaly-detection
     ports:
@@ -40,25 +31,15 @@ services:
 
   telemetry-collector:
     build:
-      context: ./telemetry-collector
+      context: ./backend/telemetry-collector
       dockerfile: Dockerfile
     container_name: pscore-telemetry-collector
     ports:
       - "8787:8787"
-    volumes:
-      - ./telemetry-collector/dist:/app/dist
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
       PROMETHEUS_URL: http://prometheus:9090
       JAEGER_URL: http://jaeger:16686
-      LOKI_URL: http://loki:3100
       KUBERNETES_URL: http://host.docker.internal:8001
-    depends_on:
-      - prometheus
-      - jaeger
-      - loki
     networks:
       - pscore-net
     deploy:

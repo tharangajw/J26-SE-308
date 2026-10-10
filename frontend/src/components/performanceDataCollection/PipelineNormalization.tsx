@@ -48,8 +48,17 @@ const axisStyle = {
   fontFamily: 'var(--font-mono)'
 };
 
-export const PipelineNormalization: React.FC = () => {
-  const [selectedService, setSelectedService] = useState<string>('api-gateway');
+interface PipelineNormalizationProps {
+  services?: string[];
+}
+
+export const PipelineNormalization: React.FC<PipelineNormalizationProps> = ({ services }) => {
+  const serviceOptions = useMemo(() => {
+    if (services && services.length > 0) return services;
+    return ['api-gateway', 'order-service', 'payment-service'];
+  }, [services]);
+
+  const [selectedService, setSelectedService] = useState<string>(() => serviceOptions[0] || 'api-gateway');
   const [imputationMethod, setImputationMethod] = useState<ImputationMethod>('linear_interpolation');
   const [gapProbability, setGapProbability] = useState<number>(0.15);
   const [activeStage, setActiveStage] = useState<'all' | 'raw' | 'grid' | 'imputed' | 'normalized'>('all');
@@ -58,9 +67,9 @@ export const PipelineNormalization: React.FC = () => {
 
   // 1. Generate Raw Heterogeneous Telemetry Data
   const rawData = useMemo(() => {
-    return generateMockRawTelemetry(['api-gateway', 'order-service', 'payment-service'], 6, gapProbability);
+    return generateMockRawTelemetry(serviceOptions, 6, gapProbability);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seed, gapProbability]);
+  }, [seed, gapProbability, serviceOptions]);
 
   // 2. Align to 5-Second Grid
   const gridAlignedData = useMemo(() => {
@@ -208,9 +217,9 @@ export const PipelineNormalization: React.FC = () => {
                 onChange={(e) => setSelectedService(e.target.value)}
                 className="rounded-md border border-border bg-surface-secondary/40 px-3 py-1 font-mono text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand-perf"
               >
-                <option value="api-gateway">api-gateway</option>
-                <option value="order-service">order-service</option>
-                <option value="payment-service">payment-service</option>
+                {serviceOptions.map((svc) => (
+                  <option key={svc} value={svc}>{svc}</option>
+                ))}
               </select>
             </div>
           </div>
