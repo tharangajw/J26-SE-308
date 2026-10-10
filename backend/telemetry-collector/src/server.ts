@@ -20,7 +20,7 @@ const sendJson = (response: import('node:http').ServerResponse, status: number, 
   response.end(JSON.stringify(body));
 };
 
-createServer(async (request, response) => {
+const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
   if (request.method === 'OPTIONS') return sendJson(response, 204, {});
   if (request.method !== 'GET') return sendJson(response, 405, { error: 'Only GET is supported' });
@@ -56,5 +56,83 @@ createServer(async (request, response) => {
     });
   }
 
+  if (url.pathname === '/api/telemetry/live') {
+    try {
+      const fetchJson = async (url: string, source: string) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`${res.status}`);
+          return await res.json();
+        } catch (e) {
+          console.warn(`${source} fetch failed:`, e);
+          return null;
+        }
+      };
+
+      const [cpuProm, memProm, reqProm, loki, jaeger] = await Promise.all([
+        fetchJson(`http://localhost:9090/api/v1/query?query=sum(rate(container_cpu_usage_seconds_total[1m]))*100`, 'Prometheus CPU'),
+        fetchJson(`http://localhost:9090/api/v1/query?query=sum(container_memory_working_set_bytes)/sum(container_spec_memory_limit_bytes)*100`, 'Prometheus Mem'),
+        fetchJson(`http://localhost:9090/api/v1/query?query=sum(rate(http_requests_total[1m]))`, 'Prometheus Req'),
+        fetchJson(`http://localhost:3100/loki/api/v1/query_range?query={level="error"}&start=${new Date(Date.now() - 15*60*1000).toISOString()}&end=${new Date().toISOString()}&limit=100&direction=backward`, 'Loki'),
+        fetchJson(`http://localhost:16686/api/services`, 'Jaeger')
+      ]);
+
+      const cpuValue = cpuProm?.data?.result?.[0]?.value?.[1];
+      const cpuUsage = cpuValue == null ? 0 : Number(cpuValue);
+      const lokiStreams = loki?.data?.result ?? [];
+      const errorCount = lokiStreams.reduce((c: number, s: any) => c + (Array.isArray(s.values) ? s.values.length : 0), 0);
+      const jaegerServices = jaeger?.data ?? [];
+
+      const liveData = {
+        metrics: {
+          cpuUsage: Number.isFinite(cpuUsage) ? cpuUsage : 0,
+          memoryUsage: Number(memProm?.data?.result?.[0]?.value?.[1] ?? 0),
+          requestCount: Number(reqProm?.data?.result?.[0]?.value?.[1] ?? 0),
+        },
+        logs: {
+          errorCount,
+          recentErrors: lokiStreams.flatMap((s: any) => (s.values ?? []).slice(-5).map((e: string[]) => e[1])),
+        },
+        traces: {
+          latency: 0,
+          errorRate: 0,
+          serviceCount: Array.isArray(jaegerServices) ? jaegerServices.length : 0,
+        },
+        sources: {
+          prometheus: cpuProm !== null,
+          loki: loki !== null,
+          jaeger: jaeger !== null,
+        },
+        lastUpdated: new Date().toISOString(),
+      };
+
+      if (dbCollection) {
+        await dbCollection.insertOne({ ...liveData, timestamp: new Date() });
+      }
+
+      return sendJson(response, 200, liveData);
+    } catch (err) {
+      return sendJson(response, 500, { error: 'Failed to fetch live telemetry' });
+    }
+  }
+
   return sendJson(response, 404, { error: 'Route not found' });
-}).listen(port, () => console.log(`Telemetry collector listening on http://localhost:${port}`));
+});
+
+let dbCollection: any = null;
+import { MongoClient } from 'mongodb';
+async function startServer() {
+  try {
+    const mongoUrl = process.env.MONGODB_URI ?? 'mongodb://localhost:27017';
+    const client = new MongoClient(mongoUrl);
+    await client.connect();
+    const db = client.db('observability');
+    dbCollection = db.collection('live_telemetry');
+    console.log('Connected to MongoDB');
+  } catch (err) {
+    console.warn('Failed to connect to MongoDB', err);
+  }
+  server.listen(port, () => console.log(`Telemetry collector listening on http://localhost:${port}`));
+}
+
+startServer();
