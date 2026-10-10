@@ -100,11 +100,11 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/observability/overview" icon={<LayoutDashboard />} label="Overview" />
               <NavItem to="/dimensions/observability/detail" icon={<Activity />} label="Telemetry Explorer" />
               <NavItem to="/dimensions/observability/history" icon={<History />} label="O-Score History" />
-              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Performance Collection" />
               <NavItem to="/dimensions/observability/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
             <NavGroup icon={<Zap />} label="Performance">
               <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" />
+              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Performance Collection" />
             </NavGroup>
             <NavGroup icon={<Shield />} label="Fault Tolerance">
               <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
