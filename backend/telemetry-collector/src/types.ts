@@ -50,4 +50,12 @@ export interface RawTelemetrySnapshot {
     jaeger: boolean;
     kubernetes: boolean;
   };
+  sourceErrors?: { source: string; message: string }[];
+}
+
+export interface MultiServiceSnapshot {
+  requestedServices: string[];
+  collectedAt: number;
+  snapshots: RawTelemetrySnapshot[];
+  errors: { serviceId: string; message: string }[];
 }

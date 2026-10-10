@@ -7,6 +7,7 @@
     "test": "tsx test/collector.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
     "tsx": "^4.19.2",
     "typescript": "^6.0.2"
   }
