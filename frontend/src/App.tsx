@@ -16,6 +16,7 @@ import { FaultToleranceCalculation } from './components/resilience/FaultToleranc
 import { ResilienceHistory } from './components/resilience/ResilienceHistory';
 import { Phase1Dashboard } from './pages/Phase1Dashboard';
 import { Phase2Dashboard } from './pages/Phase2Dashboard';
+import { CiCdOverview } from './pages/CiCdOverview';
 
 function App() {
   return (
@@ -34,6 +35,7 @@ function App() {
             <Route path="dimensions/FaultToleranceDashboard" element={<FaultToleranceDashboard />} />
             <Route path="dimensions/fault-tolerance/calculation" element={<FaultToleranceCalculation />} />
             <Route path="dimensions/fault-tolerance/history" element={<ResilienceHistory />} />
+            <Route path="dimensions/cicd" element={<CiCdOverview />} />
             <Route path="dimensions/:dimensionId" element={<DimensionPage />} />
             <Route path="phase1/coupling" element={<Phase1Dashboard />} />
             <Route path="phase2/blast-radius" element={<Phase2Dashboard />} />

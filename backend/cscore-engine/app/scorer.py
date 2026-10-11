@@ -22,6 +22,14 @@ def predict_cscore(features: dict) -> dict:
     
     if coupling_index > 0.5:
         probability = max(probability, 0.95)  # Force C-Score to 95.0
+        
+    # --- Guardrail: Phase 2 Blast Radius Constraint ---
+    # Breaking API changes affecting downstream consumer services must abort
+    api_changes = features.get("api_changes", 0) or 0
+    downstream_count = features.get("downstream_count", 0) or 0
+    blast_radius = api_changes * downstream_count
+    if blast_radius > 0:
+        probability = max(probability, 0.98)  # Force C-Score to 98.0
     # -----------------------------------------------
 
     cscore = round(probability * 100, 2)
