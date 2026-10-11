@@ -10,7 +10,9 @@ import {
   Layers,
   Calculator,
   GitBranch,
-  Activity
+  Activity,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import {
   LineChart,
@@ -89,8 +91,22 @@ export const Phase1Dashboard = () => {
   const [currentCommitFreq, setCurrentCommitFreq] = useState(16);
   const [currentCoDeploy, setCurrentCoDeploy] = useState(28);
   const [prs, setPrs] = useState(recentPRs);
+  const [filterMode, setFilterMode] = useState<'coupledOnly' | 'all'>('coupledOnly');
   const [history, setHistory] = useState(couplingHistory);
   const [services, setServices] = useState(serviceCouplingData);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
+  const displayedPRs = filterMode === 'coupledOnly'
+    ? prs.filter(p => (p.coDeployRate > 0) || (p.services && p.services.length > 1) || (p.couplingIndex > 0.4))
+    : prs;
+
+  const totalPages = Math.max(1, Math.ceil(displayedPRs.length / itemsPerPage));
+  const paginatedPRs = displayedPRs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterMode]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -271,16 +287,37 @@ export const Phase1Dashboard = () => {
           
           {/* PR Webhook Feed */}
           <div className="bg-surface border border-border rounded-xl overflow-hidden flex flex-col">
-            <div className="p-5 border-b border-border/50 flex justify-between items-center bg-surface-secondary/30">
+            <div className="p-4 border-b border-border/50 flex flex-wrap justify-between items-center bg-surface-secondary/30 gap-3">
               <div>
                 <div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold flex items-center gap-2">
                   <GitPullRequest className="w-4 h-4 text-brand-cicd" /> Recent PR Assessments
                 </div>
               </div>
-              <span className="text-xs text-brand-cicd hover:underline cursor-pointer">View All</span>
+              <div className="flex items-center gap-1.5 bg-background p-1 rounded-lg border border-border text-xs">
+                <button
+                  onClick={() => setFilterMode('coupledOnly')}
+                  className={`px-3 py-1 rounded-md transition-colors ${
+                    filterMode === 'coupledOnly' 
+                      ? 'bg-brand-cicd/20 text-brand-cicd font-semibold' 
+                      : 'text-text-muted hover:text-text-primary'
+                  }`}
+                >
+                  Coupled PRs Only
+                </button>
+                <button
+                  onClick={() => setFilterMode('all')}
+                  className={`px-3 py-1 rounded-md transition-colors ${
+                    filterMode === 'all' 
+                      ? 'bg-surface-secondary text-text-primary font-semibold' 
+                      : 'text-text-muted hover:text-text-primary'
+                  }`}
+                >
+                  All PRs ({prs.length})
+                </button>
+              </div>
             </div>
             <div className="divide-y divide-border/50">
-              {prs.map((pr, idx) => (
+              {paginatedPRs.map((pr, idx) => (
                 <div key={idx} className="p-5 hover:bg-surface-secondary/20 transition-colors flex items-center justify-between">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-3">
@@ -325,7 +362,43 @@ export const Phase1Dashboard = () => {
                   </div>
                 </div>
               ))}
+
+              {displayedPRs.length === 0 && (
+                <div className="p-8 text-center text-text-muted text-xs">
+                  No matching PR assessments found for this filter.
+                </div>
+              )}
             </div>
+
+            {/* Pagination Controls */}
+            {displayedPRs.length > itemsPerPage && (
+              <div className="p-3 border-t border-border/50 bg-surface-secondary/20 flex items-center justify-between text-xs text-text-secondary">
+                <span className="text-[11px] text-text-muted font-mono">
+                  Showing {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, displayedPRs.length)} of {displayedPRs.length} PRs
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded-lg border border-border/60 bg-surface hover:bg-surface-secondary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Previous page"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="font-mono text-xs text-text-primary px-2">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded-lg border border-border/60 bg-surface hover:bg-surface-secondary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Next page"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
         </div>
