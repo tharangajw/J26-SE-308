@@ -52,6 +52,50 @@ def count_breaking_changes(old_text, new_text):
     return len(messages), messages
 
 
+def auto_discover_dependencies(installation_id, full_name, repo_id, ref="main"):
+    """Automatically scans client's repository (e.g. docker-compose.yml)
+    to discover inter-service dependencies dynamically (Zero Manual Config)."""
+    import yaml
+    try:
+        content = fetch_file(installation_id, full_name, "docker-compose.yml", ref)
+        if not content:
+            return 0
+        
+        data = yaml.safe_load(content)
+        if not data or not isinstance(data, dict):
+            return 0
+            
+        services = data.get("services", {})
+        discovered = 0
+        
+        for consumer, cfg in services.items():
+            if not isinstance(cfg, dict):
+                continue
+            # 1. Parse depends_on list
+            deps = cfg.get("depends_on", [])
+            if isinstance(deps, list):
+                for provider in deps:
+                    if provider in services and not provider.endswith("-mongo") and not provider.endswith("-db"):
+                        db.add_dependency(repo_id, consumer, provider)
+                        discovered += 1
+            # 2. Parse environment variables for service URLs
+            env = cfg.get("environment", {})
+            if isinstance(env, dict):
+                for val in env.values():
+                    val_str = str(val)
+                    for provider in services:
+                        if provider != consumer and provider in val_str and ("http://" in val_str or "https://" in val_str):
+                            db.add_dependency(repo_id, consumer, provider)
+                            discovered += 1
+                            
+        if discovered > 0:
+            print(f"[discovery] Auto-discovered {discovered} inter-service dependencies from repository!")
+        return discovered
+    except Exception as e:
+        print(f"[discovery] Error during automatic dependency discovery: {e}")
+        return 0
+
+
 def get_phase2_features(installation_id, full_name, service, repo_id, base_branch, head_sha):
     path = f"{service}/{OPENAPI_FILE}"
     old = fetch_file(installation_id, full_name, path, base_branch)  # production (main)
@@ -62,7 +106,12 @@ def get_phase2_features(installation_id, full_name, service, repo_id, base_branc
     else:
         api_changes, messages = 0, []  # no spec to compare (new service / no file)
 
-    downstream = db.get_consumers(repo_id, service)  # who calls this service?
+    # Dynamic Discovery: if no consumers registered yet, auto-discover from repo
+    downstream = db.get_consumers(repo_id, service)
+    if not downstream:
+        auto_discover_dependencies(installation_id, full_name, repo_id, base_branch)
+        downstream = db.get_consumers(repo_id, service)
+
     return {
         "api_changes": api_changes,
         "downstream_count": len(downstream),

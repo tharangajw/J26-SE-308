@@ -49,6 +49,13 @@ async def github_webhook(
         pr = payload["pull_request"]
         full_name = payload["repository"]["full_name"]
         repo = db.add_repo(full_name, payload["installation"]["id"])
+        
+        # Auto-discover architecture dependencies from repo in background
+        from app.phase2 import auto_discover_dependencies
+        background_tasks.add_task(
+            auto_discover_dependencies, payload["installation"]["id"], full_name, repo["id"], pr["base"]["ref"]
+        )
+        
         background_tasks.add_task(
             run_pipeline, repo, pr["number"], pr["head"]["sha"], pr["base"]["ref"]
         )
