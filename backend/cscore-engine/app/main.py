@@ -271,7 +271,18 @@ class SimulatePayload(BaseModel):
 @app.get("/api/phase3/dashboard")
 def get_phase3_dashboard():
     from app.phase3 import get_phase3_features
-    services_list = ["order-service", "book-service", "user-service", "gateway"]
+    
+    registry_deps = db.get_all_dependencies(1)
+    registry_svcs = sorted(list(set([r["provider"] for r in registry_deps] + [r["consumer"] for r in registry_deps])))
+    
+    if registry_svcs:
+        services_list = registry_svcs
+    else:
+        conn = db.get_conn()
+        telemetry_svcs = [r["service_name"] for r in conn.execute("SELECT DISTINCT service_name FROM telemetry").fetchall()]
+        conn.close()
+        services_list = [s for s in telemetry_svcs if s and s not in ["scripts", "payment-service"]] or ["order-service", "book-service", "user-service", "gateway"]
+    
     results = []
     total_restarts = 0
     total_cpu = 0
