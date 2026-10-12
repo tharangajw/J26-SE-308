@@ -233,3 +233,18 @@ def get_phase2_dashboard():
             "edges": edges
         }
     }
+
+
+@app.post("/api/phase2/sync-architecture")
+def sync_architecture():
+    # Fetch first active repo
+    repo = db.get_repo("tharangajw/rp-core-product")
+    if not repo:
+        conn = db.get_conn()
+        row = conn.execute("SELECT * FROM repos ORDER BY id ASC LIMIT 1").fetchone()
+        conn.close()
+        repo = dict(row) if row else {"id": 1, "installation_id": 5239950, "full_name": "tharangajw/rp-core-product"}
+        
+    from app.phase2 import auto_discover_dependencies
+    count = auto_discover_dependencies(repo["installation_id"], repo["full_name"], repo["id"])
+    return {"status": "ok", "dependencies_discovered": count, "repo": repo["full_name"]}
