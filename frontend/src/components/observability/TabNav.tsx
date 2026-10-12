@@ -1,34 +1,32 @@
 const TABS = [
-  { id: 'overview',    label: 'Overview',    emoji: '◉',  desc: 'O-Score & KPIs' },
-  { id: 'metrics',     label: 'Metrics',     emoji: '📈', desc: 'Prometheus' },
-  { id: 'logs',        label: 'Logs',        emoji: '📃', desc: 'Loki' },
-  { id: 'traces',      label: 'Traces',      emoji: '🔗', desc: 'Jaeger' },
-  { id: 'cci',         label: 'CCI Audit',   emoji: '⊞',  desc: 'Blind Spots' },
-  { id: 'rca',         label: 'AI Analysis', emoji: '⚡', desc: 'Root Cause' },
-  { id: 'remediation', label: 'Remediation', emoji: '⚙',  desc: 'Fix Scripts' },
-  { id: 'chaos',       label: 'Chaos Lab',   emoji: '☢',  desc: 'Fault Inject' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'metrics', label: 'Metrics' },
+  { id: 'logs', label: 'Logs' },
+  { id: 'traces', label: 'Traces' },
+  { id: 'chaos', label: 'Chaos Lab' },
 ];
 
 interface Props { activeTab: string; onTabChange: (id: string) => void; }
 
 export default function TabNav({ activeTab, onTabChange }: Props) {
   return (
-    <div className="w-full overflow-hidden">
-      <div className="obs-tab-rail overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            id={`obs-tab-${tab.id}`}
-            onClick={() => onTabChange(tab.id)}
-            className={`obs-tab-pill ${activeTab === tab.id ? 'active' : ''}`}
-            aria-selected={activeTab === tab.id}
-          >
-            {activeTab === tab.id && <span className="obs-tab-dot" />}
-            <span style={{ fontSize: 15 }}>{tab.emoji}</span>
-            <span>{tab.label}</span>
-          </button>
-        ))}
-      </div>
+    <div className="flex flex-wrap gap-2">
+      {TABS.map((tab) => (
+        <button
+          key={tab.id}
+          id={`obs-tab-${tab.id}`}
+          type="button"
+          onClick={() => onTabChange(tab.id)}
+          aria-selected={activeTab === tab.id}
+          className={`inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === tab.id
+              ? 'border-brand-obs/60 bg-brand-obs/10 text-brand-obs'
+              : 'border-border bg-surface-secondary/40 text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
     </div>
   );
 }
