@@ -248,3 +248,180 @@ def sync_architecture():
     from app.phase2 import auto_discover_dependencies
     count = auto_discover_dependencies(repo["installation_id"], repo["full_name"], repo["id"])
     return {"status": "ok", "dependencies_discovered": count, "repo": repo["full_name"]}
+
+
+# ─── Phase 3: Runtime Telemetry Endpoints ─────────────────────────
+class TelemetryPayload(BaseModel):
+    service_name: str
+    metric: str | None = None
+    value: float | None = None
+    pod_restarts: float | None = None
+    cpu_spike_pct: float | None = None
+    mem_spike_pct: float | None = None
+    error_rate_pct: float | None = None
+    max_call_depth: float | None = None
+    sync_call_count: float | None = None
+
+
+class SimulatePayload(BaseModel):
+    service_name: str = "order-service"
+    preset: str = "healthy"  # "healthy", "pod_crash", "cpu_burn", "cascading_failure"
+
+
+@app.get("/api/phase3/dashboard")
+def get_phase3_dashboard():
+    from app.phase3 import get_phase3_features
+    services_list = ["order-service", "book-service", "user-service", "gateway"]
+    results = []
+    total_restarts = 0
+    total_cpu = 0
+    total_error = 0
+    
+    for svc in services_list:
+        metrics = get_phase3_features(1, svc)
+        total_restarts += metrics["pod_restarts"]
+        total_cpu += metrics["cpu_spike_pct"]
+        total_error += metrics["error_rate_pct"]
+        
+        is_risky = metrics["pod_restarts"] > 0 or metrics["cpu_spike_pct"] > 70 or metrics["error_rate_pct"] > 2.0
+        results.append({
+            "service": svc,
+            "podRestarts": int(metrics["pod_restarts"]),
+            "cpuSpikePct": round(metrics["cpu_spike_pct"], 1),
+            "memSpikePct": round(metrics["mem_spike_pct"], 1),
+            "errorRatePct": round(metrics["error_rate_pct"], 2),
+            "maxCallDepth": int(metrics["max_call_depth"]),
+            "syncCallCount": int(metrics["sync_call_count"]),
+            "status": "Degraded" if is_risky else "Healthy"
+        })
+        
+    return {
+        "services": results,
+        "summary": {
+            "totalPodRestarts": int(total_restarts),
+            "avgCpuSpike": round(total_cpu / len(services_list), 1),
+            "avgErrorRate": round(total_error / len(services_list), 2),
+            "overallRuntimeStatus": "CRITICAL" if total_restarts > 5 else ("WARNING" if total_restarts > 0 else "NOMINAL")
+        }
+    }
+
+
+@app.post("/v1/telemetry")
+@app.post("/api/v1/telemetry")
+def ingest_telemetry(payload: TelemetryPayload):
+    from app.phase3 import record_metric, record_batch_metrics
+    if payload.metric and payload.value is not None:
+        record_metric(1, payload.service_name, payload.metric, payload.value)
+        return {"status": "recorded", "service": payload.service_name, "metric": payload.metric, "value": payload.value}
+        
+    batch = {}
+    for k in ["pod_restarts", "cpu_spike_pct", "mem_spike_pct", "error_rate_pct", "max_call_depth", "sync_call_count"]:
+        v = getattr(payload, k, None)
+        if v is not None:
+            batch[k] = v
+    if batch:
+        record_batch_metrics(1, payload.service_name, batch)
+        return {"status": "recorded_batch", "service": payload.service_name, "metrics": batch}
+        
+    return {"status": "noop", "message": "No valid telemetry fields provided"}
+
+
+@app.post("/api/telemetry/simulate")
+def simulate_telemetry(payload: SimulatePayload):
+    from app.phase3 import simulate_telemetry_preset
+    metrics = simulate_telemetry_preset(1, payload.service_name, payload.preset)
+    return {"status": "ok", "service": payload.service_name, "preset": payload.preset, "metrics": metrics}
+
+
+@app.post("/v1/traces")
+def ingest_otlp_traces(trace_data: dict):
+    from app.phase3 import parse_otlp_traces, record_batch_metrics
+    parsed = parse_otlp_traces(trace_data)
+    record_batch_metrics(1, "gateway", parsed)
+    return {"status": "traces_analyzed", "metrics": parsed}
+
+
+@app.get("/api/cicd/overview")
+def get_cicd_overview():
+    runs = db.get_runs(limit=30)
+    
+    formatted_runs = []
+    total_passed = 0
+    total_coupling = 0
+    total_blast = 0
+    timeline = []
+    
+    for r in runs:
+        f = json.loads(r["features"])
+        c_freq = f.get("commit_freq", 0) or 0
+        c_deploy = f.get("co_deploy_rate", 0) or 0
+        coupling_idx = round(0.5 * min(c_freq / 24, 1.0) + 0.5 * c_deploy, 3)
+        api_changes = f.get("api_changes", 0) or 0
+        downstream = f.get("downstream_count", 0) or 0
+        blast = r.get("blast_radius") or (api_changes * downstream)
+        
+        is_passed = r["decision"] == "LOW_RISK"
+        if is_passed:
+            total_passed += 1
+            
+        total_coupling += coupling_idx
+        total_blast += blast
+        
+        item = {
+            "id": f"PR #{r['pr_number']}",
+            "prNumber": r["pr_number"],
+            "title": f"Update {r['service_name']}",
+            "service": r["service_name"],
+            "phase1": {
+                "commitFreq": c_freq,
+                "coDeployRate": round(c_deploy * 100, 1),
+                "couplingIndex": coupling_idx
+            },
+            "phase2": {
+                "apiChanges": api_changes,
+                "downstreamCount": downstream,
+                "blastRadius": blast
+            },
+            "phase3": {
+                "podRestarts": int(f.get("pod_restarts", 0) or 0),
+                "cpuSpikePct": round(f.get("cpu_spike_pct", 0) or 0, 1),
+                "errorRatePct": round(f.get("error_rate_pct", 0) or 0, 2),
+                "maxCallDepth": int(f.get("max_call_depth", 1) or 1),
+                "syncCallCount": int(f.get("sync_call_count", 0) or 0)
+            },
+            "cscore": r["cscore"],
+            "status": "Passed" if is_passed else "Blocked",
+            "time": r["created_at"]
+        }
+        formatted_runs.append(item)
+        
+    for item in reversed(formatted_runs[:8]):
+        time_lbl = item["time"].split(" ")[1][:5] if " " in item["time"] else item["time"]
+        timeline.append({
+            "name": time_lbl,
+            "cscore": item["cscore"],
+            "coupling": round(item["phase1"]["couplingIndex"] * 100, 1),
+            "blast": item["phase2"]["blastRadius"] * 10,
+            "restarts": item["phase3"]["podRestarts"]
+        })
+
+    p3_dashboard = get_phase3_dashboard()
+    
+    total_count = len(formatted_runs)
+    pass_rate = round((total_passed / total_count) * 100) if total_count > 0 else 100
+    avg_coupling = round(total_coupling / total_count, 3) if total_count > 0 else 0
+    avg_blast = round(total_blast / total_count, 1) if total_count > 0 else 0
+
+    return {
+        "summary": {
+            "totalEvaluations": total_count,
+            "passRate": pass_rate,
+            "avgCouplingIndex": avg_coupling,
+            "avgBlastRadius": avg_blast,
+            "runtimeRestarts": p3_dashboard["summary"]["totalPodRestarts"],
+            "runtimeCpu": p3_dashboard["summary"]["avgCpuSpike"],
+            "runtimeStatus": p3_dashboard["summary"]["overallRuntimeStatus"]
+        },
+        "runs": formatted_runs,
+        "timeline": timeline
+    }

@@ -141,6 +141,7 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />
               <NavItem to="/phase1/coupling" icon={<GitMerge />} label="Phase 1: Assessor Dashboard" />
               <NavItem to="/phase2/blast-radius" icon={<Network />} label="Phase 2: Blast Radius" />
+              <NavItem to="/phase3/telemetry" icon={<Activity />} label="Phase 3: Runtime Telemetry" />
             </NavGroup>
           </nav>
         </div>
