@@ -31,6 +31,9 @@ function App() {
             <Route path="dimensions/observability" element={<ObservabilityDashboard />} />
             <Route path="dimensions/observability/overview" element={<ObservabilityDashboard />} />
             <Route path="dimensions/observability/detail" element={<Observability />} />
+            <Route path="dimensions/observability/cci-audit" element={<Observability />} />
+            <Route path="dimensions/observability/ai-analysis" element={<Observability />} />
+            <Route path="dimensions/observability/remediation" element={<Observability />} />
             <Route path="dimensions/observability/calculation" element={<Observability />} />
             <Route path="dimensions/observability/history" element={<ObservabilityHistory />} />
             <Route path="dimensions/performance" element={<PerformanceDimensionPage />} />
