@@ -1,5 +1,3 @@
-import { calculateOScore } from '../../lib/ahpEngine';
-
 export const INITIAL_MOCK_HISTORY = Array.from({ length: 20 }).map((_, i) => ({
   timestamp: new Date(Date.now() - (20 - i) * 10000).toISOString(),
   oscore: 85 + Math.random() * 10 - 5,
@@ -19,13 +17,7 @@ const _details = {
 };
 
 export const INITIAL_MOCK_DATA = {
-  oscore: calculateOScore(
-    _details.metrics_coverage_rate,
-    _details.trace_id_propagation_rate,
-    _details.log_structural_integrity,
-    1,  // one blind spot in initial state
-    2
-  ),
+  oscore: 87.4,
   details: _details,
   scoring_weights: {
     blind_spot_penalty: 2
