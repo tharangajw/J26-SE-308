@@ -12,6 +12,10 @@ export default defineConfig({
   ],
   server: {
     proxy: {
+      '/api/observability': {
+        target: 'http://localhost:8010',
+        changeOrigin: true,
+      },
       '/proxy/prometheus': {
         target: 'http://localhost:9090',
         changeOrigin: true,
