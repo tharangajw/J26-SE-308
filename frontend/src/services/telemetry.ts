@@ -19,6 +19,17 @@ export interface TelemetryData {
     jaeger: boolean;
   };
   lastUpdated: string;
+  calculation: {
+    oScore: number;
+    cciIndex: number;
+    blindSpotCount: number;
+    status: string;
+    maturity: string;
+    ahp: any;
+    cciData: any;
+    scoreBreakdown: any;
+  };
+  history: Array<{ timestamp: string; oscore: number; cci_index: number; blind_spot_count: number }>;
 }
 
 // Use Vite proxies to bypass CORS issues
@@ -97,43 +108,9 @@ export class TelemetryService {
   }
 
   static async getCombinedTelemetry(): Promise<TelemetryData> {
-    const [prom, loki, jaeger] = await Promise.all([
-      this.fetchPrometheusMetrics(),
-      this.fetchLokiLogs(),
-      this.fetchJaegerTraces(),
-    ]);
-
-    const promValue = prom?.cpu?.data?.result?.[0]?.value?.[1];
-    const lokiStreams = loki?.data?.result ?? [];
-    const jaegerServices = jaeger?.data ?? [];
-    const cpuUsage = promValue == null ? 0 : Number(promValue);
-    const errorCount = lokiStreams.reduce((count: number, stream: any) => (
-      count + (Array.isArray(stream.values) ? stream.values.length : 0)
-    ), 0);
-
-    return {
-      metrics: {
-        cpuUsage: Number.isFinite(cpuUsage) ? cpuUsage : 0,
-        memoryUsage: Number(prom?.memory?.data?.result?.[0]?.value?.[1] ?? 0),
-        requestCount: Number(prom?.requests?.data?.result?.[0]?.value?.[1] ?? 0),
-      },
-      logs: {
-        errorCount,
-        recentErrors: lokiStreams.flatMap((stream: any) => (
-          (stream.values ?? []).slice(-5).map((entry: string[]) => entry[1])
-        )),
-      },
-      traces: {
-        latency: 0,
-        errorRate: 0,
-        serviceCount: Array.isArray(jaegerServices) ? jaegerServices.length : 0,
-      },
-      sources: {
-        prometheus: prom !== null,
-        loki: loki !== null,
-        jaeger: jaeger !== null,
-      },
-      lastUpdated: new Date().toISOString(),
-    };
+    const response = await fetch('/api/observability/telemetry');
+    if (!response.ok) throw new Error(`Observability engine request failed (${response.status})`);
+    const body = await response.json();
+    return { ...body.telemetry, calculation: body.calculation, history: body.history };
   }
 }
