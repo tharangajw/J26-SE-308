@@ -7,6 +7,15 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Backend package/build artifacts
+backend/**/node_modules/
+backend/**/dist/
+backend/**/coverage/
+backend/**/.cache/
+backend/**/.npm/
+backend/**/*.tsbuildinfo
+backend/**/.eslintcache
+
 node_modules
 dist
 dist-ssr

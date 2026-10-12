@@ -1,5 +1,6 @@
 import { Skull, RefreshCw, Activity, CheckCircle, XCircle } from 'lucide-react';
 import { useChaosContext } from '../../context/ChaosContext';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
 interface ChaosPanelProps {
   onExperimentRun?: (expId: string) => void;
@@ -9,57 +10,52 @@ export default function ChaosPanel({ onExperimentRun: _onExperimentRun }: ChaosP
   const { activeChaosEvent, chaosHistory } = useChaosContext();
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="obs-glass obs-lift p-6 mb-6 flex justify-between items-center bg-gradient-to-r from-rose-500/10 to-fuchsia-500/5 border-rose-500/20 shadow-lg shadow-rose-900/10 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-rose-500/10 via-transparent to-transparent opacity-50 pointer-events-none"></div>
-        <div className="relative z-10">
-          <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-rose-400 to-fuchsia-300 flex items-center gap-2">
-            <Skull className="w-6 h-6 text-rose-400 drop-shadow-md" />
-            Chaos Engineering Lab
-          </h2>
-          <p className="text-sm text-slate-300/80 mt-1">
-            Monitoring active chaos faults injected from the Fault Tolerance suite.
-          </p>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
+        <div>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <Skull className="h-4 w-4 text-rose-400" /> Chaos Engineering Lab
+          </h3>
+          <p className="mt-1 text-text-secondary">Monitoring active chaos faults injected from the Fault Tolerance suite.</p>
         </div>
         {activeChaosEvent && activeChaosEvent.status.includes('Active Fault') && (
-          <div className="relative z-10 flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-rose-500/20 to-rose-600/20 text-rose-200 rounded-full border border-rose-500/30 font-medium animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.3)]">
-            <RefreshCw className="w-4 h-4 animate-spin text-rose-300" />
-            Experiment Running: {activeChaosEvent.type}
+          <div className="inline-flex items-center gap-2 font-medium text-rose-300">
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            Experiment running: {activeChaosEvent.type}
           </div>
         )}
       </div>
 
-      <div>
-        <h3 className="text-lg font-medium text-slate-300 mb-4">Recent Activity</h3>
-        <div className="obs-glass p-4 h-[400px] overflow-y-auto space-y-3 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Recent Activity</CardTitle>
+        </CardHeader>
+        <CardContent className="max-h-[400px] space-y-3 overflow-y-auto">
           {chaosHistory.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-60">
-              <Skull className="w-8 h-8 mb-3 opacity-20" />
+            <div className="flex h-40 flex-col items-center justify-center text-text-muted">
+              <Skull className="mb-3 h-8 w-8 opacity-30" />
               <p className="text-sm">No recent experiments</p>
             </div>
           ) : (
             chaosHistory.map((hist) => (
-              <div key={hist.id} className="group relative bg-gradient-to-r from-slate-900/80 to-slate-800/50 p-4 rounded-xl border border-white/5 text-sm hover:border-white/10 transition-colors shadow-inner overflow-hidden">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-rose-500/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-semibold text-slate-200 tracking-wide">{hist.experiment_type}</span>
-                  {hist.status === 'completed' ? <CheckCircle className="w-4 h-4 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" /> :
-                   hist.status === 'failed' ? <XCircle className="w-4 h-4 text-rose-500 drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]" /> :
-                   <Activity className="w-4 h-4 text-sky-400 animate-pulse drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]" />}
+              <div key={hist.id} className="rounded-md border border-border/80 bg-surface-secondary/30 p-3 text-sm">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="font-medium text-text-primary">{hist.experiment_type}</span>
+                  {hist.status === 'completed' ? <CheckCircle className="h-4 w-4 text-emerald-400" /> :
+                   hist.status === 'failed' ? <XCircle className="h-4 w-4 text-rose-400" /> :
+                   <Activity className="h-4 w-4 animate-pulse text-cyan-400" />}
                 </div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider bg-black/40 px-2 py-0.5 rounded-full border border-white/5">
-                    {new Date(hist.started_at).toLocaleTimeString()}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 bg-black/40 p-2.5 rounded-lg border border-white/5 font-mono leading-relaxed">
+                <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-text-muted">
+                  {new Date(hist.started_at).toLocaleTimeString()}
+                </p>
+                <p className="font-mono text-xs leading-relaxed text-text-secondary">
                   {hist.message}
                 </p>
               </div>
             ))
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

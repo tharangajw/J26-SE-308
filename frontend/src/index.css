@@ -53,6 +53,23 @@
   border-radius: 16px;
 }
 
+.obs-score-card {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(52, 211, 153, 0.055), transparent 34%),
+    linear-gradient(145deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018));
+}
+
+.obs-score-card::after {
+  z-index: -1;
+  background: radial-gradient(circle at 50% 42%, rgba(52, 211, 153, 0.08), transparent 48%);
+}
+
+.obs-score-hover {
+  z-index: -1;
+  background: radial-gradient(circle at 50% 45%, rgba(99, 102, 241, 0.13), transparent 62%);
+}
+
 .obs-glass-bright {
   background: linear-gradient(145deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
   backdrop-filter: blur(32px) saturate(200%);

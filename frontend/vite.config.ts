@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // The project-level .env contains the VITE_* settings used by the frontend.
+  envDir: '..',
   plugins: [
     tailwindcss(),
     react()
