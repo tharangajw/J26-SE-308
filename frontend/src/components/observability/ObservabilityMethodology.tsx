@@ -18,10 +18,25 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
+// Display metadata only. The actual AHP/O-Score calculation runs in the Python backend.
+const DISPLAY_AHP = {
+  labels: [
+    'Metrics Coverage (Prometheus)',
+    'Trace Propagation (Jaeger)',
+    'Log Structural Integrity (Loki)',
+  ],
+  matrix: [[1, 1, 1.2], [1, 1, 1.2], [0.8333, 0.8333, 1]],
+  weights: [0.3529, 0.3529, 0.2941],
+  lambdaMax: 3,
+  consistencyIndex: 0,
+  randomIndex: 0.58,
+  consistencyRatio: 0,
+  isConsistent: true,
+};
+
 export const ObservabilityMethodology: React.FC<{ calculation?: any }> = ({ calculation }) => {
   const [selectedStage, setSelectedStage] = useState<number>(1);
-  if (!calculation) return <Card><CardContent className="p-6 text-sm text-text-muted">Loading backend calculation…</CardContent></Card>;
-  const ahp = calculation.ahp;
+  const ahp = calculation?.ahp ?? DISPLAY_AHP;
 
   const stages = [
     {
