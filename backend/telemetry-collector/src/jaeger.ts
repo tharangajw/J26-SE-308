@@ -12,34 +12,42 @@ export class JaegerCollector {
    * Throws an error if Jaeger backend is unreachable.
    */
   public async fetchTraces(serviceId: string, limit: number = 10): Promise<JaegerTraceSummary[]> {
-    const url = `${this.endpoint}/api/traces?service=${encodeURIComponent(serviceId)}&limit=${limit}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Jaeger traces for service ${serviceId}: ${response.statusText}`);
-    }
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 800);
+      const url = `${this.endpoint}/api/traces?service=${encodeURIComponent(serviceId)}&limit=${limit}`;
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
 
-    const data = await response.json();
-    if (!data.data || !Array.isArray(data.data)) {
+      if (!response.ok) {
+        return [];
+      }
+
+      const data = await response.json();
+      if (!data.data || !Array.isArray(data.data)) {
+        return [];
+      }
+
+      return data.data.map((trace: any) => {
+        const spans = trace.spans || [];
+        const rootSpan = spans.find((s: any) => !s.references || s.references.length === 0) || spans[0];
+        const durationMs = rootSpan ? rootSpan.duration / 1000.0 : 0.0;
+        const errorSpans = spans.filter((s: any) => 
+          s.tags?.some((t: any) => t.key === 'error' && t.value === true)
+        );
+
+        return {
+          traceId: trace.traceID,
+          rootService: serviceId,
+          spanCount: spans.length,
+          depth: this.calculateTraceDepth(spans),
+          durationMs: parseFloat(durationMs.toFixed(2)),
+          errorCount: errorSpans.length,
+        };
+      });
+    } catch {
       return [];
     }
-
-    return data.data.map((trace: any) => {
-      const spans = trace.spans || [];
-      const rootSpan = spans.find((s: any) => !s.references || s.references.length === 0) || spans[0];
-      const durationMs = rootSpan ? rootSpan.duration / 1000.0 : 0.0;
-      const errorSpans = spans.filter((s: any) => 
-        s.tags?.some((t: any) => t.key === 'error' && t.value === true)
-      );
-
-      return {
-        traceId: trace.traceID,
-        rootService: serviceId,
-        spanCount: spans.length,
-        depth: this.calculateTraceDepth(spans),
-        durationMs: parseFloat(durationMs.toFixed(2)),
-        errorCount: errorSpans.length,
-      };
-    });
   }
 
   private calculateTraceDepth(spans: any[]): number {

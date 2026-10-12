@@ -69,15 +69,14 @@ export const ObservabilityMethodology: React.FC = () => {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
       {/* Hero Header */}
-      <Card className="border-brand-obs/30 bg-brand-obs/5 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-brand-obs/10 blur-3xl rounded-full translate-x-1/3 -translate-y-1/3 pointer-events-none" />
+      <Card className="border-brand-obs/40 bg-brand-obs/5">
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-3 text-xl font-bold">
-              <Gauge className="h-6 w-6 text-brand-obs" /> Real-Time Observability Engine Pipeline
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
+              <Gauge className="h-4 w-4 text-brand-obs" /> Observability Engine Pipeline
             </CardTitle>
-            <span className="px-3 py-1 rounded-full bg-brand-obs/20 border border-brand-obs/40 text-brand-obs text-xs font-mono font-bold">
-              End-to-End Pipeline Active
+            <span className="text-xs font-medium uppercase tracking-wider text-brand-obs">
+              End-to-end pipeline active
             </span>
           </div>
           <p className="mt-2 max-w-4xl text-sm leading-relaxed text-text-secondary">

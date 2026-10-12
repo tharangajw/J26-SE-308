@@ -59,3 +59,10 @@ export interface MultiServiceSnapshot {
   snapshots: RawTelemetrySnapshot[];
   errors: { serviceId: string; message: string }[];
 }
+
+export interface MultiServiceSnapshot {
+  requestedServices: string[];
+  collectedAt: number;
+  snapshots: RawTelemetrySnapshot[];
+  errors: { serviceId: string; message: string }[];
+}
