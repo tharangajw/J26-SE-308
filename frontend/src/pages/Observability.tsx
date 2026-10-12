@@ -81,11 +81,12 @@ export const Observability: React.FC = () => {
     setMockData(prev => ({
       ...prev,
       oscore: telemetry.calculation.oScore,
+      realtime: telemetry,
       details: {
         ...prev.details,
         metrics_coverage_rate: telemetry.sources.prometheus ? 1 : 0,
         system_error_rate: telemetry.traces.errorRate / 100,
-        service_latency_p95_ms: telemetry.traces.latency,
+        service_latency_p95_ms: telemetry.metrics.p95Latency || telemetry.traces.latency,
         service_count: telemetry.traces.serviceCount,
         log_structural_integrity: telemetry.sources.loki ? 1 : 0,
         log_error_count: telemetry.logs.errorCount,

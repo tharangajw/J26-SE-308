@@ -3,15 +3,25 @@ export interface TelemetryData {
     cpuUsage: number;
     memoryUsage: number;
     requestCount: number;
+    p95Latency: number;
+  };
+  series: {
+    cpu: Array<{ time: string; value: number }>;
+    memory: Array<{ time: string; value: number }>;
+    requests: Array<{ time: string; value: number }>;
+    latency: Array<{ time: string; value: number }>;
   };
   logs: {
     errorCount: number;
     recentErrors: string[];
+    recentLogs: Array<{ timestamp: string; level: string; service: string; message: string; traceId: string }>;
+    series: Array<{ time: string; info: number; error: number }>;
   };
   traces: {
     latency: number;
     errorRate: number;
     serviceCount: number;
+    samples: Array<{ id: string; time: number; duration: number; spans: number; isError: boolean; service: string; operation: string }>;
   };
   sources: {
     prometheus: boolean;
