@@ -55,6 +55,7 @@ export const Observability: React.FC = () => {
   const navigate = useNavigate();
   const isCalculationView = pathname.endsWith('/calculation');
   const routeTab = pathname.endsWith('/cci-audit') ? 'cci' : pathname.endsWith('/ai-analysis') ? 'rca' : pathname.endsWith('/remediation') ? 'remediation' : 'overview';
+  const isAiAnalysisView = routeTab === 'rca';
   const { telemetry, oScore, cciIndex, history: liveHistory } = useTelemetry();
 
   const [activeTab, setActiveTab] = useState(routeTab);
@@ -144,12 +145,14 @@ export const Observability: React.FC = () => {
         <div>
           <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-brand-obs">
             <Activity className="h-6 w-6 text-brand-obs" />
-            {isCalculationView ? 'Observability Calculation' : 'Telemetry Explorer'}
+            {isCalculationView ? 'Observability Calculation' : isAiAnalysisView ? 'AI Root-Cause Analysis' : 'Telemetry Explorer'}
           </h2>
           <p className="mt-1 text-sm text-text-secondary">
             {isCalculationView
               ? 'Parameters, correlation weights, and penalty deductions behind the O-Score.'
-              : 'Real-time telemetry correlation across Prometheus, Loki, and Jaeger.'}
+              : isAiAnalysisView
+                ? 'Use Gemini or Claude to diagnose correlated telemetry and explain the likely root cause.'
+                : 'Real-time telemetry correlation across Prometheus, Loki, and Jaeger.'}
           </p>
         </div>
 

@@ -40,6 +40,10 @@ services:
       LOKI_URL: http://loki:3100
       JAEGER_URL: http://jaeger:16686
       OBSERVABILITY_TIMEOUT_SECONDS: 2
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-3-5-sonnet-latest}
     depends_on:
       - prometheus
       - loki

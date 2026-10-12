@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Sparkles, TriangleAlert } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BrainCircuit, CheckCircle2, LoaderCircle, Sparkles, TriangleAlert, Zap } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
 const SEV_STYLE: Record<string, string> = {
@@ -9,81 +9,34 @@ const SEV_STYLE: Record<string, string> = {
   Low:      'text-cyan-400',
 };
 
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.8-flash';
-
 export default function RCAPanel({ onRcaComplete, cciData }: any) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [rca, setRca]         = useState<any>(null);
+  const [provider, setProvider] = useState<'gemini' | 'claude'>('gemini');
+  const [providers, setProviders] = useState<Record<string, { configured: boolean; model: string }>>({});
+
+  useEffect(() => {
+    fetch('/api/observability/ai/providers')
+      .then(response => response.ok ? response.json() : null)
+      .then(data => data && setProviders(data))
+      .catch(() => setProviders({}));
+  }, []);
 
   const handleAnalyze = async () => {
     setLoading(true); setError(null);
-    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-
-    if (!geminiKey) {
-      const mockRca = {
-        summary: 'Detected MongoDB connection timeouts in order-service. The service is attempting to reconnect repeatedly but failing due to exhausted pool connections.',
-        root_cause: 'MongoDB connection pool exhaustion under high load in order-service.',
-        recommendations: [
-          'Increase the MongoDB connection pool size in order-service configuration.',
-          'Implement circuit breaking for the database connection.',
-          'Scale up the MongoDB instance if CPU is saturated.'
-        ],
-        severity: 'High',
-        affected_services: ['order-service', 'api-gateway'],
-        mode: 'demo',
-        ai_response_time_ms: 0,
-        evidence: [
-          'Metrics: High latency in p95 HTTP requests.',
-          'Traces: order-service POST /api/orders spans exceeding 5s.',
-          'Logs: MongoTimeoutError in order-service.'
-        ]
-      };
-      setRca(mockRca);
-      if (onRcaComplete) onRcaComplete(mockRca);
-      setLoading(false);
-      return;
-    }
-
     try {
-      const startedAt = performance.now();
-      const prompt = `You are an observability SRE performing root-cause analysis. Analyze this telemetry snapshot:
-${JSON.stringify(cciData ?? {}, null, 2)}
-
-Return ONLY valid JSON, without markdown, using this schema:
-{
-  "summary": "string",
-  "root_cause": "string",
-  "recommendations": ["string"],
-  "severity": "Critical|High|Medium|Low",
-  "affected_services": ["string"],
-  "evidence": ["string"]
-}`;
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(geminiKey)}`, {
+      const response = await fetch('/api/observability/ai/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
+        body: JSON.stringify({ provider, snapshot: cciData ?? {} }),
       });
-      const responseBody = await response.text();
-      let data: any;
-      try { data = JSON.parse(responseBody); } catch { throw new Error(`Gemini returned invalid JSON (${response.status})`); }
-      if (!response.ok) throw new Error(data.error?.message || `Gemini request failed (${response.status})`);
-      const output = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!output) throw new Error('Gemini returned no generated content');
-      const parsed = JSON.parse(output.replace(/^```json\s*|\s*```$/g, '').trim());
-      const liveRca = {
-        ...parsed,
-        mode: 'live',
-        provider: 'gemini',
-        ai_response_time_ms: Math.round(performance.now() - startedAt),
-      };
-      setRca(liveRca);
-      if (onRcaComplete) onRcaComplete(liveRca);
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || `${provider} analysis failed (${response.status})`);
+      setRca(data);
+      if (onRcaComplete) onRcaComplete(data);
     } catch (err) {
-      setError(`Gemini API Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`${provider === 'gemini' ? 'Gemini' : 'Claude'} API Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -91,21 +44,38 @@ Return ONLY valid JSON, without markdown, using this schema:
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+      <Card className="border-brand-obs/30 bg-gradient-to-br from-brand-obs/10 via-surface to-surface">
+        <CardContent className="space-y-5 p-5">
           <div>
             <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-              <Sparkles className="h-4 w-4 text-brand-obs" /> GenAI Root-Cause Analysis
+              <BrainCircuit className="h-4 w-4 text-brand-obs" /> AI Root-Cause Analysis
             </h3>
             <p className="mt-1 text-xs text-text-muted">
-              Sends a correlated Prometheus + Jaeger + Loki snapshot for diagnosis
+              Run the same correlated telemetry snapshot through Gemini or Claude.
             </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {(['gemini', 'claude'] as const).map((name) => {
+              const selected = provider === name;
+              const configured = providers[name]?.configured;
+              return (
+                <button key={name} type="button" onClick={() => setProvider(name)} className={`rounded-xl border p-4 text-left transition-colors ${selected ? 'border-brand-obs/70 bg-brand-obs/10' : 'border-border bg-surface-secondary/25 hover:border-brand-obs/40'}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 font-semibold capitalize text-text-primary">
+                      {name === 'gemini' ? <Sparkles className="h-4 w-4 text-cyan-300" /> : <Zap className="h-4 w-4 text-orange-300" />}{name}
+                    </span>
+                    <span className={`text-[10px] font-medium uppercase ${configured ? 'text-emerald-400' : 'text-amber-400'}`}>{configured ? 'Connected' : 'Demo fallback'}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-text-muted">{providers[name]?.model || 'Configure provider key in Docker'}</p>
+                </button>
+              );
+            })}
           </div>
           <button
             type="button"
             onClick={handleAnalyze}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-secondary/40 px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-brand-obs/60 hover:text-brand-obs disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-obs px-4 py-2 text-xs font-semibold text-slate-950 transition-colors hover:bg-brand-obs/80 disabled:cursor-wait disabled:opacity-60"
           >
             {loading ? 'Analyzing telemetry…' : 'Analyze recent errors'}
           </button>

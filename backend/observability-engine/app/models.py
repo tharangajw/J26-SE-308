@@ -26,3 +26,8 @@ class ObservabilityResponse(BaseModel):
     telemetry: TelemetrySnapshot
     calculation: ObservabilityCalculation
     history: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AIAnalysisRequest(BaseModel):
+    provider: str = "gemini"
+    snapshot: dict[str, Any] = Field(default_factory=dict)
