@@ -79,7 +79,7 @@ export const Observability: React.FC = () => {
 
     setMockData(prev => ({
       ...prev,
-      oscore: oScore,
+      oscore: telemetry.calculation.oScore,
       details: {
         ...prev.details,
         metrics_coverage_rate: telemetry.sources.prometheus ? 1 : 0,
@@ -93,42 +93,7 @@ export const Observability: React.FC = () => {
       },
     }));
 
-    // Build the CCI snapshot from the live source health on every telemetry poll.
-    // A missing source is an automatic blind spot; no manual/demo data is needed.
-    const hasMetric = telemetry.sources.prometheus;
-    const hasTrace = telemetry.sources.jaeger;
-    const hasLog = telemetry.sources.loki;
-    const missingPillars = [
-      !hasMetric ? 'Prometheus Metric' : null,
-      !hasTrace ? 'Jaeger Trace' : null,
-      !hasLog ? 'Loki Log' : null,
-    ].filter(Boolean) as string[];
-    const observedEvents = Math.max(
-      telemetry.logs.errorCount,
-      telemetry.traces.errorRate > 0 ? 1 : 0,
-      missingPillars.length > 0 ? 1 : 0,
-    );
-    const blindSpots = missingPillars.length > 0 ? [{
-      timestamp_utc: telemetry.lastUpdated,
-      has_metric: hasMetric,
-      has_trace: hasTrace,
-      has_log: hasLog,
-      missing_pillars: missingPillars,
-    }] : [];
-
-    setMockCci(prev => ({
-      ...prev,
-      cci_index: Math.round(([hasMetric, hasTrace, hasLog].filter(Boolean).length / 3) * 100),
-      total_events: observedEvents,
-      matched_events: missingPillars.length === 0 ? observedEvents : 0,
-      pillar_coverage: {
-        metric: hasMetric ? 1 : 0,
-        trace: hasTrace ? 1 : 0,
-        log: hasLog ? 1 : 0,
-      },
-      blind_spots: blindSpots,
-      event_source: hasMetric ? 'prometheus' : hasTrace ? 'jaeger' : 'loki',
-    }));
+    setMockCci(telemetry.calculation.cciData);
   }, [telemetry, oScore, cciIndex]);
 
   const handleChaosExperiment = (expId: string) => {
@@ -216,7 +181,7 @@ export const Observability: React.FC = () => {
               Review the parameters, cross-pillar correlation weights, and penalty deductions behind the current score.
             </p>
           </div>
-          <ObservabilityMethodology />
+          <ObservabilityMethodology calculation={telemetry?.calculation} />
         </div>
       ) : (
         <>
