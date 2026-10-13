@@ -1,26 +1,21 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import {
   Activity,
   AlertTriangle,
-  ArrowRight,
   CheckCircle2,
   Clock,
-  Compass,
-  GitBranch,
-  History,
-  Info,
-  Layers,
-  Play,
   RefreshCw,
   Server,
-  ShieldAlert,
-  Sliders,
-  Sparkles,
   TrendingDown,
   TrendingUp,
-  Zap
+  Zap,
+  Info,
+  ServerCrash,
+  Search,
+  Radio,
+  Plus
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -31,558 +26,756 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ReferenceLine,
-  Area,
-  AreaChart,
-  ComposedChart
+  ReferenceLine
 } from 'recharts';
 import { TelemetryService } from '../services/telemetry';
 
-interface HistoricalPoint {
-  deploymentId: string;
+interface HistoricalDeployment {
   version: string;
-  timestamp: string;
-  baselineP95Ms: number;
+  evaluatedAt: string;
+  p95LatencyMs: number;
 }
 
-interface PredictedPoint {
-  step: number;
-  label: string;
-  timestamp: string;
+interface PredictedDeployment {
+  version: string;
+  evaluatedAt: string;
   predictedP95Ms: number;
   lowerBoundMs: number;
   upperBoundMs: number;
 }
 
+interface DriftForecast {
+  trendSlopeMsPerRelease: number;
+  trendDirection: 'DEGRADING_RAPIDLY' | 'DEGRADING_STEADY' | 'STABLE' | 'IMPROVING';
+  predictedDeployments: PredictedDeployment[];
+  estimatedDeploymentsToSLABreach: number | null;
+  predictedNextDriftScore: number;
+  proactiveWarning: string;
+}
+
+interface ServiceDriftAnalysis {
+  serviceId: string;
+  liveP95LatencyMs: number;
+  historicalBaselineMs: number;
+  latencyDeltaMs: number;
+  driftRatio: number;
+  driftScore: number;
+  driftLevel: 'NO_DRIFT' | 'SLIGHT_DRIFT' | 'MODERATE_DRIFT' | 'CRITICAL_DRIFT' | 'NO_DATA';
+  hasTelemetry?: boolean;
+  historicalDeployments: HistoricalDeployment[];
+  recommendation: string;
+  forecast?: DriftForecast;
+}
+
+interface TelemetryPhase3Response {
+  pipeline: string;
+  requestedServices: string[];
+  evaluatedAt: number;
+  historicalDriftAnalysis: ServiceDriftAnalysis[];
+}
+
+interface DiscoveredServicesState {
+  prometheusJobs: string[];
+  jaegerServices: string[];
+  applicationServices: string[];
+  infrastructureServices: string[];
+  allServices: string[];
+}
+
 export const DriftAnalysisPage: React.FC = () => {
-  const [selectedService, setSelectedService] = useState<string>('order-service');
-  const [sensitivityDays, setSensitivityDays] = useState<number>(14);
-  const [currentP95Ms, setCurrentP95Ms] = useState<number>(135.0);
-  const [slaThresholdMs, setSlaThresholdMs] = useState<number>(160.0);
-  const [forecastSteps, setForecastSteps] = useState<number>(3);
-  const [liveServices, setLiveServices] = useState<string[]>(['order-service', 'payment-service', 'user-service', 'api-gateway']);
+  const [data, setData] = useState<TelemetryPhase3Response | null>(null);
+  const [discovered, setDiscovered] = useState<DiscoveredServicesState | null>(null);
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  const [customServices, setCustomServices] = useState<string[]>([]);
+  const [customInput, setCustomInput] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // Discover live services
-  const discoverServices = useCallback(async () => {
+  // Dynamic Service Discovery & Drift Fetching
+  const fetchTelemetry = useCallback(async (serviceToSelect?: string) => {
     setIsRefreshing(true);
     try {
-      const jaegerData = await TelemetryService.fetchJaegerTraces();
-      if (jaegerData && Array.isArray(jaegerData.data) && jaegerData.data.length > 0) {
-        const filtered = jaegerData.data.filter((s: string) => s !== 'jaeger-query');
-        if (filtered.length > 0) {
-          setLiveServices(filtered);
-        }
+      // 1. Dynamic Service Discovery from Prometheus & Jaeger
+      const discoveryResult = await TelemetryService.discoverServices();
+      setDiscovered(discoveryResult);
+
+      // Determine candidate services to inspect:
+      // (a) Any user-added custom services
+      // (b) Application microservices discovered from Prometheus/Jaeger
+      // (c) If no application services exist, include infrastructure targets so user can view live metrics
+      const candidateServices = new Set<string>();
+
+      customServices.forEach((s) => candidateServices.add(s));
+      discoveryResult.applicationServices.forEach((s) => candidateServices.add(s));
+
+      if (serviceToSelect) {
+        candidateServices.add(serviceToSelect);
       }
-    } catch {
-      // fallback
+
+      if (candidateServices.size === 0) {
+        // Fallback to discovered infrastructure services (e.g. telemetry-collector)
+        discoveryResult.infrastructureServices.forEach((s) => candidateServices.add(s));
+      }
+
+      const servicesToQuery = Array.from(candidateServices);
+      if (servicesToQuery.length === 0) {
+        throw new Error('No services discovered in Prometheus (:9090) or Jaeger (:16686).');
+      }
+
+      // 2. Fetch Drift Analysis from backend collector
+      const queryParam = encodeURIComponent(servicesToQuery.join(','));
+      let response: Response;
+      try {
+        response = await fetch(`/api/telemetry/phase3?services=${queryParam}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      } catch {
+        response = await fetch(`http://localhost:8787/api/telemetry/phase3?services=${queryParam}`);
+      }
+
+      if (!response.ok) {
+        throw new Error(`Telemetry Collector responded with status ${response.status}`);
+      }
+
+      const json: TelemetryPhase3Response = await response.json();
+      if (!json || !Array.isArray(json.historicalDriftAnalysis) || json.historicalDriftAnalysis.length === 0) {
+        throw new Error('Telemetry collector returned no drift analysis data');
+      }
+
+      setData(json);
+      setError(null);
+      setLastRefreshed(new Date());
+
+      // Select target service
+      setSelectedServiceId((prev) => {
+        if (serviceToSelect && json.historicalDriftAnalysis.some((s) => s.serviceId === serviceToSelect)) {
+          return serviceToSelect;
+        }
+        const availableIds = json.historicalDriftAnalysis.map((s) => s.serviceId);
+        if (prev && availableIds.includes(prev)) return prev;
+        return availableIds[0] || null;
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Unable to connect to telemetry collector or Prometheus/Jaeger');
+      setData(null);
     } finally {
+      setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [customServices]);
 
   useEffect(() => {
-    discoverServices();
-  }, [discoverServices]);
+    fetchTelemetry();
+    const interval = setInterval(() => fetchTelemetry(), 10000);
+    return () => clearInterval(interval);
+  }, [fetchTelemetry]);
 
-  // Historical deployment baseline data
-  const historicalDeployments: HistoricalPoint[] = useMemo(() => {
-    const baseLatency = selectedService === 'api-gateway' ? 45 : selectedService === 'order-service' ? 85 : 60;
-    return [
-      { deploymentId: 'dep-v1.2.0', version: 'v1.2.0', timestamp: '14d ago', baselineP95Ms: baseLatency - 5 },
-      { deploymentId: 'dep-v1.2.1', version: 'v1.2.1', timestamp: '10d ago', baselineP95Ms: baseLatency + 2 },
-      { deploymentId: 'dep-v1.2.2', version: 'v1.2.2', timestamp: '7d ago', baselineP95Ms: baseLatency - 2 },
-      { deploymentId: 'dep-v1.2.3', version: 'v1.2.3', timestamp: '4d ago', baselineP95Ms: baseLatency + 6 },
-      { deploymentId: 'dep-v1.2.4', version: 'v1.2.4', timestamp: '1d ago', baselineP95Ms: baseLatency + 1 },
-    ];
-  }, [selectedService]);
-
-  // Calculate Moving Average Baseline P95
-  const historicalBaseline = useMemo(() => {
-    if (historicalDeployments.length === 0) return 100.0;
-    const sum = historicalDeployments.reduce((acc, h) => acc + h.baselineP95Ms, 0);
-    return parseFloat((sum / historicalDeployments.length).toFixed(1));
-  }, [historicalDeployments]);
-
-  // Drift Analysis Calculations (Phase 3 Formula)
-  const driftDeltaMs = parseFloat((currentP95Ms - historicalBaseline).toFixed(1));
-  const driftPercentage = parseFloat((historicalBaseline > 0 ? (driftDeltaMs / historicalBaseline) * 100 : 0).toFixed(1));
-  const rawScore = driftPercentage > 0 ? driftPercentage / 100.0 : 0.0;
-  const driftScore = parseFloat(Math.min(1.0, Math.max(0.0, rawScore)).toFixed(3));
-  const pScorePenalty = parseFloat((driftScore * 40.0).toFixed(1)); // 40% weight in Scoring Engine
-
-  // Predictive Trend & Future Drift Forecasting (OLS Regression)
-  const forecastData = useMemo(() => {
-    const points = [...historicalDeployments.map((d) => d.baselineP95Ms), currentP95Ms];
-    const n = points.length;
-
-    let sumX = 0;
-    let sumY = 0;
-    let sumXY = 0;
-    let sumXX = 0;
-
-    for (let i = 0; i < n; i++) {
-      sumX += i;
-      sumY += points[i];
-      sumXY += i * points[i];
-      sumXX += i * i;
+  // Handle adding custom service to inspect
+  const handleAddCustomService = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = customInput.trim();
+    if (!trimmed) return;
+    if (!customServices.includes(trimmed)) {
+      setCustomServices((prev) => [...prev, trimmed]);
     }
+    setCustomInput('');
+    fetchTelemetry(trimmed);
+  };
 
-    const meanX = sumX / n;
-    const meanY = sumY / n;
-    const denominator = sumXX - sumX * meanX;
-    const slope = denominator !== 0 ? (sumXY - sumX * meanY) / denominator : 0;
-    const intercept = meanY - slope * meanX;
+  const currentServiceAnalysis = useMemo(() => {
+    if (!data || !selectedServiceId) return null;
+    return data.historicalDriftAnalysis.find((s) => s.serviceId === selectedServiceId) || null;
+  }, [data, selectedServiceId]);
 
-    let ssResiduals = 0;
-    for (let i = 0; i < n; i++) {
-      const pred = slope * i + intercept;
-      ssResiduals += Math.pow(points[i] - pred, 2);
-    }
-    const standardError = n > 2 ? Math.sqrt(ssResiduals / (n - 2)) : 3.0;
-
-    const predictions: PredictedPoint[] = [];
-    for (let step = 1; step <= forecastSteps; step++) {
-      const futureX = n - 1 + step;
-      const predVal = Math.max(5.0, slope * futureX + intercept);
-      const margin = 1.96 * standardError * Math.sqrt(1 + 1 / n + Math.pow(futureX - meanX, 2) / (denominator || 1));
-
-      predictions.push({
-        step,
-        label: `Forecast +${step}`,
-        timestamp: `+${step} Release`,
-        predictedP95Ms: parseFloat(predVal.toFixed(1)),
-        lowerBoundMs: parseFloat(Math.max(5.0, predVal - margin).toFixed(1)),
-        upperBoundMs: parseFloat((predVal + margin).toFixed(1)),
-      });
-    }
-
-    // Trend Direction
-    let trendDirection: 'DEGRADING_RAPIDLY' | 'DEGRADING_STEADY' | 'STABLE' | 'IMPROVING' = 'STABLE';
-    if (slope > 3.0) trendDirection = 'DEGRADING_RAPIDLY';
-    else if (slope > 0.3) trendDirection = 'DEGRADING_STEADY';
-    else if (slope < -0.3) trendDirection = 'IMPROVING';
-    else trendDirection = 'STABLE';
-
-    // Time to SLA Breach
-    let estimatedDeploymentsToBreach: number | null = null;
-    if (currentP95Ms >= slaThresholdMs) {
-      estimatedDeploymentsToBreach = 0;
-    } else if (slope > 0.05) {
-      const steps = (slaThresholdMs - currentP95Ms) / slope;
-      estimatedDeploymentsToBreach = Math.max(1, Math.ceil(steps));
-    }
-
-    const nextPredicted = predictions[0]?.predictedP95Ms ?? currentP95Ms;
-    const nextDelta = nextPredicted - historicalBaseline;
-    const nextRatio = historicalBaseline > 0 ? nextDelta / historicalBaseline : 0;
-    const predictedNextDriftScore = parseFloat(Math.min(1.0, Math.max(0.0, nextRatio)).toFixed(3));
-
-    return {
-      slope: parseFloat(slope.toFixed(2)),
-      intercept: parseFloat(intercept.toFixed(2)),
-      predictions,
-      trendDirection,
-      estimatedDeploymentsToBreach,
-      predictedNextDriftScore,
-    };
-  }, [historicalDeployments, currentP95Ms, forecastSteps, slaThresholdMs, historicalBaseline]);
-
-  // Combined chart data (Historical + Live + Future Forecast)
+  // Transform data for unified chart
   const chartData = useMemo(() => {
-    const historicalPoints = historicalDeployments.map((d) => ({
-      label: d.version,
-      timestamp: d.timestamp,
-      historicalBaseline: historicalBaseline,
-      deploymentP95: d.baselineP95Ms,
-      liveP95: null as number | null,
-      forecastP95: null as number | null,
-      lowerBound: null as number | null,
-      upperBound: null as number | null,
-    }));
+    if (!currentServiceAnalysis) return [];
+
+    const baseline = currentServiceAnalysis.historicalBaselineMs;
+    const history = currentServiceAnalysis.historicalDeployments || [];
+    const forecast = currentServiceAnalysis.forecast?.predictedDeployments || [];
+
+    const historicalPoints = history
+      .filter((h) => !h.version.toLowerCase().startsWith('live'))
+      .map((h) => ({
+        release: h.version,
+        date: h.evaluatedAt,
+        actualLatency: h.p95LatencyMs,
+        forecastLatency: null as number | null,
+        baseline: baseline,
+        type: 'Historical',
+      }));
 
     const livePoint = {
-      label: 'Live Active',
-      timestamp: 'Current',
-      historicalBaseline: historicalBaseline,
-      deploymentP95: null,
-      liveP95: currentP95Ms,
-      forecastP95: currentP95Ms, // Anchor forecast line to live point
-      lowerBound: currentP95Ms,
-      upperBound: currentP95Ms,
+      release: 'Live Active',
+      date: 'Current',
+      actualLatency: currentServiceAnalysis.liveP95LatencyMs,
+      forecastLatency: currentServiceAnalysis.liveP95LatencyMs,
+      baseline: baseline,
+      type: 'Live Active',
     };
 
-    const futurePoints = forecastData.predictions.map((p) => ({
-      label: p.label,
-      timestamp: p.timestamp,
-      historicalBaseline: historicalBaseline,
-      deploymentP95: null,
-      liveP95: null,
-      forecastP95: p.predictedP95Ms,
-      lowerBound: p.lowerBoundMs,
-      upperBound: p.upperBoundMs,
+    const futurePoints = forecast.map((f) => ({
+      release: f.version.replace(' (Forecast)', ''),
+      date: f.evaluatedAt,
+      actualLatency: null as number | null,
+      forecastLatency: f.predictedP95Ms,
+      baseline: baseline,
+      type: 'Forecast',
     }));
 
     return [...historicalPoints, livePoint, ...futurePoints];
-  }, [historicalDeployments, historicalBaseline, currentP95Ms, forecastData.predictions]);
+  }, [currentServiceAnalysis]);
 
-  const getDriftSeverity = () => {
-    if (driftScore <= 0.15) return { label: 'Healthy (No Significant Drift)', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' };
-    if (driftScore <= 0.45) return { label: 'Moderate Degradation', color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' };
-    return { label: 'Severe Latency Drift', color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' };
+  const getDriftBadge = (level: ServiceDriftAnalysis['driftLevel'] | undefined) => {
+    switch (level) {
+      case 'NO_DRIFT':
+        return {
+          label: 'Healthy (No Drift)',
+          color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+          icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+        };
+      case 'SLIGHT_DRIFT':
+        return {
+          label: 'Slight Drift',
+          color: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
+          icon: <Info className="h-4 w-4 text-sky-400" />
+        };
+      case 'MODERATE_DRIFT':
+        return {
+          label: 'Moderate Degradation',
+          color: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+          icon: <AlertTriangle className="h-4 w-4 text-amber-400" />
+        };
+      case 'CRITICAL_DRIFT':
+        return {
+          label: 'Critical Regression',
+          color: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+          icon: <AlertTriangle className="h-4 w-4 text-rose-400" />
+        };
+      case 'NO_DATA':
+        return {
+          label: 'No Telemetry Data',
+          color: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/30',
+          icon: <AlertTriangle className="h-4 w-4 text-zinc-400" />
+        };
+      default:
+        return {
+          label: 'Unknown',
+          color: 'text-text-muted bg-surface-secondary border-border',
+          icon: <Activity className="h-4 w-4" />
+        };
+    }
   };
 
-  const severity = getDriftSeverity();
+  const getTrendBadge = (direction: DriftForecast['trendDirection'] | undefined) => {
+    switch (direction) {
+      case 'IMPROVING':
+        return { label: 'Improving', color: 'text-emerald-400', icon: <TrendingDown className="h-4 w-4 text-emerald-400" /> };
+      case 'STABLE':
+        return { label: 'Stable', color: 'text-sky-400', icon: <Activity className="h-4 w-4 text-sky-400" /> };
+      case 'DEGRADING_STEADY':
+        return { label: 'Degrading Steadily', color: 'text-amber-400', icon: <TrendingUp className="h-4 w-4 text-amber-400" /> };
+      case 'DEGRADING_RAPIDLY':
+        return { label: 'Degrading Rapidly', color: 'text-rose-400', icon: <TrendingUp className="h-4 w-4 text-rose-400" /> };
+      default:
+        return { label: 'Insufficient Data', color: 'text-text-muted', icon: <Activity className="h-4 w-4" /> };
+    }
+  };
+
+  // 1. Loading State
+  if (isLoading && !data) {
+    return (
+      <PageContainer className="space-y-6">
+        <div className="flex h-96 flex-col items-center justify-center space-y-4 rounded-xl border border-border bg-surface p-8 text-center">
+          <RefreshCw className="h-8 w-8 animate-spin text-brand-perf" />
+          <h2 className="text-lg font-medium text-text-primary">Discovering Cluster Services...</h2>
+          <p className="max-w-md text-sm text-text-secondary">
+            Querying Prometheus (/api/v1/label/job/values) and Jaeger (/api/services) for active microservices.
+          </p>
+        </div>
+      </PageContainer>
+    );
+  }
+
+  // 2. Offline / Error State (No fake fallback)
+  if (error || !data || !currentServiceAnalysis) {
+    return (
+      <PageContainer className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-text-primary">
+              Historical Drift & Predictive Trend Analyzer
+            </h1>
+            <p className="text-sm text-text-secondary">
+              Real-time latency baseline tracking and predictive SLA drift forecasting.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchTelemetry()}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-secondary px-3.5 py-2 text-xs font-medium text-text-primary hover:bg-surface-secondary/80 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin text-brand-perf' : ''}`} />
+            Retry Discovery
+          </button>
+        </div>
+
+        <div className="flex flex-col items-center justify-center rounded-xl border border-rose-500/20 bg-rose-500/5 p-12 text-center">
+          <ServerCrash className="h-12 w-12 text-rose-400" />
+          <h3 className="mt-4 text-lg font-semibold text-rose-300">Telemetry Services Unreachable</h3>
+          <p className="mt-2 max-w-lg text-sm text-text-secondary leading-relaxed">
+            {error || 'Unable to discover active services from Prometheus (:9090), Jaeger (:16686) or Telemetry Collector (:8787).'}
+          </p>
+          <div className="mt-6 rounded-lg border border-border bg-surface p-4 text-left font-mono text-xs text-text-secondary">
+            <p className="font-semibold text-text-primary">Verify that your telemetry containers are running:</p>
+            <p className="mt-1 text-emerald-400">docker compose up -d prometheus jaeger telemetry-collector</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchTelemetry()}
+            disabled={isRefreshing}
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-brand-perf px-4 py-2 text-xs font-semibold text-white hover:bg-brand-perf/90"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh Now
+          </button>
+        </div>
+      </PageContainer>
+    );
+  }
+
+  const driftBadge = getDriftBadge(currentServiceAnalysis.driftLevel);
+  const trendBadge = getTrendBadge(currentServiceAnalysis.forecast?.trendDirection);
+  const isDegrading = currentServiceAnalysis.latencyDeltaMs > 0;
 
   return (
     <PageContainer className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-perf">Phase 3: Core Signal & Predictive Sub-Module</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Historical Drift & Predictive Trend Analyzer</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-text-secondary">
-            Compares live telemetry P95 latency against moving-average historical baselines and leverages Ordinary Least Squares (OLS) regression to predict future latency drift and preemptive SLA violations.
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-text-primary">
+              Historical Drift & Predictive Trend Analyzer
+            </h1>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Dynamic Discovery Active
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-text-secondary">
+            Continuously discovers active microservices from Prometheus and Jaeger, evaluates historical baseline drift, and forecasts SLA breaches.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={discoverServices}
-          disabled={isRefreshing}
-          className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-secondary/40 px-3.5 py-2 text-xs font-medium text-text-primary hover:bg-surface-secondary disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin text-brand-perf' : ''}`} />
-          {isRefreshing ? 'Scanning...' : 'Refresh Live Telemetry'}
-        </button>
+
+        <div className="flex items-center gap-3">
+          {lastRefreshed && (
+            <span className="flex items-center gap-1 text-xs text-text-muted">
+              <Clock className="h-3 w-3" />
+              {lastRefreshed.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => fetchTelemetry()}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-secondary px-3.5 py-2 text-xs font-medium text-text-primary hover:bg-surface-secondary/80 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin text-brand-perf' : ''}`} />
+            Refresh Discovery
+          </button>
+        </div>
       </div>
 
-      {/* Target Microservice, Baseline, & Predictive Forecasting Controls */}
-      <Card>
-        <CardHeader className="border-b border-border/60 pb-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
-              <Server className="h-4 w-4 text-brand-perf" /> Active Microservice & Predictive Engine Settings
-            </CardTitle>
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted">Sensitivity Window:</span>
-                <select
-                  value={sensitivityDays}
-                  onChange={(e) => setSensitivityDays(Number(e.target.value))}
-                  className="rounded-md border border-border bg-surface-secondary/40 px-2.5 py-1 font-mono text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand-perf"
-                >
-                  <option value={7}>7 Days</option>
-                  <option value={14}>14 Days (Standard)</option>
-                  <option value={30}>30 Days</option>
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted">Forecast Horizon:</span>
-                <select
-                  value={forecastSteps}
-                  onChange={(e) => setForecastSteps(Number(e.target.value))}
-                  className="rounded-md border border-border bg-surface-secondary/40 px-2.5 py-1 font-mono text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand-perf"
-                >
-                  <option value={2}>+2 Releases</option>
-                  <option value={3}>+3 Releases (Default)</option>
-                  <option value={5}>+5 Releases</option>
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted">SLA Threshold:</span>
-                <input
-                  type="number"
-                  value={slaThresholdMs}
-                  onChange={(e) => setSlaThresholdMs(Number(e.target.value))}
-                  className="w-20 rounded-md border border-border bg-surface-secondary/40 px-2 py-1 font-mono text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand-perf text-right"
-                />
-                <span className="text-xs text-text-muted font-mono">ms</span>
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-4">
-          <div className="flex flex-wrap items-center gap-2.5">
-            {liveServices.map((svc) => (
-              <button
-                key={svc}
-                type="button"
-                onClick={() => {
-                  setSelectedService(svc);
-                  if (svc === 'order-service') {
-                    setCurrentP95Ms(135);
-                    setSlaThresholdMs(160);
-                  } else if (svc === 'api-gateway') {
-                    setCurrentP95Ms(48);
-                    setSlaThresholdMs(70);
-                  } else {
-                    setCurrentP95Ms(82);
-                    setSlaThresholdMs(110);
-                  }
-                }}
-                className={`rounded-lg border px-3 py-1.5 font-mono text-xs transition-all ${
-                  selectedService === svc
-                    ? 'border-brand-perf bg-brand-perf/15 font-semibold text-brand-perf shadow-sm'
-                    : 'border-border bg-surface-secondary/30 text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                {svc}
-              </button>
-            ))}
-          </div>
-
-          {/* Live Latency Simulation Slider */}
-          <div className="rounded-lg border border-border/60 bg-surface-secondary/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                <Sliders className="h-3.5 w-3.5 text-brand-perf" /> Live P95 Latency Simulation / Override
+      {/* Dynamic Discovery Telemetry Sources Bar */}
+      <div className="rounded-lg border border-border/80 bg-surface-secondary/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <div className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-emerald-400" />
+              <span className="font-semibold text-text-primary">Prometheus Jobs:</span>
+              <span className="font-mono text-emerald-400">
+                {discovered?.prometheusJobs?.length ? discovered.prometheusJobs.join(', ') : 'None'}
               </span>
-              <span className="font-mono text-sm font-bold text-brand-perf">{currentP95Ms} ms</span>
             </div>
-            <input
-              type="range"
-              min={30}
-              max={300}
-              step={1}
-              value={currentP95Ms}
-              onChange={(e) => setCurrentP95Ms(Number(e.target.value))}
-              className="w-full accent-brand-perf cursor-pointer"
-            />
-            <div className="mt-1 flex justify-between text-[10px] font-mono text-text-muted">
-              <span>30 ms (Ultra-fast)</span>
-              <span>Historical Baseline: {historicalBaseline} ms</span>
-              <span>SLA Limit: {slaThresholdMs} ms</span>
-              <span>300 ms (Severe Degradation)</span>
+            <div className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-sky-400" />
+              <span className="font-semibold text-text-primary">Jaeger Services:</span>
+              <span className="font-mono text-sky-400">
+                {discovered?.jaegerServices?.length ? discovered.jaegerServices.join(', ') : 'None'}
+              </span>
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Proactive Forecasting Banner Alert */}
-      <div
-        className={`flex items-start gap-3 rounded-lg border p-4 ${
-          forecastData.estimatedDeploymentsToBreach === 0
-            ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
-            : forecastData.estimatedDeploymentsToBreach !== null && forecastData.estimatedDeploymentsToBreach <= 3
-            ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-        }`}
-      >
-        <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
-        <div className="space-y-1 text-xs">
-          <div className="font-semibold uppercase tracking-wider">
-            {forecastData.estimatedDeploymentsToBreach === 0
-              ? 'SLA Breach Active'
-              : forecastData.estimatedDeploymentsToBreach !== null && forecastData.estimatedDeploymentsToBreach <= 3
-              ? `Proactive Warning: SLA Breach Predicted in ~${forecastData.estimatedDeploymentsToBreach} Deployment(s)`
-              : 'Predictive Horizon Stable'}
-          </div>
-          <p className="text-text-secondary text-[11px] leading-relaxed">
-            {forecastData.estimatedDeploymentsToBreach === 0
-              ? `Current live P95 latency (${currentP95Ms}ms) has already breached the SLA target of ${slaThresholdMs}ms. Rollback or performance tuning required.`
-              : forecastData.estimatedDeploymentsToBreach !== null && forecastData.estimatedDeploymentsToBreach <= 3
-              ? `Latency is degrading at a rate of +${forecastData.slope} ms per release. Based on linear trend projection, P95 latency will exceed ${slaThresholdMs}ms in the next release cycle.`
-              : `Latency trend velocity is ${forecastData.slope > 0 ? `+${forecastData.slope}` : `${forecastData.slope}`} ms/release. Service remains safely below the ${slaThresholdMs}ms SLA threshold for the forecasted horizon.`}
-          </p>
+          {/* Quick Input to inspect any specific service */}
+          <form onSubmit={handleAddCustomService} className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+              <input
+                type="text"
+                placeholder="Inspect specific service..."
+                value={customInput}
+                onChange={(e) => setCustomInput(e.target.value)}
+                className="w-52 rounded-md border border-border bg-surface pl-8 pr-3 py-1 text-xs font-mono text-text-primary placeholder:text-text-muted focus:border-brand-perf focus:outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1 rounded-md bg-brand-perf/20 border border-brand-perf/40 px-2.5 py-1 text-xs font-medium text-brand-perf hover:bg-brand-perf/30"
+            >
+              <Plus className="h-3 w-3" />
+              Inspect
+            </button>
+          </form>
         </div>
       </div>
 
-      {/* Real-time & Predictive Drift Metric Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-border bg-surface-secondary/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-              Historical Baseline P95
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="font-mono text-2xl font-bold text-text-primary">{historicalBaseline} <span className="text-sm font-normal text-text-muted">ms</span></div>
-            <p className="mt-1 text-xs text-text-muted">Moving average of 5 deployments</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-surface-secondary/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-              Live Current P95
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="font-mono text-2xl font-bold text-brand-perf">{currentP95Ms} <span className="text-sm font-normal text-text-muted">ms</span></div>
-            <p className="mt-1 text-xs text-text-muted">Active snapshot latency</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-surface-secondary/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-              Trend Velocity (Slope)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className={`flex items-center gap-1.5 font-mono text-2xl font-bold ${forecastData.slope > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-              {forecastData.slope > 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
-              {forecastData.slope > 0 ? `+${forecastData.slope}` : forecastData.slope} <span className="text-sm font-normal text-text-muted">ms/rel</span>
+      {/* Discovered Service Tabs */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+        <span className="text-xs font-medium text-text-muted uppercase tracking-wider mr-2 flex items-center gap-1.5">
+          <Server className="h-3.5 w-3.5 text-brand-perf" /> Active Services:
+        </span>
+        {data.historicalDriftAnalysis.map((service) => {
+          const isSelected = selectedServiceId === service.serviceId;
+          const isApp = discovered?.applicationServices.includes(service.serviceId);
+          const isCustom = customServices.includes(service.serviceId);
+          return (
+            <div
+              key={service.serviceId}
+              className={`inline-flex items-center rounded-lg border font-mono text-xs font-medium transition-all ${
+                isSelected
+                  ? 'border-brand-perf bg-brand-perf/15 text-brand-perf shadow-sm'
+                  : 'border-border bg-surface text-text-secondary hover:text-text-primary hover:border-border/80'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedServiceId(service.serviceId)}
+                className="px-3 py-1.5"
+              >
+                {service.serviceId}
+                {isApp && (
+                  <span className="ml-1.5 rounded bg-emerald-500/20 text-emerald-400 px-1 py-0.2 text-[9px]">
+                    APP
+                  </span>
+                )}
+              </button>
+              {isCustom && (
+                <button
+                  type="button"
+                  title="Remove from inspect list"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCustomServices((prev) => prev.filter((s) => s !== service.serviceId));
+                  }}
+                  className="pr-2 pl-0.5 text-text-muted hover:text-rose-400 font-bold"
+                >
+                  ×
+                </button>
+              )}
             </div>
-            <p className="mt-1 text-xs text-text-muted">{forecastData.trendDirection.replace('_', ' ')}</p>
+          );
+        })}
+      </div>
+
+      {/* When the service has no telemetry data */}
+      {(!currentServiceAnalysis.hasTelemetry && currentServiceAnalysis.driftLevel === 'NO_DATA') ||
+      (currentServiceAnalysis.liveP95LatencyMs === 0 && currentServiceAnalysis.historicalBaselineMs === 0) ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/5 p-12 text-center">
+          <AlertTriangle className="h-10 w-10 text-amber-400" />
+          <h3 className="mt-4 text-base font-semibold text-text-primary">
+            No Telemetry Data Found for "{currentServiceAnalysis.serviceId}"
+          </h3>
+          <p className="mt-2 max-w-lg text-xs leading-relaxed text-text-secondary">
+            This service is not currently emitting metrics to Prometheus (:9090) or traces to Jaeger (:16686).
+            No live P95 latency measurements or historical deployment baselines exist for this target.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <span className="text-xs text-text-muted mr-1">
+              Active cluster targets:
+            </span>
+            {discovered?.allServices?.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSelectedServiceId(s)}
+                className="rounded border border-border bg-surface px-2.5 py-1 font-mono text-[11px] text-text-primary hover:border-brand-perf"
+              >
+                {s}
+              </button>
+            )) || <span className="text-xs text-text-muted">None</span>}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* 4 Focused KPI Cards */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {/* 1. Live Latency */}
+            <Card className="bg-surface border-border">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between text-text-muted">
+                  <span className="text-xs font-medium uppercase tracking-wider">Live P95 Latency</span>
+                  <Activity className="h-4 w-4 text-brand-perf" />
+                </div>
+                <div className="mt-3 flex items-baseline gap-1.5">
+                  <span className="text-3xl font-bold tracking-tight text-text-primary font-mono">
+                    {currentServiceAnalysis.liveP95LatencyMs.toFixed(1)}
+                  </span>
+                  <span className="text-sm font-medium text-text-muted">ms</span>
+                </div>
+                <p className="mt-1 text-xs text-text-secondary">Current active response time from telemetry</p>
+              </CardContent>
+            </Card>
+
+        {/* 2. Historical Baseline */}
+        <Card className="bg-surface border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between text-text-muted">
+              <span className="text-xs font-medium uppercase tracking-wider">Historical Baseline</span>
+              <Clock className="h-4 w-4 text-sky-400" />
+            </div>
+            <div className="mt-3 flex items-baseline gap-1.5">
+              <span className="text-3xl font-bold tracking-tight text-text-primary font-mono">
+                {currentServiceAnalysis.historicalBaselineMs.toFixed(1)}
+              </span>
+              <span className="text-sm font-medium text-text-muted">ms</span>
+            </div>
+            <p className="mt-1 text-xs text-text-secondary">Moving average baseline of past deployments</p>
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-surface-secondary/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-              Predicted Next Drift Score
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className={`font-mono text-2xl font-bold ${forecastData.predictedNextDriftScore > 0.4 ? 'text-rose-400' : 'text-cyan-400'}`}>
-              {forecastData.predictedNextDriftScore}
+        {/* 3. Latency Drift Status */}
+        <Card className="bg-surface border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between text-text-muted">
+              <span className="text-xs font-medium uppercase tracking-wider">Drift Status</span>
+              <Zap className="h-4 w-4 text-brand-perf" />
             </div>
-            <p className="mt-1 text-xs text-text-muted">
-              Next P95: ~{forecastData.predictions[0]?.predictedP95Ms ?? currentP95Ms} ms
+            <div className="mt-3 flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold ${driftBadge.color}`}>
+                {driftBadge.icon}
+                {driftBadge.label}
+              </span>
+            </div>
+            <p className="mt-2 text-xs font-mono text-text-secondary">
+              Delta: <span className={isDegrading ? 'text-amber-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                {isDegrading ? '+' : ''}{currentServiceAnalysis.latencyDeltaMs.toFixed(1)} ms
+              </span>{' '}
+              ({isDegrading ? '+' : ''}{((currentServiceAnalysis.driftScore) * 100).toFixed(1)}%)
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* 4. Forecast Trajectory */}
+        <Card className="bg-surface border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between text-text-muted">
+              <span className="text-xs font-medium uppercase tracking-wider">Forecast Trajectory</span>
+              {trendBadge.icon}
+            </div>
+            <div className="mt-3">
+              <span className={`text-base font-bold ${trendBadge.color}`}>
+                {trendBadge.label}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-text-secondary">
+              {currentServiceAnalysis.forecast?.estimatedDeploymentsToSLABreach !== null &&
+              currentServiceAnalysis.forecast?.estimatedDeploymentsToSLABreach !== undefined
+                ? `Breach in ~${currentServiceAnalysis.forecast.estimatedDeploymentsToSLABreach} release(s)`
+                : 'Within acceptable SLA limits'}
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Historical Deployment Trend & Predictive Curve Chart */}
-      <Card>
-        <CardHeader className="border-b border-border/60 pb-3">
+      {/* Main Trend & Prediction Chart */}
+      <Card className="bg-surface border-border">
+        <CardHeader className="border-b border-border/60 pb-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
-              <Activity className="h-4 w-4 text-brand-perf" /> Historical Baseline vs Live P95 vs Predictive Forecast Curve
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${severity.bg} ${severity.color}`}>
-                {severity.label}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-purple-500/30 bg-purple-500/10 px-2.5 py-0.5 text-xs font-mono text-purple-400">
-                <Sparkles className="h-3 w-3" /> OLS Forecast ({forecastSteps} steps)
-              </span>
+            <div>
+              <CardTitle className="text-base font-semibold text-text-primary">
+                Latency Progression & Future Horizon
+              </CardTitle>
+              <p className="text-xs text-text-secondary mt-1">
+                Historical deployments (solid blue) → Live active latency (highlighted) → Predicted releases (dashed orange)
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-xs font-mono">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-sky-400" />
+                <span className="text-text-secondary">Historical Latency</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-brand-perf" />
+                <span className="text-text-secondary">Future Forecast</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-0.5 w-3 bg-zinc-500" />
+                <span className="text-text-secondary">Baseline ({currentServiceAnalysis.historicalBaselineMs}ms)</span>
+              </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="pt-6">
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                <XAxis dataKey="label" stroke="#888" fontSize={11} />
-                <YAxis stroke="#888" fontSize={11} unit="ms" />
+              <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#252C35" />
+                <XAxis
+                  dataKey="release"
+                  stroke="#5E6875"
+                  fontSize={12}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke="#5E6875"
+                  fontSize={12}
+                  unit="ms"
+                  domain={['dataMin - 5', 'dataMax + 10']}
+                  tickLine={false}
+                />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '6px', fontSize: '12px' }}
+                  contentStyle={{
+                    backgroundColor: '#10141A',
+                    borderColor: '#252C35',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    color: '#F1F5F9'
+                  }}
+                  formatter={(value: any, name?: any) => {
+                    if (value === null || value === undefined) return ['', ''];
+                    const label = name === 'actualLatency' ? 'Actual Latency' : name === 'forecastLatency' ? 'Predicted Latency' : String(name || '');
+                    return [`${Number(value).toFixed(1)} ms`, label];
+                  }}
                 />
-                <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-
-                {/* Moving Average Baseline */}
+                <Legend verticalAlign="top" height={36} />
                 <ReferenceLine
-                  y={historicalBaseline}
-                  stroke="#10b981"
+                  y={currentServiceAnalysis.historicalBaselineMs}
+                  stroke="#71717A"
                   strokeDasharray="4 4"
-                  label={{ value: `Baseline (${historicalBaseline}ms)`, fill: '#10b981', fontSize: 11, position: 'top' }}
+                  label={{
+                    value: `Baseline: ${currentServiceAnalysis.historicalBaselineMs}ms`,
+                    fill: '#A1A1AA',
+                    fontSize: 11,
+                    position: 'insideBottomRight'
+                  }}
                 />
-
-                {/* SLA Threshold Limit Line */}
-                <ReferenceLine
-                  y={slaThresholdMs}
-                  stroke="#ef4444"
-                  strokeDasharray="3 3"
-                  label={{ value: `SLA Limit (${slaThresholdMs}ms)`, fill: '#ef4444', fontSize: 11, position: 'insideTopRight' }}
-                />
-
-                {/* Historical baseline deployments */}
                 <Line
                   type="monotone"
-                  dataKey="deploymentP95"
-                  name="Historical Deployments P95"
-                  stroke="#38bdf8"
-                  strokeWidth={2}
-                  dot={{ r: 4, fill: '#38bdf8' }}
-                  connectNulls
+                  dataKey="actualLatency"
+                  name="Actual P95 Latency"
+                  stroke="#38BDF8"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: '#38BDF8', strokeWidth: 0 }}
+                  activeDot={{ r: 6 }}
+                  connectNulls={false}
                 />
-
-                {/* Live active latency */}
                 <Line
                   type="monotone"
-                  dataKey="liveP95"
-                  name="Live Active Latency P95"
-                  stroke="#f43f5e"
-                  strokeWidth={3}
-                  dot={{ r: 7, fill: '#f43f5e' }}
-                  connectNulls
-                />
-
-                {/* Predicted Future Curve */}
-                <Line
-                  type="monotone"
-                  dataKey="forecastP95"
-                  name="Predicted Future Latency P95"
-                  stroke="#a855f7"
+                  dataKey="forecastLatency"
+                  name="Forecasted Latency"
+                  stroke="#F97316"
                   strokeWidth={2.5}
                   strokeDasharray="5 5"
-                  dot={{ r: 5, fill: '#a855f7' }}
-                  connectNulls
+                  dot={{ r: 4, fill: '#F97316', strokeWidth: 0 }}
+                  activeDot={{ r: 6 }}
+                  connectNulls={false}
                 />
-              </ComposedChart>
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </CardContent>
       </Card>
 
-      {/* Predictive Forecast Breakdown Table */}
-      <Card>
+      {/* Diagnostic & Warning Cards */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card className="bg-surface border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-text-primary">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              Engine Diagnostic
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm leading-relaxed text-text-secondary">
+            {currentServiceAnalysis.recommendation}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-surface border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-text-primary">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              Proactive Trend Advisory
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm leading-relaxed text-text-secondary">
+            {currentServiceAnalysis.forecast?.proactiveWarning || 'No warning generated.'}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Deployment Table */}
+      <Card className="bg-surface border-border">
         <CardHeader className="border-b border-border/60 pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
-            <Compass className="h-4 w-4 text-purple-400" /> Proactive Drift Forecast & SLA Risk Matrix
+          <CardTitle className="text-sm font-semibold text-text-primary">
+            Deployment Latency Records ({currentServiceAnalysis.serviceId})
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-4">
+        <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-left font-mono text-xs">
-              <thead className="border-b border-border text-text-muted">
+            <table className="w-full text-left text-xs font-mono">
+              <thead className="bg-surface-secondary/50 text-text-muted border-b border-border/60 uppercase">
                 <tr>
-                  <th className="pb-2">Forecast Horizon</th>
-                  <th className="pb-2">Time Horizon</th>
-                  <th className="pb-2 text-right">Predicted P95 (ms)</th>
-                  <th className="pb-2 text-right">95% Confidence Interval</th>
-                  <th className="pb-2 text-right">Drift vs Baseline</th>
-                  <th className="pb-2 text-center">SLA Compliance</th>
+                  <th className="px-5 py-3 font-medium">Release</th>
+                  <th className="px-5 py-3 font-medium">Evaluation Date</th>
+                  <th className="px-5 py-3 font-medium">P95 Latency</th>
+                  <th className="px-5 py-3 font-medium">Type</th>
+                  <th className="px-5 py-3 font-medium">Variance vs Baseline</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/50 text-text-secondary">
-                {forecastData.predictions.map((p) => {
-                  const delta = parseFloat((p.predictedP95Ms - historicalBaseline).toFixed(1));
-                  const isBreach = p.predictedP95Ms >= slaThresholdMs;
-                  const isUpperBreach = p.upperBoundMs >= slaThresholdMs;
-
+              <tbody className="divide-y divide-border/40 text-text-secondary">
+                {currentServiceAnalysis.historicalDeployments.map((h, i) => {
+                  const isLive = h.version.toLowerCase().startsWith('live');
+                  const diff = h.p95LatencyMs - currentServiceAnalysis.historicalBaselineMs;
                   return (
-                    <tr key={p.step} className="hover:bg-surface-secondary/30">
-                      <td className="py-2.5 text-purple-400 font-semibold flex items-center gap-1.5">
-                        <ArrowRight className="h-3 w-3" /> {p.label}
+                    <tr key={`hist-${i}`} className={isLive ? 'bg-brand-perf/5 text-text-primary' : ''}>
+                      <td className="px-5 py-3 font-semibold">{h.version}</td>
+                      <td className="px-5 py-3 text-text-muted">{h.evaluatedAt}</td>
+                      <td className="px-5 py-3 font-semibold text-text-primary">
+                        {h.p95LatencyMs.toFixed(1)} ms
                       </td>
-                      <td className="py-2.5 text-text-muted">{p.timestamp}</td>
-                      <td className="py-2.5 text-right font-medium text-text-primary">{p.predictedP95Ms} ms</td>
-                      <td className="py-2.5 text-right text-text-muted">
-                        [{p.lowerBoundMs} ms - {p.upperBoundMs} ms]
+                      <td className="px-5 py-3">
+                        <span className={`inline-block rounded px-2 py-0.5 text-[10px] font-semibold ${
+                          isLive ? 'bg-brand-perf/20 text-brand-perf' : 'bg-surface-secondary text-text-secondary'
+                        }`}>
+                          {isLive ? 'LIVE ACTIVE' : 'HISTORICAL'}
+                        </span>
                       </td>
-                      <td className={`py-2.5 text-right ${delta > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {delta > 0 ? `+${delta} ms` : `${delta} ms`}
+                      <td className={`px-5 py-3 ${diff > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        {diff > 0 ? `+${diff.toFixed(1)} ms` : `${diff.toFixed(1)} ms`}
                       </td>
-                      <td className="py-2.5 text-center">
-                        {isBreach ? (
-                          <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-400">
-                            <AlertTriangle className="h-3 w-3" /> Breach Expected
-                          </span>
-                        ) : isUpperBreach ? (
-                          <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-400">
-                            <AlertTriangle className="h-3 w-3" /> Risk in Upper Bound
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-400">
-                            <CheckCircle2 className="h-3 w-3" /> SLA Compliant
-                          </span>
-                        )}
+                    </tr>
+                  );
+                })}
+
+                {currentServiceAnalysis.forecast?.predictedDeployments.map((f, i) => {
+                  const diff = f.predictedP95Ms - currentServiceAnalysis.historicalBaselineMs;
+                  return (
+                    <tr key={`pred-${i}`} className="bg-surface-secondary/20">
+                      <td className="px-5 py-3 font-semibold text-brand-perf">{f.version}</td>
+                      <td className="px-5 py-3 text-text-muted">{f.evaluatedAt}</td>
+                      <td className="px-5 py-3 font-semibold text-brand-perf">
+                        {f.predictedP95Ms.toFixed(1)} ms
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="inline-block rounded bg-brand-perf/10 text-brand-perf px-2 py-0.5 text-[10px] font-semibold">
+                          PREDICTED
+                        </span>
+                      </td>
+                      <td className={`px-5 py-3 ${diff > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        +{diff.toFixed(1)} ms
                       </td>
                     </tr>
                   );
@@ -592,47 +785,8 @@ export const DriftAnalysisPage: React.FC = () => {
           </div>
         </CardContent>
       </Card>
-
-      {/* Historical Deployments Breakdown Table */}
-      <Card>
-        <CardHeader className="border-b border-border/60 pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
-            <History className="h-4 w-4 text-brand-perf" /> Historical Deployments Baseline Log
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-4">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left font-mono text-xs">
-              <thead className="border-b border-border text-text-muted">
-                <tr>
-                  <th className="pb-2">Deployment ID</th>
-                  <th className="pb-2">Release Version</th>
-                  <th className="pb-2">Recorded At</th>
-                  <th className="pb-2 text-right">Baseline P95 (ms)</th>
-                  <th className="pb-2 text-right">Deviation from Mean</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50 text-text-secondary">
-                {historicalDeployments.map((d) => {
-                  const dev = parseFloat((d.baselineP95Ms - historicalBaseline).toFixed(1));
-                  return (
-                    <tr key={d.deploymentId} className="hover:bg-surface-secondary/30">
-                      <td className="py-2.5 text-text-primary">{d.deploymentId}</td>
-                      <td className="py-2.5 text-cyan-400">{d.version}</td>
-                      <td className="py-2.5 text-text-muted">{d.timestamp}</td>
-                      <td className="py-2.5 text-right font-medium text-text-primary">{d.baselineP95Ms} ms</td>
-                      <td className={`py-2.5 text-right ${dev > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {dev > 0 ? `+${dev} ms` : `${dev} ms`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      </>
+      )}
     </PageContainer>
   );
 };
-

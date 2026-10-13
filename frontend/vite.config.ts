@@ -24,6 +24,15 @@ export default defineConfig({
         target: 'http://localhost:16686',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/jaeger/, '')
+      },
+      '/api/telemetry': {
+        target: 'http://localhost:8787',
+        changeOrigin: true
+      },
+      '/api/anomaly': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/anomaly/, '')
       }
     }
   }

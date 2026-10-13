@@ -136,4 +136,68 @@ export class TelemetryService {
       lastUpdated: new Date().toISOString(),
     };
   }
+
+  static async discoverServices(): Promise<{
+    prometheusJobs: string[];
+    jaegerServices: string[];
+    applicationServices: string[];
+    infrastructureServices: string[];
+    allServices: string[];
+  }> {
+    let prometheusJobs: string[] = [];
+    let jaegerServices: string[] = [];
+
+    // 1. Fetch Prometheus job labels
+    try {
+      const promRes = await fetchJson(`${PROMETHEUS_URL}/api/v1/label/job/values`, {}, 'Prometheus');
+      if (promRes?.status === 'success' && Array.isArray(promRes.data)) {
+        prometheusJobs = promRes.data;
+      }
+    } catch {
+      try {
+        const res = await fetch('http://localhost:9090/api/v1/label/job/values');
+        const data = await res.json();
+        if (data?.status === 'success' && Array.isArray(data.data)) {
+          prometheusJobs = data.data;
+        }
+      } catch {
+        // unreachable
+      }
+    }
+
+    // 2. Fetch Jaeger services
+    try {
+      const jaegerRes = await this.fetchJaegerTraces();
+      if (jaegerRes?.data && Array.isArray(jaegerRes.data)) {
+        jaegerServices = jaegerRes.data;
+      }
+    } catch {
+      try {
+        const res = await fetch('http://localhost:16686/api/services');
+        const data = await res.json();
+        if (Array.isArray(data.data)) {
+          jaegerServices = data.data;
+        }
+      } catch {
+        // unreachable
+      }
+    }
+
+    const infraKeywords = ['prometheus', 'jaeger', 'loki', 'grafana', 'collector'];
+    const isInfra = (name: string) => infraKeywords.some((kw) => name.toLowerCase().includes(kw));
+
+    const allSet = new Set<string>([...prometheusJobs, ...jaegerServices]);
+    const allServices = Array.from(allSet);
+    const applicationServices = allServices.filter((s) => !isInfra(s));
+    const infrastructureServices = allServices.filter((s) => isInfra(s));
+
+    return {
+      prometheusJobs,
+      jaegerServices,
+      applicationServices,
+      infrastructureServices,
+      allServices,
+    };
+  }
 }
+

@@ -15,7 +15,8 @@ import {
   Shield,
   GitMerge,
   ChevronDown,
-  TrendingUp
+  TrendingUp,
+  ShieldAlert
 } from 'lucide-react';
 import clsx from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -108,7 +109,7 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Telemetry Collection Data" />
               <NavItem to="/dimensions/performance/pipeline" icon={<Activity />} label="Data Pipeline Outputs" />
               <NavItem to="/dimensions/performance/drift" icon={<TrendingUp />} label="Historical Drift Analyzer" />
-              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Performance Collection" />
+              <NavItem to="/dimensions/performance/anomaly" icon={<ShieldAlert />} label="Anomaly Detection Engine" />
             </NavGroup>
             <NavGroup icon={<Shield />} label="Fault Tolerance">
               <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
