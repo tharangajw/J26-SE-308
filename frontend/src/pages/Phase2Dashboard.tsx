@@ -15,7 +15,8 @@ import {
   AlertTriangle,
   GitBranch,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  RefreshCw
 } from 'lucide-react';
 import {
   AreaChart,
@@ -63,6 +64,24 @@ export const Phase2Dashboard = () => {
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncArchitecture = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/phase2/sync-architecture', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Discovered ${data.dependencies_discovered} dependencies directly from ${data.repo}'s docker-compose.yml!`);
+        fetchData();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
@@ -115,6 +134,16 @@ export const Phase2Dashboard = () => {
         </div>
 
         <div className="flex items-center gap-4 border-l border-border pl-4">
+          <button
+            onClick={handleSyncArchitecture}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 text-xs font-semibold transition-colors disabled:opacity-50"
+            title="Auto-scan repository docker-compose to discover dependencies"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Scanning Repo...' : 'Scan Architecture'}
+          </button>
+
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
             <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
             <span className="text-xs font-semibold">Listening</span>
