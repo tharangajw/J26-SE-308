@@ -8,8 +8,10 @@ from typing import Any
 import requests
 
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+GEMINI_FALLBACK_MODELS = [model.strip() for model in os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.8-flash").split(",") if model.strip()]
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "45"))
 
 SCHEMA = {
@@ -19,6 +21,14 @@ SCHEMA = {
     "severity": "Critical|High|Medium|Low",
     "affected_services": ["string"],
     "evidence": ["string"],
+}
+
+REMEDIATION_SCHEMA = {
+    "script": "string",
+    "description": "string",
+    "risk_level": "Low|Medium|High|Critical",
+    "estimated_impact": "string",
+    "rollback_steps": ["string"],
 }
 
 
@@ -31,12 +41,30 @@ Return ONLY valid JSON matching this schema, with no markdown:
 {json.dumps(SCHEMA)}"""
 
 
+def _remediation_prompt(report: dict[str, Any]) -> str:
+    return f"""You are a Kubernetes platform engineer and SRE. Create a production-ready remediation manifest for this RCA report:
+{json.dumps(report, indent=2)}
+
+Return ONLY valid JSON matching this schema, with no markdown:
+{json.dumps(REMEDIATION_SCHEMA)}
+
+Requirements:
+- Return valid Kubernetes YAML, not pseudo-YAML or prose.
+- Include apiVersion, kind, metadata.name, and a complete spec.
+- Prefer a minimal Deployment patch with safe rolling-update settings.
+- Include sensible CPU/memory requests and limits; add probes only when supported by the report.
+- Do not invent secrets, image tags, namespaces, ports, or environment values.
+- Never include kubectl delete, database destruction, privilege escalation, hostPath, or plaintext credentials.
+- Use High risk when assumptions or manual review are required.
+- Include exact rollback steps using kubectl rollout undo where applicable."""
+
+
 def _parse_json(value: str) -> dict[str, Any]:
     cleaned = value.strip().removeprefix("```json").removesuffix("```").strip()
     return json.loads(cleaned)
 
 
-def _demo(provider: str, elapsed: int = 0) -> dict[str, Any]:
+def _demo(provider: str, elapsed: int = 0, reason: str | None = None) -> dict[str, Any]:
     return {
         "summary": "The latest telemetry indicates elevated request latency and intermittent database connection failures in order-service.",
         "root_cause": "Connection-pool pressure under load is creating slow downstream calls and repeated retries.",
@@ -56,6 +84,40 @@ def _demo(provider: str, elapsed: int = 0) -> dict[str, Any]:
         "mode": "demo",
         "model": "demo-fallback",
         "ai_response_time_ms": elapsed,
+        "fallback_reason": reason,
+    }
+
+
+def _demo_remediation(provider: str, elapsed: int = 0, reason: str | None = None) -> dict[str, Any]:
+    return {
+        "script_type": "kubernetes_yaml",
+        "script": '''apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: order-service
+        resources:
+          requests:
+            memory: \"256Mi\"
+          limits:
+            memory: "512Mi"''',
+        "guardrail_status": "safe",
+        "description": "Update memory limits for order-service to prevent OOM errors.",
+        "risk_level": "Low",
+        "estimated_impact": "Prevents out of memory kills, stabilizing order processing.",
+        "rollback_steps": [
+            "Run `kubectl rollout undo deployment/order-service`",
+            "Verify pods are running with previous memory limits.",
+        ],
+        "provider": provider,
+        "mode": "demo",
+        "model": "demo-fallback",
+        "fallback_reason": reason,
+        "ai_response_time_ms": elapsed,
     }
 
 
@@ -64,15 +126,22 @@ def analyze_with_gemini(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not key:
         return _demo("gemini")
     started = time.perf_counter()
-    response = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-        params={"key": key},
-        json={"contents": [{"parts": [{"text": _prompt(snapshot)}]}], "generationConfig": {"responseMimeType": "application/json"}},
-        timeout=AI_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    output = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-    return {**_parse_json(output), "provider": "gemini", "mode": "live", "model": GEMINI_MODEL, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
+    last_error = "unknown Gemini error"
+    models = list(dict.fromkeys([GEMINI_MODEL, *GEMINI_FALLBACK_MODELS]))
+    for model in models:
+        try:
+            response = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                params={"key": key},
+                json={"contents": [{"parts": [{"text": _prompt(snapshot)}]}], "generationConfig": {"responseMimeType": "application/json"}},
+                timeout=AI_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            output = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+            return {**_parse_json(output), "provider": "gemini", "mode": "live", "model": model, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
+        except Exception as error:
+            last_error = f"{model}: {str(error)[:160]}"
+    return _demo("gemini", round((time.perf_counter() - started) * 1000), f"Gemini models unavailable after retry: {last_error}")
 
 
 def analyze_with_claude(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -80,16 +149,104 @@ def analyze_with_claude(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not key:
         return _demo("claude")
     started = time.perf_counter()
-    response = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-        json={"model": CLAUDE_MODEL, "max_tokens": 1200, "system": "Return only valid JSON. Do not use markdown.", "messages": [{"role": "user", "content": _prompt(snapshot)}]},
-        timeout=AI_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    output = response.json()["content"][0]["text"]
-    return {**_parse_json(output), "provider": "claude", "mode": "live", "model": CLAUDE_MODEL, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+            json={"model": CLAUDE_MODEL, "max_tokens": 1200, "system": "Return only valid JSON. Do not use markdown.", "messages": [{"role": "user", "content": _prompt(snapshot)}]},
+            timeout=AI_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        output = response.json()["content"][0]["text"]
+        return {**_parse_json(output), "provider": "claude", "mode": "live", "model": CLAUDE_MODEL, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
+    except Exception as error:
+        return _demo("claude", round((time.perf_counter() - started) * 1000), f"Claude unavailable: {str(error)[:180]}")
+
+
+def analyze_with_openrouter(snapshot: dict[str, Any]) -> dict[str, Any]:
+    key = os.getenv("OPENROUTER_API_KEY")
+    if not key:
+        return _demo("openrouter")
+    started = time.perf_counter()
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "HTTP-Referer": "http://localhost:3000", "X-Title": "ArchMaturity Observability"},
+            json={"model": OPENROUTER_MODEL, "messages": [{"role": "system", "content": "Return only valid JSON. Do not use markdown."}, {"role": "user", "content": _prompt(snapshot)}], "temperature": 0.2},
+            timeout=AI_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        output = response.json()["choices"][0]["message"]["content"]
+        return {**_parse_json(output), "provider": "openrouter", "mode": "live", "model": OPENROUTER_MODEL, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
+    except Exception as error:
+        return _demo("openrouter", round((time.perf_counter() - started) * 1000), f"OpenRouter unavailable: {str(error)[:180]}")
 
 
 def analyze(provider: str, snapshot: dict[str, Any]) -> dict[str, Any]:
-    return analyze_with_gemini(snapshot) if provider == "gemini" else analyze_with_claude(snapshot)
+    if provider == "gemini":
+        return analyze_with_gemini(snapshot)
+    if provider == "claude":
+        return analyze_with_claude(snapshot)
+    return analyze_with_openrouter(snapshot)
+
+
+def generate_remediation(provider: str, report: dict[str, Any]) -> dict[str, Any]:
+    """Generate a guarded remediation script through the selected provider."""
+    key = {"gemini": os.getenv("GEMINI_API_KEY"), "claude": os.getenv("ANTHROPIC_API_KEY"), "openrouter": os.getenv("OPENROUTER_API_KEY")}.get(provider)
+    if not key:
+        return _demo_remediation(provider)
+
+    started = time.perf_counter()
+    prompt = _remediation_prompt(report)
+    try:
+        if provider == "gemini":
+            last_error = "unknown Gemini error"
+            for model in list(dict.fromkeys([GEMINI_MODEL, *GEMINI_FALLBACK_MODELS])):
+                try:
+                    response = requests.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                        params={"key": key},
+                        json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2}},
+                        timeout=AI_TIMEOUT_SECONDS,
+                    )
+                    response.raise_for_status()
+                    output = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    break
+                except Exception as error:
+                    last_error = f"{model}: {str(error)[:160]}"
+            else:
+                raise RuntimeError(f"Gemini models unavailable after retry: {last_error}")
+        elif provider == "claude":
+            response = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": CLAUDE_MODEL, "max_tokens": 1400, "system": "Return only valid JSON. Do not use markdown.", "messages": [{"role": "user", "content": prompt}]},
+                timeout=AI_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            output = response.json()["content"][0]["text"]
+            model = CLAUDE_MODEL
+        else:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "HTTP-Referer": "http://localhost:3000", "X-Title": "ArchMaturity Observability"},
+                json={"model": OPENROUTER_MODEL, "messages": [{"role": "system", "content": "Return only valid JSON. Do not use markdown."}, {"role": "user", "content": prompt}], "temperature": 0.2},
+                timeout=AI_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            output = response.json()["choices"][0]["message"]["content"]
+            model = OPENROUTER_MODEL
+
+        parsed = _parse_json(output)
+        risk = parsed.get("risk_level", "Medium")
+        return {
+            **parsed,
+            "script_type": "kubernetes_yaml",
+            "guardrail_status": "dangerous" if risk == "Critical" else "review_required" if risk == "High" else "safe",
+            "provider": provider,
+            "mode": "live",
+            "model": model,
+            "ai_response_time_ms": round((time.perf_counter() - started) * 1000),
+        }
+    except Exception as error:
+        return _demo_remediation(provider, round((time.perf_counter() - started) * 1000), f"{provider.title()} unavailable: {str(error)[:180]}")

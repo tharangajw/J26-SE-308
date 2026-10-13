@@ -31,3 +31,8 @@ class ObservabilityResponse(BaseModel):
 class AIAnalysisRequest(BaseModel):
     provider: str = "gemini"
     snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class AIRemediationRequest(BaseModel):
+    provider: str = "gemini"
+    report: dict[str, Any] = Field(default_factory=dict)

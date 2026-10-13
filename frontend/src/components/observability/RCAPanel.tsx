@@ -13,7 +13,7 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [rca, setRca]         = useState<any>(null);
-  const [provider, setProvider] = useState<'gemini' | 'claude'>('gemini');
+  const [provider, setProvider] = useState<'gemini' | 'claude' | 'openrouter'>('gemini');
   const [providers, setProviders] = useState<Record<string, { configured: boolean; model: string }>>({});
 
   useEffect(() => {
@@ -36,7 +36,8 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
       setRca(data);
       if (onRcaComplete) onRcaComplete(data);
     } catch (err) {
-      setError(`${provider === 'gemini' ? 'Gemini' : 'Claude'} API Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      const providerLabel = provider === 'gemini' ? 'Gemini' : provider === 'claude' ? 'Claude' : 'OpenRouter';
+      setError(`${providerLabel} API Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -51,18 +52,18 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
               <BrainCircuit className="h-4 w-4 text-brand-obs" /> AI Root-Cause Analysis
             </h3>
             <p className="mt-1 text-xs text-text-muted">
-              Run the same correlated telemetry snapshot through Gemini or Claude.
+              Run the same correlated telemetry snapshot through Gemini, Claude, or OpenRouter.
             </p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            {(['gemini', 'claude'] as const).map((name) => {
+            {(['gemini', 'claude', 'openrouter'] as const).map((name) => {
               const selected = provider === name;
               const configured = providers[name]?.configured;
               return (
                 <button key={name} type="button" onClick={() => setProvider(name)} className={`rounded-xl border p-4 text-left transition-colors ${selected ? 'border-brand-obs/70 bg-brand-obs/10' : 'border-border bg-surface-secondary/25 hover:border-brand-obs/40'}`}>
                   <div className="flex items-center justify-between gap-3">
                     <span className="flex items-center gap-2 font-semibold capitalize text-text-primary">
-                      {name === 'gemini' ? <Sparkles className="h-4 w-4 text-cyan-300" /> : <Zap className="h-4 w-4 text-orange-300" />}{name}
+                      {name === 'gemini' ? <Sparkles className="h-4 w-4 text-cyan-300" /> : name === 'claude' ? <Zap className="h-4 w-4 text-orange-300" /> : <BrainCircuit className="h-4 w-4 text-violet-300" />}{name}
                     </span>
                     <span className={`text-[10px] font-medium uppercase ${configured ? 'text-emerald-400' : 'text-amber-400'}`}>{configured ? 'Connected' : 'Demo fallback'}</span>
                   </div>
@@ -145,7 +146,7 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border border-border/80 bg-surface-secondary/30 p-3">
                     <p className="text-[10px] uppercase text-text-muted">AI Model</p>
-                    <p className="mt-1 text-xs font-medium">{rca.mode === 'demo' ? 'Demo Mode' : rca.provider === 'gemini' ? 'Gemini AI' : 'AI'}</p>
+                    <p className="mt-1 text-xs font-medium capitalize">{rca.mode === 'demo' ? `${rca.provider} demo` : `${rca.provider} AI`}</p>
                   </div>
                   <div className="rounded-md border border-border/80 bg-surface-secondary/30 p-3">
                     <p className="text-[10px] uppercase text-text-muted">Response</p>
@@ -154,7 +155,7 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
                 </div>
                 {rca.mode === 'demo' && (
                   <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
-                    Demo mode active. Add VITE_GEMINI_API_KEY to the project .env for live analysis.
+                    Demo fallback active. {rca.fallback_reason || 'Configure the provider key in Docker for live analysis.'}
                   </div>
                 )}
               </CardContent>

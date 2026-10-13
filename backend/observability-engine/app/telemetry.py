@@ -97,7 +97,10 @@ def collect_telemetry() -> dict:
         counts = log_buckets.setdefault(bucket, {"time": bucket, "info": 0, "error": 0})
         counts["error" if item["level"] in {"ERROR", "CRITICAL"} else "info"] += 1
 
-    traces_payload = _get_json(f"{JAEGER_URL}/api/traces", {"lookback": "1h", "limit": "100"})
+    trace_params = {"lookback": "1h", "limit": "100"}
+    if services:
+        trace_params["service"] = services[0]
+    traces_payload = _get_json(f"{JAEGER_URL}/api/traces", trace_params)
     trace_samples = []
     for trace in (traces_payload or {}).get("data", []):
         spans = trace.get("spans", [])

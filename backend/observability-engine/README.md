@@ -17,6 +17,11 @@ starting the container. Keys stay inside Docker and are never sent to the browse
 ```env
 GEMINI_API_KEY=your-gemini-key
 ANTHROPIC_API_KEY=your-anthropic-key
+OPENROUTER_API_KEY=your-openrouter-key
+# Optional: Gemini retries this model if the primary model is busy.
+GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_FALLBACK_MODELS=gemini-3.8-flash
+OPENROUTER_MODEL=openrouter/free
 ```
 
 Without a key, the UI uses a clearly labelled demo fallback for that provider.
