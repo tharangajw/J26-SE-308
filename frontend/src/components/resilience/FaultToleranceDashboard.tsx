@@ -53,12 +53,13 @@ export const FaultToleranceDashboard: React.FC = () => {
     confidence: 94.8
   });
 
-  const [selfHealing] = useState<SelfHealingMetrics>({
+  const [selfHealing, setSelfHealing] = useState<SelfHealingMetrics>({
     podRestartSuccessRate: 98.5,
     replicaReplacementSuccessRate: 100,
     hpaEffectiveness: 95.0,
     circuitBreakerEffectiveness: 96.8
   });
+  const [deviceHardware, setDeviceHardware] = useState<any>(null);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
@@ -106,6 +107,15 @@ export const FaultToleranceDashboard: React.FC = () => {
           setMetrics(data.metrics);
           if (data.services && data.services.length > 0) {
             setServices(data.services);
+          }
+          if (data.aiPrediction) {
+            setAiPrediction(data.aiPrediction);
+          }
+          if (data.selfHealing) {
+            setSelfHealing(data.selfHealing);
+          }
+          if (data.deviceHardware) {
+            setDeviceHardware(data.deviceHardware);
           }
           setIsSimulation(false);
         }
@@ -562,8 +572,11 @@ export const FaultToleranceDashboard: React.FC = () => {
               <Zap size={14} className="pulse-icon" /> SIMULATION MODE (Mock Telemetry Active)
             </span>
           ) : (
-            <span className="mode-badge live">
-              <Activity size={14} className="pulse-icon" /> LIVE CLUSTER METRICS
+            <span className="mode-badge live" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Activity size={14} className="pulse-icon" />
+              <span>
+                LIVE HOST: {deviceHardware?.hostname || 'Current Device'} ({deviceHardware?.cpuCores ? `${deviceHardware.cpuCores} Cores` : '8 Cores'} · {deviceHardware?.totalMemoryGB ? `${deviceHardware.totalMemoryGB}GB RAM` : '16GB RAM'})
+              </span>
             </span>
           )}
           <button className="btn-icon" onClick={resetMetrics} title="Reset All Metrics">

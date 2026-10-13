@@ -1,0 +1,20 @@
+{
+  "name": "j26-se-308-resilience-engine",
+  "version": "1.0.0",
+  "description": "Real-Time Resilience & Fault Tolerance Sub-Engine (R-Score)",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "node --experimental-strip-types --watch src/server.ts"
+  },
+  "keywords": [
+    "resilience",
+    "fault-tolerance",
+    "r-score",
+    "microservices",
+    "chaos-engineering"
+  ],
+  "author": "SLIIT J26-SE-308",
+  "license": "ISC"
+}
