@@ -49,6 +49,14 @@ export interface ChaosInjectRequest {
   duration?: number;
   latencyMs?: number;
   errorRate?: number;
+  engine?: 'Chaos Mesh';
+}
+
+export interface KubernetesChaosLog {
+  timestamp: string;
+  level: 'INFO' | 'WARN' | 'ERROR' | 'SYSTEM';
+  source: 'Chaos Mesh' | 'Kubernetes' | 'Prometheus' | 'Grafana';
+  message: string;
 }
 
 export interface ActiveChaosEvent {
@@ -58,6 +66,23 @@ export interface ActiveChaosEvent {
   injectedAt: number;
   durationSec: number;
   status: string;
+  engine: 'Chaos Mesh';
+  experimentName: string;
+  kubernetesLogs: KubernetesChaosLog[];
+  metricsSnapshot?: {
+    preChaosAvailability: number;
+    postChaosAvailability: number;
+    mttrObservedSec?: number;
+    errorRateSpike: number;
+  };
+  selfHealingValidation?: {
+    podRestarted: boolean;
+    podRestartTimeSec?: number;
+    replicaReplaced: boolean;
+    hpaTriggered: boolean;
+    circuitBreakerTripped: boolean;
+    validationStatus: 'VALIDATING' | 'PASSED' | 'FAILED' | 'RECOVERED';
+  };
 }
 
 export interface DeviceHardwareInfo {

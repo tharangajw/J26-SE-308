@@ -135,9 +135,10 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         body.faultType || 'SERVICE_DOWN',
         body.duration || 30,
         body.latencyMs,
-        body.errorRate
+        body.errorRate,
+        body.engine || 'Chaos Mesh'
       );
-      console.log(`[Chaos] Injected ${body.faultType} on ${body.serviceId}`);
+      console.log(`[Chaos] Injected ${body.faultType} on ${body.serviceId} via ${body.engine || 'Chaos Mesh'}`);
       return sendJson(res, 200, {
         success: true,
         message: `Injected fault ${body.faultType} on service ${body.serviceId}`,

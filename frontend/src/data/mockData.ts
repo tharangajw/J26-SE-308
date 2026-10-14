@@ -269,6 +269,13 @@ export interface ActiveFault {
   remainingSec: number;
 }
 
+export interface KubernetesChaosLog {
+  timestamp: string;
+  level: 'INFO' | 'WARN' | 'ERROR' | 'SYSTEM';
+  source: 'Chaos Mesh' | 'Kubernetes' | 'Prometheus' | 'Grafana';
+  message: string;
+}
+
 // Mock Active Chaos Event Type
 export interface ActiveChaosEvent {
   service: string;
@@ -277,6 +284,23 @@ export interface ActiveChaosEvent {
   type: string;
   status: string;
   recoveryTime?: string;
+  engine?: 'Chaos Mesh';
+  experimentName?: string;
+  kubernetesLogs?: KubernetesChaosLog[];
+  metricsSnapshot?: {
+    preChaosAvailability: number;
+    postChaosAvailability: number;
+    mttrObservedSec?: number;
+    errorRateSpike: number;
+  };
+  selfHealingValidation?: {
+    podRestarted: boolean;
+    podRestartTimeSec?: number;
+    replicaReplaced: boolean;
+    hpaTriggered: boolean;
+    circuitBreakerTripped: boolean;
+    validationStatus: 'VALIDATING' | 'PASSED' | 'FAILED' | 'RECOVERED';
+  };
 }
 
 // Mock AI Recommendation Type

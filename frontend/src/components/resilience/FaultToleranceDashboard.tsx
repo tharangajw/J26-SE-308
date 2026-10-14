@@ -23,6 +23,7 @@ import {
   type RecentActivity,
   type AiFailurePrediction,
   type SelfHealingMetrics,
+  type KubernetesChaosLog,
   mockTelemetrySources
 } from '../../data/mockData';
 import { ChaosEngineeringSuite } from './ChaosEngineeringSuite';
@@ -116,6 +117,21 @@ export const FaultToleranceDashboard: React.FC = () => {
           }
           if (data.deviceHardware) {
             setDeviceHardware(data.deviceHardware);
+          }
+          if (data.activeChaos) {
+            setActiveChaosEvent({
+              service: data.activeChaos.serviceName,
+              targetId: data.activeChaos.serviceId,
+              time: new Date(data.activeChaos.injectedAt).toLocaleTimeString(),
+              type: data.activeChaos.faultType,
+              status: data.activeChaos.status,
+              recoveryTime: data.activeChaos.metricsSnapshot?.mttrObservedSec ? `${data.activeChaos.metricsSnapshot.mttrObservedSec}s` : undefined,
+              engine: data.activeChaos.engine,
+              experimentName: data.activeChaos.experimentName,
+              kubernetesLogs: data.activeChaos.kubernetesLogs,
+              metricsSnapshot: data.activeChaos.metricsSnapshot,
+              selfHealingValidation: data.activeChaos.selfHealingValidation
+            });
           }
           setIsSimulation(false);
         }
@@ -228,7 +244,7 @@ export const FaultToleranceDashboard: React.FC = () => {
       else if (score >= 70) maturity = 'Mature';
       else if (score >= 50) maturity = 'Developing';
 
-      // Novelty 1: Dynamic AI Failure Prediction Engine
+      // Dynamic AI Failure Prediction Engine
       const activeFList = activeFaultsRef.current;
       if (activeFList.length > 0) {
         const topFault = activeFList[0];
@@ -326,18 +342,37 @@ export const FaultToleranceDashboard: React.FC = () => {
 
     setActiveChaosEvent(prev => {
       if (prev && (prev.targetId === serviceId || serviceId === 'all')) {
-        return { ...prev, status: 'Recovered / Self-Healed', recoveryTime: '15s' };
+        return { 
+          ...prev, 
+          status: 'Recovered / Self-Healed', 
+          recoveryTime: '1.8s',
+          selfHealingValidation: {
+            podRestarted: true,
+            podRestartTimeSec: 1.8,
+            replicaReplaced: true,
+            hpaTriggered: true,
+            circuitBreakerTripped: false,
+            validationStatus: 'RECOVERED'
+          }
+        };
       }
       return prev;
     });
   };
 
-  const injectChaosFault = async (fType: string, target = 'gateway', duration = 15, latencyMs = 2500, errorRate = 35) => {
+  const injectChaosFault = async (
+    fType: string, 
+    target = 'gateway', 
+    duration = 15, 
+    latencyMs = 2500, 
+    errorRate = 35,
+    engine: 'Chaos Mesh' = 'Chaos Mesh'
+  ) => {
     const faultMeta = mockFaultTypes.find(f => f.id === fType) || mockFaultTypes[0];
     const now = Date.now();
     const endTime = now + duration * 1000;
 
-    logActivity('INJECT', `Chaos Experiment: ${faultMeta.name}`, `Target: ${target === 'all' ? 'Cluster Wide' : target} | Duration: ${duration}s`, 'danger');
+    logActivity('INJECT', `Chaos Mesh: ${faultMeta.name}`, `Target: ${target === 'all' ? 'Cluster Wide' : target} | Duration: ${duration}s`, 'danger');
 
     const newFaultObj: ActiveFault = {
       id: `${target}-${fType}-${now}`,
@@ -352,17 +387,59 @@ export const FaultToleranceDashboard: React.FC = () => {
 
     setActiveFaults(prev => [...prev.filter(f => f.targetId !== target || target === 'all'), newFaultObj]);
 
+    const initialLogs: KubernetesChaosLog[] = [
+      {
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'INFO',
+        source: engine,
+        message: `[${engine}] Initializing ${faultMeta.name} experiment on '${target}'. Scheduled duration: ${duration}s`
+      },
+      {
+        timestamp: new Date(Date.now() + 200).toLocaleTimeString(),
+        level: 'WARN',
+        source: 'Kubernetes',
+        message: `[Kubelet] Container probe anomaly on '${target}'. Liveness/readiness failing.`
+      },
+      {
+        timestamp: new Date(Date.now() + 400).toLocaleTimeString(),
+        level: 'WARN',
+        source: 'Prometheus',
+        message: `[Prometheus] Metric alert: Error rate spiked to ${errorRate}%`
+      },
+      {
+        timestamp: new Date(Date.now() + 600).toLocaleTimeString(),
+        level: 'INFO',
+        source: 'Grafana',
+        message: `[Grafana Alertmanager] Notification dispatched to SRE dashboard: SLO breach alert.`
+      }
+    ];
+
     setActiveChaosEvent({
       service: target === 'all' ? 'All Microservices' : services.find(s => s.id === target)?.name || target,
       targetId: target,
       time: new Date().toLocaleTimeString(),
       type: faultMeta.name,
-      status: 'Injected (Active Fault)'
+      status: `Executing via ${engine}: ${faultMeta.name}`,
+      engine,
+      experimentName: `${fType.toLowerCase().replace(/_/g, '-')}-${target}-exp`,
+      kubernetesLogs: initialLogs,
+      metricsSnapshot: {
+        preChaosAvailability: metrics.availability,
+        postChaosAvailability: Math.max(75, metrics.availability - 15),
+        errorRateSpike: errorRate
+      },
+      selfHealingValidation: {
+        podRestarted: false,
+        replicaReplaced: false,
+        hpaTriggered: fType === 'HIGH_CPU' || fType === 'HIGH_MEMORY',
+        circuitBreakerTripped: fType === 'API_ERROR' || fType === 'LATENCY',
+        validationStatus: 'VALIDATING'
+      }
     });
 
     if (!isSimulation) {
       try {
-        await fetch('http://localhost:3010/api/chaos/inject', {
+        const resp = await fetch('http://localhost:3010/api/chaos/inject', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -370,9 +447,27 @@ export const FaultToleranceDashboard: React.FC = () => {
             faultType: fType, 
             duration, 
             latencyMs, 
-            errorRate 
+            errorRate,
+            engine
           })
         });
+        if (resp.ok) {
+          const resData = await resp.json();
+          if (resData.event) {
+            setActiveChaosEvent({
+              service: resData.event.serviceName,
+              targetId: resData.event.serviceId,
+              time: new Date(resData.event.injectedAt).toLocaleTimeString(),
+              type: resData.event.faultType,
+              status: resData.event.status,
+              engine: resData.event.engine,
+              experimentName: resData.event.experimentName,
+              kubernetesLogs: resData.event.kubernetesLogs,
+              metricsSnapshot: resData.event.metricsSnapshot,
+              selfHealingValidation: resData.event.selfHealingValidation
+            });
+          }
+        }
       } catch (err) {
         console.error('Failed to trigger backend chaos:', err);
       }
