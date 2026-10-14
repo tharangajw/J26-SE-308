@@ -113,30 +113,45 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
         <div className="glass-card rules-card">
           <h2><CheckCircle size={16} className="card-title-icon" /> Scoring Engine Rules (Rule-Based)</h2>
           <div className="rules-list">
-            <div className={`rule-item ${metrics.availability > 99.0 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
-              <span className="rule-desc">Availability &gt; 99.0%</span>
-              <span className="rule-points">+20 pts</span>
+            <div className={`rule-item ${metrics.availability >= 99.0 ? 'passed' : 'failed'}`}>
+              <CheckCircle size={14} className="rule-icon" />
+              <span className="rule-desc">Availability &gt;= 99.0%</span>
+              <span className="rule-points">+12.5 pts</span>
             </div>
             <div className={`rule-item ${metrics.cpu < 70 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
+              <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">CPU Avg Load &lt; 70%</span>
-              <span className="rule-points">+20 pts</span>
+              <span className="rule-points">+12.5 pts</span>
             </div>
             <div className={`rule-item ${metrics.memory < 75 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
+              <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Memory Avg Load &lt; 75%</span>
-              <span className="rule-points">+20 pts</span>
+              <span className="rule-points">+12.5 pts</span>
+            </div>
+            <div className={`rule-item ${metrics.latency < 50 ? 'passed' : 'failed'}`}>
+              <CheckCircle size={14} className="rule-icon" />
+              <span className="rule-desc">Response Time &lt; 50ms</span>
+              <span className="rule-points">+12.5 pts</span>
             </div>
             <div className={`rule-item ${metrics.errorRate < 1.0 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
+              <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Request Error Rate &lt; 1.0%</span>
-              <span className="rule-points">+20 pts</span>
+              <span className="rule-points">+12.5 pts</span>
             </div>
             <div className={`rule-item ${metrics.restarts < 2 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
+              <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Pod Restart Count &lt; 2</span>
-              <span className="rule-points">+20 pts</span>
+              <span className="rule-points">+12.5 pts</span>
+            </div>
+            <div className={`rule-item ${metrics.mttr <= 15 ? 'passed' : 'failed'}`}>
+              <CheckCircle size={14} className="rule-icon" />
+              <span className="rule-desc">MTTR &lt;= 15s</span>
+              <span className="rule-points">+12.5 pts</span>
+            </div>
+            <div className={`rule-item ${metrics.failoverSuccess >= 100 ? 'passed' : 'failed'}`}>
+              <CheckCircle size={14} className="rule-icon" />
+              <span className="rule-desc">Failover Success &gt;= 100%</span>
+              <span className="rule-points">+12.5 pts</span>
             </div>
           </div>
         </div>
@@ -176,19 +191,16 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
                   </div>
                 ))}
               </div>
-            ) : activeChaosEvent ? (
-              <div className={`log-event-box ${activeChaosEvent.status.toLowerCase().includes('recovered') ? 'recovered' : 'injected'}`}>
+            ) : activeChaosEvent && !activeChaosEvent.status.toLowerCase().includes('healed') && !activeChaosEvent.status.toLowerCase().includes('recovered') ? (
+              <div className="log-event-box injected">
                 <div className="event-header">
                   <Flame className="event-icon" size={16} />
-                  <strong>Chaos Event Status</strong>
+                  <strong>Active Chaos Fault: {activeChaosEvent.experimentName || activeChaosEvent.type}</strong>
                 </div>
                 <p>Target: <code>{activeChaosEvent.service}</code></p>
                 <p>Type: {activeChaosEvent.type}</p>
                 <div className="event-footer">
                   <span className="status-badge">{activeChaosEvent.status}</span>
-                  {activeChaosEvent.recoveryTime && (
-                    <span className="time-badge">MTTR: {activeChaosEvent.recoveryTime}</span>
-                  )}
                 </div>
               </div>
             ) : (
@@ -204,45 +216,45 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
 
       {/* Telemetry Metrics Cards Grid */}
       <section className="metrics-grid">
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.cpu >= 70 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Cpu size={18} className="text-primary" />
+            <Cpu size={18} className={metrics.cpu >= 70 ? 'text-danger' : 'text-primary'} />
             <span>CPU Usage</span>
           </div>
           <div className={`metric-value ${metrics.cpu >= 70 ? 'fail-val' : ''}`}>{metrics.cpu}%</div>
-          <div className="metric-status">Target &lt; 70%</div>
+          <div className={`metric-status ${metrics.cpu >= 70 ? 'status-breached' : ''}`}>Target &lt; 70%</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.memory >= 75 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <HardDrive size={18} className="text-accent" />
+            <HardDrive size={18} className={metrics.memory >= 75 ? 'text-danger' : 'text-accent'} />
             <span>Memory Usage</span>
           </div>
           <div className={`metric-value ${metrics.memory >= 75 ? 'fail-val' : ''}`}>{metrics.memory}%</div>
-          <div className="metric-status">Target &lt; 75%</div>
+          <div className={`metric-status ${metrics.memory >= 75 ? 'status-breached' : ''}`}>Target &lt; 75%</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.availability < 99.0 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <CheckCircle size={18} className="text-success" />
+            <CheckCircle size={18} className={metrics.availability < 99.0 ? 'text-danger' : 'text-success'} />
             <span>Availability</span>
           </div>
-          <div className={`metric-value ${metrics.availability < 99 ? 'fail-val' : ''}`}>
+          <div className={`metric-value ${metrics.availability < 99.0 ? 'fail-val' : ''}`}>
             {metrics.availability}%
           </div>
-          <div className="metric-status">Target &gt; 99.0%</div>
+          <div className={`metric-status ${metrics.availability < 99.0 ? 'status-breached' : ''}`}>Target &gt; 99.0%</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.latency >= 50 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Clock size={18} className="text-warning" />
+            <Clock size={18} className={metrics.latency >= 50 ? 'text-danger' : 'text-warning'} />
             <span>Response Time</span>
           </div>
-          <div className={`metric-value ${metrics.latency > 300 ? 'warning-val' : ''}`}>{metrics.latency} ms</div>
-          <div className="metric-status">Average API Latency</div>
+          <div className={`metric-value ${metrics.latency >= 50 ? 'fail-val' : ''}`}>{metrics.latency} ms</div>
+          <div className={`metric-status ${metrics.latency >= 50 ? 'status-breached' : ''}`}>Target &lt; 50 ms</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.errorRate >= 1.0 ? 'card-breached' : ''}`}>
           <div className="metric-header">
             <AlertTriangle size={18} className="text-danger" />
             <span>Error Rate</span>
@@ -250,36 +262,36 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
           <div className={`metric-value ${metrics.errorRate >= 1.0 ? 'fail-val' : ''}`}>
             {metrics.errorRate}%
           </div>
-          <div className="metric-status">Target &lt; 1.0%</div>
+          <div className={`metric-status ${metrics.errorRate >= 1.0 ? 'status-breached' : ''}`}>Target &lt; 1.0%</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.restarts >= 2 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Server size={18} />
+            <Server size={18} className={metrics.restarts >= 2 ? 'text-danger' : ''} />
             <span>Pod Restarts</span>
           </div>
           <div className={`metric-value ${metrics.restarts >= 2 ? 'fail-val' : ''}`}>
             {metrics.restarts}
           </div>
-          <div className="metric-status">Target &lt; 2 restarts</div>
+          <div className={`metric-status ${metrics.restarts >= 2 ? 'status-breached' : ''}`}>Target &lt; 2 restarts</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.mttr > 15 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <RotateCcw size={18} className="text-success" />
+            <RotateCcw size={18} className={metrics.mttr > 15 ? 'text-danger' : 'text-success'} />
             <span>MTTR</span>
           </div>
-          <div className="metric-value">{metrics.mttr}s</div>
-          <div className="metric-status">Mean Time to Repair</div>
+          <div className={`metric-value ${metrics.mttr > 15 ? 'fail-val' : ''}`}>{metrics.mttr}s</div>
+          <div className={`metric-status ${metrics.mttr > 15 ? 'status-breached' : ''}`}>Target &le; 15s</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.failoverSuccess < 100 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <TrendingUp size={18} className="text-primary" />
+            <TrendingUp size={18} className={metrics.failoverSuccess < 100 ? 'text-danger' : 'text-primary'} />
             <span>Failover Success</span>
           </div>
-          <div className="metric-value">{metrics.failoverSuccess}%</div>
-          <div className="metric-status">Redirection Rate</div>
+          <div className={`metric-value ${metrics.failoverSuccess < 100 ? 'fail-val' : ''}`}>{metrics.failoverSuccess}%</div>
+          <div className={`metric-status ${metrics.failoverSuccess < 100 ? 'status-breached' : ''}`}>Target &ge; 100%</div>
         </div>
       </section>
 

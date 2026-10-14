@@ -225,12 +225,12 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                       </div>
                     ))}
                   </div>
-                ) : activeChaosEvent ? (
-                  <div className={`log-event-box ${activeChaosEvent.status.toLowerCase().includes('recovered') ? 'recovered' : 'injected'}`}>
+                ) : activeChaosEvent && !activeChaosEvent.status.toLowerCase().includes('healed') && !activeChaosEvent.status.toLowerCase().includes('recovered') ? (
+                  <div className="log-event-box injected">
                     <div className="event-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Flame className="event-icon" size={16} />
-                        <strong>Experiment: {activeChaosEvent.experimentName || activeChaosEvent.type}</strong>
+                        <strong>Active Experiment: {activeChaosEvent.experimentName || activeChaosEvent.type}</strong>
                       </div>
                       <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '4px' }}>
                         Engine: <strong>{activeChaosEvent.engine || selectedEngine}</strong>
@@ -240,9 +240,6 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                       <div><span style={{ color: '#94a3b8', fontSize: '11px' }}>Target Service:</span> <br/><code>{activeChaosEvent.service}</code></div>
                       <div><span style={{ color: '#94a3b8', fontSize: '11px' }}>Injected Fault:</span> <br/><strong>{activeChaosEvent.type}</strong></div>
                       <div><span style={{ color: '#94a3b8', fontSize: '11px' }}>Status:</span> <br/><span className="status-badge">{activeChaosEvent.status}</span></div>
-                      {activeChaosEvent.recoveryTime && (
-                        <div><span style={{ color: '#94a3b8', fontSize: '11px' }}>Measured MTTR:</span> <br/><span className="time-badge">MTTR: {activeChaosEvent.recoveryTime}</span></div>
-                      )}
                     </div>
                   </div>
                 ) : (
@@ -354,11 +351,11 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Terminal size={18} className="text-primary" />
                 <h3 style={{ margin: 0, fontSize: '14px', color: '#f8fafc' }}>
-                  Live Cluster Telemetry &amp; Kubernetes Event Stream
+                  Live Host Telemetry &amp; Chaos Mesh Event Stream
                 </h3>
               </div>
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                Sources: <code>Prometheus</code> · <code>Grafana</code> · <code>Kubernetes Events</code> · <code>{selectedEngine}</code>
+                Sources: <code>Chaos Mesh Real-Engine</code> · <code>Host Hardware Monitor</code> · <code>Live Probe Engine</code>
               </span>
             </div>
 

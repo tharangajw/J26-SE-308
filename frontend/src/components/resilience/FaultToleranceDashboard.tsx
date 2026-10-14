@@ -118,7 +118,7 @@ export const FaultToleranceDashboard: React.FC = () => {
           if (data.deviceHardware) {
             setDeviceHardware(data.deviceHardware);
           }
-          if (data.activeChaos) {
+          if (data.activeChaos && !data.activeChaos.status.toLowerCase().includes('healed') && !data.activeChaos.status.toLowerCase().includes('recovered') && !data.activeChaos.status.toLowerCase().includes('completed')) {
             setActiveChaosEvent({
               service: data.activeChaos.serviceName,
               targetId: data.activeChaos.serviceId,
@@ -132,6 +132,8 @@ export const FaultToleranceDashboard: React.FC = () => {
               metricsSnapshot: data.activeChaos.metricsSnapshot,
               selfHealingValidation: data.activeChaos.selfHealingValidation
             });
+          } else {
+            setActiveChaosEvent(null);
           }
           setIsSimulation(false);
         }
@@ -223,25 +225,32 @@ export const FaultToleranceDashboard: React.FC = () => {
         : parseFloat(Math.max(0, 99.9 - (avgErrorRate * 0.2)).toFixed(2));
 
       let score = 0;
+      const failoverSuccess = (offlineCount > 0 || degradedCount > 0) ? (offlineCount > 1 ? 65 : 80) : 100;
+      const simulatedMttr = (offlineCount > 0 || degradedCount > 0) ? 18 : 12;
+
       const rules = {
-        availability: availability > 99.0,
+        availability: availability >= 99.0,
         cpu: avgCpu < 70,
         memory: avgMem < 75,
+        latency: avgLatency < 50,
         errorRate: avgErrorRate < 1.0,
-        restarts: totalRestarts < 2
+        restarts: totalRestarts < 2,
+        mttr: simulatedMttr <= 15,
+        failover: failoverSuccess >= 100
       };
 
-      if (rules.availability) score += 20;
-      if (rules.cpu) score += 20;
-      if (rules.memory) score += 20;
-      if (rules.errorRate) score += 20;
-      if (rules.restarts) score += 20;
-
-      const failoverSuccess = (offlineCount > 0 || degradedCount > 0) ? (offlineCount > 1 ? 65 : 80) : 100;
+      if (rules.availability) score += 12.5;
+      if (rules.cpu) score += 12.5;
+      if (rules.memory) score += 12.5;
+      if (rules.latency) score += 12.5;
+      if (rules.errorRate) score += 12.5;
+      if (rules.restarts) score += 12.5;
+      if (rules.mttr) score += 12.5;
+      if (rules.failover) score += 12.5;
 
       let maturity: FaultMetrics['maturity'] = 'Initial';
-      if (score >= 90) maturity = 'Optimized';
-      else if (score >= 70) maturity = 'Mature';
+      if (score >= 87.5) maturity = 'Optimized';
+      else if (score >= 75) maturity = 'Mature';
       else if (score >= 50) maturity = 'Developing';
 
       // Dynamic AI Failure Prediction Engine
@@ -342,19 +351,7 @@ export const FaultToleranceDashboard: React.FC = () => {
 
     setActiveChaosEvent(prev => {
       if (prev && (prev.targetId === serviceId || serviceId === 'all')) {
-        return { 
-          ...prev, 
-          status: 'Recovered / Self-Healed', 
-          recoveryTime: '1.8s',
-          selfHealingValidation: {
-            podRestarted: true,
-            podRestartTimeSec: 1.8,
-            replicaReplaced: true,
-            hpaTriggered: true,
-            circuitBreakerTripped: false,
-            validationStatus: 'RECOVERED'
-          }
-        };
+        return null;
       }
       return prev;
     });
@@ -391,26 +388,14 @@ export const FaultToleranceDashboard: React.FC = () => {
       {
         timestamp: new Date().toLocaleTimeString(),
         level: 'INFO',
-        source: engine,
-        message: `[${engine}] Initializing ${faultMeta.name} experiment on '${target}'. Scheduled duration: ${duration}s`
+        source: 'Chaos Mesh',
+        message: `[Chaos Mesh] Initializing ${faultMeta.name} experiment on '${target}'. Scheduled duration: ${duration}s`
       },
       {
-        timestamp: new Date(Date.now() + 200).toLocaleTimeString(),
-        level: 'WARN',
-        source: 'Kubernetes',
-        message: `[Kubelet] Container probe anomaly on '${target}'. Liveness/readiness failing.`
-      },
-      {
-        timestamp: new Date(Date.now() + 400).toLocaleTimeString(),
-        level: 'WARN',
-        source: 'Prometheus',
-        message: `[Prometheus] Metric alert: Error rate spiked to ${errorRate}%`
-      },
-      {
-        timestamp: new Date(Date.now() + 600).toLocaleTimeString(),
+        timestamp: new Date().toLocaleTimeString(),
         level: 'INFO',
-        source: 'Grafana',
-        message: `[Grafana Alertmanager] Notification dispatched to SRE dashboard: SLO breach alert.`
+        source: 'Chaos Mesh',
+        message: `[Host Monitor] Baseline: CPU ${metrics.cpu}%, RAM ${metrics.memory}%, Latency ${metrics.latency}ms, Error Rate ${metrics.errorRate}%`
       }
     ];
 

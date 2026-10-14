@@ -83,32 +83,20 @@ export class ResilienceCollector {
 
     const experimentName = `${faultType.toLowerCase().replace(/_/g, '-')}-${targetId}-chaosmesh-experiment`;
 
-    // Generate real-time telemetry snapshot and Kubernetes logs
+    // Generate real-time telemetry snapshot and real host telemetry logs
     const realMetrics = this.deviceMonitor.getRealMetrics();
     const initialLogs: KubernetesChaosLog[] = [
       {
         timestamp: new Date().toLocaleTimeString(),
         level: 'INFO',
         source: 'Chaos Mesh',
-        message: `[Chaos Mesh] Initializing ${faultType} experiment against target '${targetId}' (${serviceName}). Duration: ${durationSec}s`
+        message: `[Chaos Mesh] Initializing ${faultType} experiment against target '${targetId}' (${serviceName}). Scheduled duration: ${durationSec}s`
       },
       {
-        timestamp: new Date(Date.now() + 200).toLocaleTimeString(),
-        level: 'WARN',
-        source: 'Kubernetes',
-        message: `[Kubelet] Health probe failure reported on pod for '${targetId}'. Liveness probe failed (connection refused/timeout).`
-      },
-      {
-        timestamp: new Date(Date.now() + 400).toLocaleTimeString(),
-        level: 'WARN',
-        source: 'Prometheus',
-        message: `[Prometheus] Metric alert triggered: rate(http_requests_total{status=~"5.."}[1m]) spiked from 0.0% to ${errorRate || 35.0}%`
-      },
-      {
-        timestamp: new Date(Date.now() + 600).toLocaleTimeString(),
+        timestamp: new Date().toLocaleTimeString(),
         level: 'INFO',
-        source: 'Grafana',
-        message: `[Grafana Alertmanager] Notification dispatched to SRE dashboard: SLO Breach warning for service '${targetId}'.`
+        source: 'Chaos Mesh',
+        message: `[Host Monitor] Baseline: CPU ${realMetrics.cpuUsagePercent}%, RAM ${realMetrics.memoryUsagePercent}%, Latency ${realMetrics.responseTimeMs}ms, Error Rate ${realMetrics.errorRatePercent}%`
       }
     ];
 
@@ -189,16 +177,38 @@ export class ResilienceCollector {
 
       this.activeChaosProcess.stdout?.on('data', (data) => {
         try {
-          const msg = data.toString().trim();
-          if (this.activeChaos && msg) {
-            this.activeChaos.kubernetesLogs.push({
-              timestamp: new Date().toLocaleTimeString(),
-              level: 'INFO',
-              source: engine,
-              message: `[${engine} Real-Engine] ${msg}`
-            });
+          const lines = data.toString().split('\n');
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            
+            if (line.startsWith('CHAOS_STREAM_EVENT:')) {
+              const eventJson = JSON.parse(line.substring('CHAOS_STREAM_EVENT:'.length));
+              if (this.activeChaos) {
+                this.activeChaos.kubernetesLogs.push({
+                  timestamp: eventJson.timestamp || new Date().toLocaleTimeString(),
+                  level: eventJson.level || 'INFO',
+                  source: 'Chaos Mesh',
+                  message: eventJson.message
+                });
+              }
+            } else if (line.startsWith('{') && line.endsWith('}')) {
+              try {
+                const parsedResult = JSON.parse(line);
+                if (parsedResult.status === 'COMPLETED' && this.activeChaos) {
+                  this.activeChaos.kubernetesLogs.push({
+                    timestamp: new Date().toLocaleTimeString(),
+                    level: 'INFO',
+                    source: 'Chaos Mesh',
+                    message: `[Chaos Mesh] Completed: ${parsedResult.details || 'Process execution finished'} (Runtime: ${parsedResult.recovery_time_sec}s)`
+                  });
+                }
+              } catch {}
+            }
           }
-        } catch {}
+        } catch (e) {
+          console.error('[Chaos Engine] Parse stream error:', e);
+        }
       });
 
       this.activeChaosProcess.on('error', (err) => {
@@ -234,6 +244,7 @@ export class ResilienceCollector {
     }
 
     const recoveryTimeSec = this.deviceMonitor.recordFaultRecovered();
+    const currentMetrics = this.deviceMonitor.getRealMetrics();
 
     if (this.activeChaos) {
       const recoveredLogs: KubernetesChaosLog[] = [
@@ -241,20 +252,20 @@ export class ResilienceCollector {
         {
           timestamp: new Date().toLocaleTimeString(),
           level: 'INFO',
-          source: 'Kubernetes',
-          message: `[Kubelet] Self-Healing triggered: Pod auto-restart completed successfully in ${recoveryTimeSec}s. Container status: RUNNING.`
+          source: 'Chaos Mesh',
+          message: `[Self-Healing Engine] Autonomous recovery completed in ${recoveryTimeSec}s. Real host metrics restored: CPU ${currentMetrics.cpuUsagePercent}%, RAM ${currentMetrics.memoryUsagePercent}%.`
         },
         {
-          timestamp: new Date(Date.now() + 100).toLocaleTimeString(),
+          timestamp: new Date().toLocaleTimeString(),
           level: 'INFO',
-          source: 'Prometheus',
-          message: `[Prometheus] Error rate resolved to baseline (<1.0%). Endpoint response time restored.`
+          source: 'Chaos Mesh',
+          message: `[Host Monitor] Probe status: Availability ${currentMetrics.availabilityPercent}%, Latency ${currentMetrics.responseTimeMs}ms, Error Rate ${currentMetrics.errorRatePercent}%.`
         },
         {
-          timestamp: new Date(Date.now() + 200).toLocaleTimeString(),
+          timestamp: new Date().toLocaleTimeString(),
           level: 'SYSTEM',
-          source: this.activeChaos.engine,
-          message: `[${this.activeChaos.engine}] Experiment '${this.activeChaos.experimentName}' concluded. System resilience verified.`
+          source: 'Chaos Mesh',
+          message: `[Chaos Mesh] Experiment '${this.activeChaos.experimentName}' concluded. System resilience verified.`
         }
       ];
 
@@ -369,23 +380,22 @@ export class ResilienceCollector {
     }
 
     // 4. Update individual microservices with current real hardware metrics
-    this.services = this.services.map((s, idx) => {
+    this.services = this.services.map((s) => {
       if (s.status === 'HEALTHY') {
-        // Small variance across simulated worker threads on the real host cores
-        const threadDelta = (idx % 2 === 0 ? 1 : -1) * (idx * 0.4);
         return {
           ...s,
-          cpu: parseFloat(Math.max(0, Math.min(100, cpu + threadDelta)).toFixed(1)),
-          memory: parseFloat(Math.max(0, Math.min(100, memory + (threadDelta * 0.5))).toFixed(1)),
-          latency: Math.max(1, Math.round(latency + (idx * 0.8))),
+          cpu: cpu,
+          memory: memory,
+          latency: latency,
           errorRate: errorRate
         };
       }
       return s;
     });
 
-    // 5. If chaos fault is active, compute degraded cluster impact
-    if (this.activeChaos || this.services.some(s => s.status !== 'HEALTHY')) {
+    // 5. If chaos fault is actively running on any service, compute degraded cluster impact
+    const isActivelyFaulty = this.services.some(s => s.status !== 'HEALTHY');
+    if (isActivelyFaulty) {
       const offlineCount = this.services.filter(s => s.status === 'OFFLINE').length;
       const degradedCount = this.services.filter(s => s.status === 'DEGRADED').length;
 

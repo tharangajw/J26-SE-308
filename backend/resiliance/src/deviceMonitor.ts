@@ -93,7 +93,10 @@ export class DeviceMonitor {
   // CPU
   // ══════════════════════════════════════════════════════════════════════════
 
-  private sampleDeviceCpu(): void {
+  private isCpuSamplingInProgress: boolean = false;
+
+  private async sampleDeviceCpu(): Promise<void> {
+    // 1. Immediate OS CPU delta sampling
     const currentCpus = os.cpus();
     if (this.prevCpuTimes.length === currentCpus.length) {
       let idleDelta  = 0;
@@ -115,6 +118,37 @@ export class DeviceMonitor {
       }
     }
     this.prevCpuTimes = currentCpus.map(c => ({ ...c.times }));
+
+    // 2. On Windows, Task Manager displays "% Processor Utility" / "% Processor Time"
+    // We query the native Windows Performance Counter for exact 1:1 Task Manager alignment
+    if (os.platform() === 'win32' && !this.isCpuSamplingInProgress) {
+      this.isCpuSamplingInProgress = true;
+      try {
+        const cmd = 'typeperf "\\Processor Information(_Total)\\% Processor Utility" -sc 1';
+        const { stdout } = await execAsync(cmd, { timeout: 2500 });
+        if (stdout) {
+          const lines = stdout.trim().split(/\r?\n/).filter(l => l.trim().length > 0);
+          for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i];
+            if (line.includes(',') && !line.includes('PDH-CSV')) {
+              const parts = line.split(',');
+              if (parts.length >= 2) {
+                const rawVal = parts[1].replace(/"/g, '').trim();
+                const num = parseFloat(rawVal);
+                if (!isNaN(num) && num >= 0) {
+                  this.currentCpuPercent = parseFloat(Math.min(100, num).toFixed(1));
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // Fallback to os.cpus() delta computed above
+      } finally {
+        this.isCpuSamplingInProgress = false;
+      }
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
