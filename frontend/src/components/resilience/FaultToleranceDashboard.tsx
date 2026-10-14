@@ -135,6 +135,23 @@ export const FaultToleranceDashboard: React.FC = () => {
           } else {
             setActiveChaosEvent(null);
           }
+          // ✅ Append real backend metrics to history every poll cycle so Historical Telemetry Trends stays live
+          if (data.metrics) {
+            setHistory(prev => {
+              const next = [...prev];
+              if (next.length >= 60) next.shift();
+              next.push({
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                cpu: data.metrics.cpu ?? 0,
+                memory: data.metrics.memory ?? 0,
+                latency: data.metrics.latency ?? 0,
+                errorRate: data.metrics.errorRate ?? 0,
+                availability: data.metrics.availability ?? 100,
+                score: data.metrics.score ?? 0
+              });
+              return next;
+            });
+          }
           setIsSimulation(false);
         }
       } catch {
