@@ -11,7 +11,6 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   ReferenceLine, BarChart, Bar
 } from 'recharts';
-import { OBS_AHP } from '../lib/ahpEngine';
 import { useTelemetry } from '../context/TelemetryContext';
 
 const FULL_HISTORY = [
@@ -66,7 +65,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const ObservabilityHistory: React.FC = () => {
-  const { history: liveHistory, cciIndex } = useTelemetry();
+  const { history: liveHistory, cciIndex, calculation } = useTelemetry();
+  const ahp = calculation?.ahp;
   const [filter, setFilter] = useState<'ALL' | 'HEALTHY' | 'WARNING' | 'CRITICAL'>('ALL');
   const [chartMode, setChartMode] = useState<'oscore' | 'pillars' | 'blindspots'>('oscore');
 
@@ -143,18 +143,18 @@ export const ObservabilityHistory: React.FC = () => {
       <Card>
         <CardContent className="flex flex-wrap items-center gap-6 p-4 text-xs">
           <span className="font-semibold uppercase tracking-widest text-text-secondary">AHP Weights</span>
-          {OBS_AHP.labels.map((l, i) => {
+          {(ahp?.labels ?? []).map((l: string, i: number) => {
             const colors = ['text-orange-400', 'text-indigo-400', 'text-cyan-400'];
             return (
               <span key={l} className={`flex items-center gap-1.5 font-mono ${colors[i]}`}>
                 {i === 0 && <Database className="h-3.5 w-3.5" />}
                 {i === 1 && <Network className="h-3.5 w-3.5" />}
                 {i === 2 && <Radio className="h-3.5 w-3.5" />}
-                {l.split(' ')[0]}: <strong>{(OBS_AHP.weights[i] * 100).toFixed(1)}%</strong>
+                {l.split(' ')[0]}: <strong>{(ahp.weights[i] * 100).toFixed(1)}%</strong>
               </span>
             );
           })}
-          <span className="ml-auto text-text-muted">CR = {OBS_AHP.consistencyRatio.toFixed(4)} &lt; 0.10</span>
+          <span className="ml-auto text-text-muted">CR = {ahp?.consistencyRatio?.toFixed(4) ?? '—'} &lt; 0.10</span>
         </CardContent>
       </Card>
 
@@ -210,9 +210,9 @@ export const ObservabilityHistory: React.FC = () => {
                 <YAxis domain={[0.7, 1]} tickFormatter={v => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 10, fill: '#5E6875' }} />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend wrapperStyle={{ fontSize: '11px' }} />
-                <Line type="monotone" dataKey="metrics" name={`Metrics (${(OBS_AHP.weights[0]*100).toFixed(1)}%)`} stroke="#f97316" strokeWidth={2} />
-                <Line type="monotone" dataKey="traces"  name={`Traces (${(OBS_AHP.weights[1]*100).toFixed(1)}%)`}  stroke="#818cf8" strokeWidth={2} />
-                <Line type="monotone" dataKey="logs"    name={`Logs (${(OBS_AHP.weights[2]*100).toFixed(1)}%)`}    stroke="#22d3ee" strokeWidth={2} />
+                <Line type="monotone" dataKey="metrics" name={`Metrics (${ahp ? (ahp.weights[0]*100).toFixed(1) : '—'}%)`} stroke="#f97316" strokeWidth={2} />
+                <Line type="monotone" dataKey="traces"  name={`Traces (${ahp ? (ahp.weights[1]*100).toFixed(1) : '—'}%)`}  stroke="#818cf8" strokeWidth={2} />
+                <Line type="monotone" dataKey="logs"    name={`Logs (${ahp ? (ahp.weights[2]*100).toFixed(1) : '—'}%)`}    stroke="#22d3ee" strokeWidth={2} />
               </LineChart>
             ) : (
               <BarChart data={combinedHistory} margin={{ left: -10, right: 10 }}>

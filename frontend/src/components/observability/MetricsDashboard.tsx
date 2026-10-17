@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
@@ -7,30 +6,12 @@ import { AnomalyPanel } from '../performace/AnomalyPanel';
 import { ChartTooltip } from './ChartTooltip';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
-const generateTimeseries = (dataPoints: number, baseValue: number, variance: number) => {
-  const data = [];
-  const now = new Date();
-  for (let i = dataPoints; i >= 0; i--) {
-    const time = new Date(now.getTime() - i * 60000);
-    const value = Math.max(0, baseValue + (Math.random() - 0.5) * variance);
-    data.push({
-      time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      value: value,
-      value2: Math.max(0, value + (Math.random() - 0.5) * (variance / 2))
-    });
-  }
-  return data;
-};
-
 export default function MetricsDashboard({ data }: any) {
-  const cpuData = useMemo(() => generateTimeseries(30, 45, 15), []);
-  const memoryData = useMemo(() => generateTimeseries(30, 60, 5), []);
-  
-  const p95Latency = data?.details?.service_latency_p95_ms || 120;
-  const latencyData = useMemo(() => generateTimeseries(30, p95Latency, p95Latency * 0.3), [p95Latency]);
-
-  const reqRate = data?.details?.metrics_coverage_rate ? 150 : 20;
-  const reqData = useMemo(() => generateTimeseries(30, reqRate, 40), [reqRate]);
+  const realtime = data?.realtime;
+  const cpuData = realtime?.series?.cpu ?? [];
+  const memoryData = realtime?.series?.memory ?? [];
+  const latencyData = realtime?.series?.latency ?? [];
+  const reqData = realtime?.series?.requests ?? [];
 
   return (
     <div className="space-y-6">
@@ -102,7 +83,7 @@ export default function MetricsDashboard({ data }: any) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
-              <Activity className="h-4 w-4 text-amber-400" /> Service Latency (P95 vs P50)
+              <Activity className="h-4 w-4 text-amber-400" /> Service Latency (P95)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -115,7 +96,6 @@ export default function MetricsDashboard({ data }: any) {
                   <Tooltip content={<ChartTooltip />} />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                   <Line type="monotone" dataKey="value" name="p95 Latency" stroke="#fbbf24" strokeWidth={2} dot={false} unit="ms" />
-                  <Line type="monotone" dataKey="value2" name="p50 Latency" stroke="#fcd34d" strokeWidth={2} strokeDasharray="5 5" dot={false} unit="ms" />
                 </LineChart>
               </ResponsiveContainer>
             </div>

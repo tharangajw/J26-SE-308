@@ -15,69 +15,33 @@ const GUARDRAIL_CONFIG: Record<string, { color: string; label: string }> = {
   dangerous:        { color: 'text-rose-400', label: 'Dangerous — Manual Review' },
 };
 
-const GEMINI_MODEL = 'gemini-3.8-flash';
-
 export default function RemediationPanel({ rcaReport }: any) {
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [remediation, setRemediation] = useState<any>(null);
   const [copied, setCopied]         = useState(false);
-  const [aiProvider, setAiProvider] = useState<'claude' | 'gemini'>('claude');
+  const [aiProvider, setAiProvider] = useState<'claude' | 'gemini' | 'openrouter'>('claude');
 
   const handleGenerate = async () => {
     if (!rcaReport) return;
     setLoading(true); setError(null);
     
-    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-
-    if (aiProvider === 'gemini' && geminiKey) {
-      try {
-        const prompt = `You are a Kubernetes SRE. An issue was detected: ${rcaReport.summary || 'Database connection timeout in order-service'}. Generate a Kubernetes YAML patch to fix this issue. Return ONLY a JSON object with the following schema, no markdown blocks around it: { "script": "string (the yaml code)", "description": "string", "risk_level": "Low|Medium|High|Critical", "estimated_impact": "string", "rollback_steps": ["string", "string"] }`;
-        
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(geminiKey)}`, {
+    try {
+      const response = await fetch('/api/observability/ai/remediation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-          })
+          body: JSON.stringify({ provider: aiProvider, report: rcaReport })
         });
-
-        const responseBody = await response.text();
-        let data: any;
-        try {
-          data = JSON.parse(responseBody);
-        } catch {
-          throw new Error(`Gemini returned invalid JSON (${response.status})`);
-        }
-        if (!response.ok) {
-          throw new Error(data.error?.message || `Gemini request failed (${response.status})`);
-        }
-        const textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!textOutput) throw new Error('Gemini returned no generated content');
-        const parsed = JSON.parse(textOutput);
-
-        setRemediation({
-          script_type: 'kubernetes_yaml',
-          script: parsed.script,
-          guardrail_status: parsed.risk_level === 'Critical' ? 'dangerous' : parsed.risk_level === 'High' ? 'review_required' : 'safe',
-          description: parsed.description,
-          risk_level: parsed.risk_level,
-          estimated_impact: parsed.estimated_impact,
-          rollback_steps: parsed.rollback_steps,
-          mode: 'live',
-          provider: 'gemini'
-        });
-      } catch (err) {
-        console.error('Gemini API error:', err);
-        setError(`Gemini API Error: ${err instanceof Error ? err.message : 'Unknown error'}. Falling back to Demo Mode.`);
-        generateMock('gemini');
-      } finally {
-        setLoading(false);
-      }
-    } else {
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || `Remediation request failed (${response.status})`);
+      setRemediation(data);
+    } catch (err) {
+      console.error('Remediation API error:', err);
+      setError(`${aiProvider} API Error: ${err instanceof Error ? err.message : 'Unknown error'}. Falling back to Demo Mode.`);
       generateMock(aiProvider);
-    }
+    } finally {
+      setLoading(false);
+      }
   };
 
   const generateMock = (provider: string) => {
@@ -181,6 +145,13 @@ spec:
               >
                 Gemini Pro
               </button>
+              <button
+                type="button"
+                onClick={() => setAiProvider('openrouter')}
+                className={`rounded px-3 py-1 text-xs font-medium ${aiProvider === 'openrouter' ? 'bg-surface text-text-primary' : 'text-text-muted'}`}
+              >
+                OpenRouter
+              </button>
             </div>
             <button
               type="button"
@@ -266,7 +237,7 @@ spec:
 
             {remediation.mode === 'demo' && (
               <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
-                Demo mode. Set {remediation.provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'GEMINI_API_KEY'} for live scripts.
+                Demo mode. Set {remediation.provider === 'claude' ? 'ANTHROPIC_API_KEY' : remediation.provider === 'openrouter' ? 'OPENROUTER_API_KEY' : 'GEMINI_API_KEY'} for live scripts.
               </div>
             )}
           </div>

@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ZAxis
 } from 'recharts';
@@ -6,25 +5,8 @@ import { Share2, Clock, GitCommit } from 'lucide-react';
 import { DependencyMap } from '../performace/DependencyMap';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
-const generateTraceScatter = (p95Latency: number) => {
-  const data = [];
-  const now = new Date();
-  for (let i = 0; i < 60; i++) {
-    const isError = Math.random() > 0.9;
-    data.push({
-      id: `trace-${i}`,
-      time: new Date(now.getTime() - Math.random() * 3600000).getTime(),
-      duration: Math.max(10, (p95Latency * 0.8) + (Math.random() - 0.5) * p95Latency + (isError ? 500 : 0)),
-      spans: Math.floor(Math.random() * 15) + 3,
-      isError: isError
-    });
-  }
-  return data.sort((a, b) => a.time - b.time);
-};
-
 export default function TracesDashboard({ data }: any) {
-  const p95Latency = data?.details?.service_latency_p95_ms || 150;
-  const traceData = useMemo(() => generateTraceScatter(p95Latency), [p95Latency]);
+  const traceData = data?.realtime?.traces?.samples ?? [];
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -116,7 +98,7 @@ export default function TracesDashboard({ data }: any) {
                   <ZAxis type="number" dataKey="spans" range={[50, 400]} name="Spans" />
                   <Tooltip cursor={{ strokeDasharray: '3 3', stroke: '#5E6875' }} content={<CustomTooltip />} />
                   <Scatter name="Traces" data={traceData}>
-                    {traceData.map((entry, index) => (
+                    {traceData.map((entry: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={entry.isError ? '#f43f5e' : '#10B981'} opacity={0.8} />
                     ))}
                   </Scatter>
@@ -151,8 +133,8 @@ export default function TracesDashboard({ data }: any) {
                 {[...traceData].sort((a,b) => b.duration - a.duration).slice(0, 5).map((trace) => (
                   <tr key={trace.id} className="hover:bg-surface-secondary/30">
                     <td className="px-4 py-3 font-mono text-brand-obs">{trace.id.padEnd(16, '0')}</td>
-                    <td className="px-4 py-3">api-gateway</td>
-                    <td className="px-4 py-3">{trace.isError ? 'POST /api/orders' : 'GET /api/catalog'}</td>
+                    <td className="px-4 py-3">{trace.service}</td>
+                    <td className="px-4 py-3">{trace.operation}</td>
                     <td className="px-4 py-3 font-mono">{trace.spans}</td>
                     <td className="px-4 py-3 text-right font-mono font-semibold text-amber-400">{trace.duration.toFixed(1)}</td>
                   </tr>

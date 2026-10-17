@@ -11,7 +11,13 @@ export default defineConfig({
     react()
   ],
   server: {
+    host: '127.0.0.1',
+    port: 3000,
     proxy: {
+      '/api/observability': {
+        target: 'http://localhost:8010',
+        changeOrigin: true,
+      },
       '/proxy/prometheus': {
         target: 'http://localhost:9090',
         changeOrigin: true,
