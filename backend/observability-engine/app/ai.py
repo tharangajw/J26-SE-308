@@ -60,8 +60,66 @@ Requirements:
 
 
 def _parse_json(value: str) -> dict[str, Any]:
-    cleaned = value.strip().removeprefix("```json").removesuffix("```").strip()
-    return json.loads(cleaned)
+    """Parse JSON even when a chat model adds fences or a short preamble."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("model returned an empty response")
+
+    cleaned = value.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3].rstrip()
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Some models prepend a sentence despite the JSON-only instruction.
+        start = cleaned.find("{")
+        if start < 0:
+            raise ValueError("model response did not contain a JSON object")
+        parsed, _ = json.JSONDecoder().raw_decode(cleaned[start:])
+
+    if not isinstance(parsed, dict):
+        raise ValueError("model response was not a JSON object")
+    return parsed
+
+
+def _openrouter_payload(model: str, prompt: str) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Return only valid JSON. Do not use markdown or explanatory text."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+    }
+
+
+def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Reject incomplete or unsafe model output before it reaches the UI."""
+    script = parsed.get("script")
+    if not isinstance(script, str) or not script.strip():
+        raise ValueError("remediation response did not include a script")
+
+    required_yaml = ("apiVersion:", "kind:", "metadata:")
+    if not all(marker in script for marker in required_yaml):
+        raise ValueError("remediation response was not a complete Kubernetes manifest")
+
+    lowered = script.lower()
+    blocked = ("kubectl delete", "privileged: true", "hostpath:", "password:", "token:")
+    if any(marker in lowered for marker in blocked):
+        raise ValueError("remediation response contained a blocked operation or credential")
+
+    risk = parsed.get("risk_level")
+    if risk not in {"Low", "Medium", "High", "Critical"}:
+        risk = "High"
+    parsed["risk_level"] = risk
+    parsed.setdefault("description", "Review the generated Kubernetes manifest before applying it.")
+    parsed.setdefault("estimated_impact", "Impact requires operator review before deployment.")
+    if not isinstance(parsed.get("rollback_steps"), list) or not parsed["rollback_steps"]:
+        parsed["rollback_steps"] = ["Run `kubectl rollout undo deployment/<deployment-name>` after identifying the affected deployment."]
+    return parsed
 
 
 def _demo(provider: str, elapsed: int = 0, reason: str | None = None) -> dict[str, Any]:
@@ -172,14 +230,14 @@ def analyze_with_openrouter(snapshot: dict[str, Any]) -> dict[str, Any]:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "HTTP-Referer": "http://localhost:3000", "X-Title": "ArchMaturity Observability"},
-            json={"model": OPENROUTER_MODEL, "messages": [{"role": "system", "content": "Return only valid JSON. Do not use markdown."}, {"role": "user", "content": _prompt(snapshot)}], "temperature": 0.2},
+            json=_openrouter_payload(OPENROUTER_MODEL, _prompt(snapshot)),
             timeout=AI_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         output = response.json()["choices"][0]["message"]["content"]
         return {**_parse_json(output), "provider": "openrouter", "mode": "live", "model": OPENROUTER_MODEL, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
     except Exception as error:
-        return _demo("openrouter", round((time.perf_counter() - started) * 1000), f"OpenRouter unavailable: {str(error)[:180]}")
+        return _demo("openrouter", round((time.perf_counter() - started) * 1000), f"OpenRouter request/response error: {str(error)[:180]}")
 
 
 def analyze(provider: str, snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -230,15 +288,15 @@ def generate_remediation(provider: str, report: dict[str, Any]) -> dict[str, Any
             response = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "HTTP-Referer": "http://localhost:3000", "X-Title": "ArchMaturity Observability"},
-                json={"model": OPENROUTER_MODEL, "messages": [{"role": "system", "content": "Return only valid JSON. Do not use markdown."}, {"role": "user", "content": prompt}], "temperature": 0.2},
+                json=_openrouter_payload(OPENROUTER_MODEL, prompt),
                 timeout=AI_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
             output = response.json()["choices"][0]["message"]["content"]
             model = OPENROUTER_MODEL
 
-        parsed = _parse_json(output)
-        risk = parsed.get("risk_level", "Medium")
+        parsed = _validate_remediation(_parse_json(output))
+        risk = parsed["risk_level"]
         return {
             **parsed,
             "script_type": "kubernetes_yaml",
