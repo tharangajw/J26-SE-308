@@ -18,13 +18,13 @@ class AnomalyDetectionService:
         self._bootstrap_synthetic_model()
 
     def _bootstrap_synthetic_model(self):
-        """Initializes model with normal operational cluster distributions."""
+        """Initializes model with normal operational cluster distributions (from idle 0.0 to moderate load 0.45)."""
         np.random.seed(42)
         # Features: [cpu_norm, memory_norm, p95_latency_norm, error_rate]
-        cpu_normal = np.random.uniform(0.05, 0.45, size=(500, 1))
-        mem_normal = np.random.uniform(0.05, 0.45, size=(500, 1))
-        lat_normal = np.random.uniform(0.02, 0.35, size=(500, 1))
-        err_normal = np.random.choice([0.0, 0.01, 0.02], size=(500, 1), p=[0.85, 0.10, 0.05])
+        cpu_normal = np.random.uniform(0.0, 0.45, size=(600, 1))
+        mem_normal = np.random.uniform(0.0, 0.45, size=(600, 1))
+        lat_normal = np.random.uniform(0.0, 0.35, size=(600, 1))
+        err_normal = np.random.choice([0.0, 0.01, 0.02], size=(600, 1), p=[0.90, 0.07, 0.03])
         normal_data = np.hstack([cpu_normal, mem_normal, lat_normal, err_normal])
         self.model.fit(normal_data)
         self.is_trained = True
