@@ -4,6 +4,14 @@ export interface AnomalyInferenceRequest {
   pod_uptime_sec?: number;
 }
 
+export interface FeatureAttributions {
+  cpuPercent: number;
+  memoryPercent: number;
+  latencyPercent: number;
+  errorPercent: number;
+  dominantDriver: string;
+}
+
 export interface AnomalyInferenceResponse {
   is_anomaly: boolean;
   anomaly_score: number;
@@ -11,6 +19,7 @@ export interface AnomalyInferenceResponse {
   prefiltered: boolean;
   reason: string;
   service_id: string;
+  feature_attributions?: FeatureAttributions;
 }
 
 export interface AnomalyServiceHealth {
@@ -141,21 +150,10 @@ export class AnomalyService {
       }
     }
 
-    if (cpuMillicores === 0 && memoryMB === 0 && p95LatencyMs === 0) {
-      cpuMillicores = 185;
-      memoryMB = 128;
-      p95LatencyMs = 24.5;
-      errorCount = 0;
-    }
-
-    // 2. Feature normalization to [0.0, 1.0]
-    // CPU: normalized against 1000m (1 core)
+    // 3. Feature normalization to [0.0, 1.0]
     const cpuNorm = Math.min(1.0, Math.max(0.0, cpuMillicores / 1000.0));
-    // Memory: normalized against 512MB
     const memoryNorm = Math.min(1.0, Math.max(0.0, memoryMB / 512.0));
-    // Latency: normalized against 200ms
     const latencyNorm = Math.min(1.0, Math.max(0.0, p95LatencyMs / 200.0));
-    // Error rate: normalized based on error count
     const errorRate = Math.min(1.0, Math.max(0.0, errorCount / 10.0));
 
     const featureVector: [number, number, number, number] = [

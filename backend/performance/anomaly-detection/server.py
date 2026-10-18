@@ -173,14 +173,21 @@ def run_python_telemetry_pipeline(
 def evaluate_composite_pscore(
     services: Optional[str] = Query(
         None, description="Comma-separated list of services to evaluate"
-    )
+    ),
+    w_drift: float = Query(0.40, description="AHP weight for Historical Latency Drift"),
+    w_fanout: float = Query(0.40, description="AHP weight for Call-Tree Fan-Out"),
+    w_anomaly: float = Query(0.20, description="AHP weight for ML Anomaly"),
 ):
     """
-    Phase 4 & 5 Python Composite P-Score & Context-Aware Recommendation Engine:
-    Computes P-Score = 100 * (1 - (0.40*Drift + 0.40*FanOut + 0.20*Anomaly)),
-    maps to 4 Maturity Tiers, and generates live architectural recommendations.
+    Phase 4 & 5 Python Composite P-Score, AHP Validator, Apdex & Context-Aware Recommendation Engine:
+    Computes P-Score = 100 * (1 - (w_drift*Drift + w_fanout*FanOut + w_anomaly*Anomaly)),
+    validates AHP Consistency Ratio (CR < 0.10), computes Apdex & Tail-Latency ratio,
+    and generates closed-loop remediation projections.
     """
     req_list = (
         [s.strip() for s in services.split(",") if s.strip()] if services else None
     )
-    return pscore_engine.evaluate_cluster_pscore(req_list, latest_telemetry)
+    custom_weights = {"drift": w_drift, "fanout": w_fanout, "anomaly": w_anomaly}
+    return pscore_engine.evaluate_cluster_pscore(
+        req_list, latest_telemetry, custom_weights
+    )

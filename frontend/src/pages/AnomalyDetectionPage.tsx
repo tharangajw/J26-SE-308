@@ -614,6 +614,74 @@ export const AnomalyDetectionPage: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              {/* Explainable AI (XAI) Marginal Feature Attribution Breakdown */}
+              {evaluation.prediction.feature_attributions && (
+                <div className="mt-5 rounded-lg border border-brand-perf/30 bg-brand-perf/5 p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-brand-perf flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5" /> Explainable AI (XAI) — Isolation Forest Feature Attribution
+                    </span>
+                    <span className="rounded bg-surface border border-border px-2.5 py-0.5 font-mono text-xs text-text-primary">
+                      Dominant Driver:{' '}
+                      <strong className="text-brand-perf">
+                        {evaluation.prediction.feature_attributions.dominantDriver}
+                      </strong>
+                    </span>
+                  </div>
+
+                  {/* Stacked Attribution Bar */}
+                  <div className="h-3 w-full rounded-full bg-surface-secondary overflow-hidden flex">
+                    <div
+                      className="bg-emerald-400 transition-all duration-500"
+                      style={{ width: `${evaluation.prediction.feature_attributions.cpuPercent}%` }}
+                      title={`CPU: ${evaluation.prediction.feature_attributions.cpuPercent}%`}
+                    />
+                    <div
+                      className="bg-sky-400 transition-all duration-500"
+                      style={{ width: `${evaluation.prediction.feature_attributions.memoryPercent}%` }}
+                      title={`Memory: ${evaluation.prediction.feature_attributions.memoryPercent}%`}
+                    />
+                    <div
+                      className="bg-amber-400 transition-all duration-500"
+                      style={{ width: `${evaluation.prediction.feature_attributions.latencyPercent}%` }}
+                      title={`Latency: ${evaluation.prediction.feature_attributions.latencyPercent}%`}
+                    />
+                    <div
+                      className="bg-rose-400 transition-all duration-500"
+                      style={{ width: `${evaluation.prediction.feature_attributions.errorPercent}%` }}
+                      title={`Errors: ${evaluation.prediction.feature_attributions.errorPercent}%`}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                    <div className="flex items-center justify-between rounded bg-surface/80 px-2.5 py-1 border border-border/60">
+                      <span className="text-emerald-400">CPU:</span>
+                      <span className="font-bold text-text-primary">
+                        {evaluation.prediction.feature_attributions.cpuPercent}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded bg-surface/80 px-2.5 py-1 border border-border/60">
+                      <span className="text-sky-400">RAM:</span>
+                      <span className="font-bold text-text-primary">
+                        {evaluation.prediction.feature_attributions.memoryPercent}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded bg-surface/80 px-2.5 py-1 border border-border/60">
+                      <span className="text-amber-400">P95 Latency:</span>
+                      <span className="font-bold text-text-primary">
+                        {evaluation.prediction.feature_attributions.latencyPercent}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded bg-surface/80 px-2.5 py-1 border border-border/60">
+                      <span className="text-rose-400">Error Rate:</span>
+                      <span className="font-bold text-text-primary">
+                        {evaluation.prediction.feature_attributions.errorPercent}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
