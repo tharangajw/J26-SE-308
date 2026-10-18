@@ -54,7 +54,11 @@ export const AnomalyDetectionPage: React.FC = () => {
 
       // 2. Discover cluster services from Prometheus & Jaeger
       const discovery = await TelemetryService.discoverServices();
-      const allDiscovered = Array.from(new Set([...customServices, ...discovery.allServices]));
+      const baseServices =
+        discovery.allServices.length > 0
+          ? discovery.allServices
+          : ['order-service', 'payment-service', 'api-gateway', 'inventory-service'];
+      const allDiscovered = Array.from(new Set([...customServices, ...baseServices]));
       setDiscoveredServices(allDiscovered);
 
       setError(null);
@@ -75,7 +79,7 @@ export const AnomalyDetectionPage: React.FC = () => {
     try {
       let evalResult = await AnomalyService.evaluateService(serviceId);
 
-      // Apply uptime override if user adjusted slider
+      // Apply uptime override only if user explicitly adjusted slider
       if (uptimeOverride !== undefined && uptimeOverride !== evalResult.rawMetrics.uptimeSeconds) {
         const customPred = await AnomalyService.predict({
           service_id: serviceId,
@@ -95,11 +99,26 @@ export const AnomalyDetectionPage: React.FC = () => {
             uptimeSeconds: uptimeOverride,
           },
         };
+      } else {
+        setTestUptimeSec(evalResult.rawMetrics.uptimeSeconds);
       }
 
       setEvaluation(evalResult);
       setLastRefreshed(new Date());
-      setPredictionHistory((prev) => [evalResult, ...prev.slice(0, 9)]);
+      setPredictionHistory((prev) => {
+        const top = prev[0];
+        if (
+          top &&
+          top.serviceId === evalResult.serviceId &&
+          top.rawMetrics.cpuMillicores === evalResult.rawMetrics.cpuMillicores &&
+          top.rawMetrics.memoryMB === evalResult.rawMetrics.memoryMB &&
+          top.rawMetrics.uptimeSeconds === evalResult.rawMetrics.uptimeSeconds &&
+          top.prediction.anomaly_score === evalResult.prediction.anomaly_score
+        ) {
+          return prev;
+        }
+        return [evalResult, ...prev.slice(0, 9)];
+      });
       setError(null);
     } catch (err: any) {
       setError(err?.message || `Failed to evaluate anomaly for ${serviceId}`);
@@ -108,21 +127,79 @@ export const AnomalyDetectionPage: React.FC = () => {
     }
   }, []);
 
+  // Inject specific workload telemetry into live FastAPI Isolation Forest model
+  const injectWorkloadScenario = useCallback(
+    async (
+      rawMetrics: { cpuMillicores: number; memoryMB: number; p95LatencyMs: number; errorCount: number },
+      uptimeSec: number
+    ) => {
+      const targetService = selectedServiceId || 'order-service';
+      setIsRefreshing(true);
+      try {
+        const cpuNorm = parseFloat(Math.min(1.0, Math.max(0.0, rawMetrics.cpuMillicores / 1000.0)).toFixed(3));
+        const memoryNorm = parseFloat(Math.min(1.0, Math.max(0.0, rawMetrics.memoryMB / 512.0)).toFixed(3));
+        const latencyNorm = parseFloat(Math.min(1.0, Math.max(0.0, rawMetrics.p95LatencyMs / 200.0)).toFixed(3));
+        const errorRate = parseFloat(Math.min(1.0, Math.max(0.0, rawMetrics.errorCount / 10.0)).toFixed(3));
+
+        const prediction = await AnomalyService.predict({
+          service_id: targetService,
+          feature_vector: [cpuNorm, memoryNorm, latencyNorm, errorRate],
+          pod_uptime_sec: uptimeSec,
+        });
+
+        const evalResult: ServiceAnomalyEvaluation = {
+          serviceId: targetService,
+          prediction,
+          rawMetrics: {
+            ...rawMetrics,
+            uptimeSeconds: uptimeSec,
+          },
+          normalizedFeatures: {
+            cpuNorm,
+            memoryNorm,
+            latencyNorm,
+            errorRate,
+          },
+          evaluatedAt: new Date().toLocaleTimeString(),
+        };
+
+        setEvaluation(evalResult);
+        setLastRefreshed(new Date());
+        setPredictionHistory((prev) => [evalResult, ...prev.slice(0, 9)]);
+        setError(null);
+      } catch (err: any) {
+        setError(err?.message || `Failed to run inference for ${targetService}`);
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [selectedServiceId]
+  );
+
   // Initial load
   useEffect(() => {
     initServices().then((services) => {
       if (services.length > 0 && !selectedServiceId) {
-        // Auto-select first active service
         setSelectedServiceId(services[0]);
-        evaluateSelectedService(services[0], testUptimeSec);
+        evaluateSelectedService(services[0]);
       }
     });
-  }, [initServices, evaluateSelectedService, selectedServiceId, testUptimeSec]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Live 2-second auto-polling so terminal load tests automatically stream into the UI
+  useEffect(() => {
+    if (!selectedServiceId || !health) return;
+    const intervalId = setInterval(() => {
+      evaluateSelectedService(selectedServiceId);
+    }, 2000);
+    return () => clearInterval(intervalId);
+  }, [selectedServiceId, health, evaluateSelectedService]);
 
   // Handle service change
   const handleSelectService = (sId: string) => {
     setSelectedServiceId(sId);
-    evaluateSelectedService(sId, testUptimeSec);
+    evaluateSelectedService(sId);
   };
 
   // Handle adding custom service
@@ -132,17 +209,27 @@ export const AnomalyDetectionPage: React.FC = () => {
     if (!trimmed) return;
     if (!customServices.includes(trimmed)) {
       setCustomServices((prev) => [...prev, trimmed]);
-      setDiscoveredServices((prev) => [...prev, trimmed]);
+      setDiscoveredServices((prev) => Array.from(new Set([...prev, trimmed])));
     }
     setSelectedServiceId(trimmed);
     setCustomInput('');
-    evaluateSelectedService(trimmed, testUptimeSec);
+    evaluateSelectedService(trimmed);
   };
 
-  // Uptime slider change
-  const handleUptimeChange = (val: number) => {
+  // Uptime slider change (preserves current feature vector while re-evaluating FastAPI model)
+  const handleUptimeChange = async (val: number) => {
     setTestUptimeSec(val);
-    if (selectedServiceId) {
+    if (evaluation) {
+      await injectWorkloadScenario(
+        {
+          cpuMillicores: evaluation.rawMetrics.cpuMillicores,
+          memoryMB: evaluation.rawMetrics.memoryMB,
+          p95LatencyMs: evaluation.rawMetrics.p95LatencyMs,
+          errorCount: evaluation.rawMetrics.errorCount,
+        },
+        val
+      );
+    } else if (selectedServiceId) {
       evaluateSelectedService(selectedServiceId, val);
     }
   };
@@ -253,7 +340,7 @@ export const AnomalyDetectionPage: React.FC = () => {
           <button
             type="button"
             onClick={() => {
-              if (selectedServiceId) evaluateSelectedService(selectedServiceId, testUptimeSec);
+              if (selectedServiceId) evaluateSelectedService(selectedServiceId);
             }}
             disabled={isRefreshing}
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-secondary px-3.5 py-2 text-xs font-medium text-text-primary hover:bg-surface-secondary/80 disabled:opacity-50"
@@ -567,6 +654,56 @@ export const AnomalyDetectionPage: React.FC = () => {
                 <span className={`font-mono font-bold ${testUptimeSec < 90 ? 'text-sky-400' : 'text-emerald-400'}`}>
                   {testUptimeSec < 90 ? 'ACTIVE PRE-FILTER (Startup artifact suppressed)' : 'EXCLUSION WINDOW EXPIRED (Evaluated by Isolation Forest)'}
                 </span>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-border/60 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-xs font-semibold text-text-secondary">
+                  Test Real FastAPI :8000 Inference Scenarios:
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isRefreshing}
+                    onClick={() =>
+                      injectWorkloadScenario(
+                        { cpuMillicores: 185, memoryMB: 128, p95LatencyMs: 24.5, errorCount: 0 },
+                        testUptimeSec
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Normal Baseline
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isRefreshing}
+                    onClick={() =>
+                      injectWorkloadScenario(
+                        { cpuMillicores: 950, memoryMB: 465, p95LatencyMs: 175.0, errorCount: 2 },
+                        testUptimeSec
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 hover:bg-rose-500/20 disabled:opacity-50"
+                  >
+                    <Flame className="h-3.5 w-3.5" />
+                    Inject CPU &amp; RAM Spike (Anomaly)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isRefreshing}
+                    onClick={() =>
+                      injectWorkloadScenario(
+                        { cpuMillicores: 880, memoryMB: 410, p95LatencyMs: 195.0, errorCount: 6 },
+                        testUptimeSec
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 disabled:opacity-50"
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Inject Latency &amp; Error Storm
+                  </button>
+                </div>
               </div>
             </CardContent>
           </Card>

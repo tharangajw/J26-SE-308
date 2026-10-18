@@ -21,8 +21,11 @@ class AnomalyDetectionService:
         """Initializes model with normal operational cluster distributions."""
         np.random.seed(42)
         # Features: [cpu_norm, memory_norm, p95_latency_norm, error_rate]
-        normal_data = np.random.normal(loc=0.25, scale=0.08, size=(500, 4))
-        normal_data = np.clip(normal_data, 0.0, 1.0)
+        cpu_normal = np.random.uniform(0.05, 0.45, size=(500, 1))
+        mem_normal = np.random.uniform(0.05, 0.45, size=(500, 1))
+        lat_normal = np.random.uniform(0.02, 0.35, size=(500, 1))
+        err_normal = np.random.choice([0.0, 0.01, 0.02], size=(500, 1), p=[0.85, 0.10, 0.05])
+        normal_data = np.hstack([cpu_normal, mem_normal, lat_normal, err_normal])
         self.model.fit(normal_data)
         self.is_trained = True
 
@@ -32,6 +35,7 @@ class AnomalyDetectionService:
             return {
                 "is_anomaly": False,
                 "anomaly_score": 0.0,
+                "decision_function_score": 0.0,
                 "prefiltered": True,
                 "reason": f"Pod in startup window ({pod_uptime_sec}s < 90s)"
             }
@@ -42,8 +46,8 @@ class AnomalyDetectionService:
         decision_score = self.model.decision_function(X)[0]
         
         # Convert decision function score to normalized anomaly score [0.0, 1.0]
-        # In sklearn, lower decision score = more anomalous
-        raw_anomaly_score = max(0.0, -decision_score + 0.2)
+        # In sklearn, lower (negative) decision score = more anomalous
+        raw_anomaly_score = max(0.0, 0.25 - (decision_score * 3.5))
         norm_anomaly_score = min(1.0, float(raw_anomaly_score))
 
         return {
