@@ -140,10 +140,37 @@ export class TelemetryService {
   static async discoverServices(): Promise<{
     prometheusJobs: string[];
     jaegerServices: string[];
+    dockerContainers?: string[];
     applicationServices: string[];
     infrastructureServices: string[];
     allServices: string[];
   }> {
+    // 0. Query Telemetry Collector (/api/telemetry/discovered-services) which inspects Docker Socket + Prometheus + Jaeger
+    const collectorUrls = [
+      '/api/telemetry/discovered-services',
+      'http://localhost:8787/api/telemetry/discovered-services',
+    ];
+    for (const url of collectorUrls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const body = await res.json();
+          if (body && Array.isArray(body.allServices) && body.allServices.length > 0) {
+            return {
+              prometheusJobs: body.prometheusJobs || [],
+              jaegerServices: body.jaegerServices || [],
+              dockerContainers: body.dockerContainers || [],
+              applicationServices: body.applicationServices || [],
+              infrastructureServices: body.infrastructureServices || [],
+              allServices: body.allServices || [],
+            };
+          }
+        }
+      } catch {
+        // fallback to direct queries below
+      }
+    }
+
     let prometheusJobs: string[] = [];
     let jaegerServices: string[] = [];
 
@@ -194,6 +221,7 @@ export class TelemetryService {
     return {
       prometheusJobs,
       jaegerServices,
+      dockerContainers: [],
       applicationServices,
       infrastructureServices,
       allServices,

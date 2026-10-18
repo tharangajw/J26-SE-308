@@ -19,7 +19,9 @@ const engine = new TelemetryCollectorEngine({
 });
 
 const driftAnalyzer = new HistoricalDriftAnalyzer();
-const fanOutEngine = new FanOutEngine();
+const fanOutEngine = new FanOutEngine({
+  jaeger: process.env.JAEGER_URL ?? 'http://localhost:16686',
+});
 
 const sendJson = (response: import('node:http').ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
@@ -96,11 +98,13 @@ createServer(async (request, response) => {
       return driftAnalyzer.analyzeDrift(serviceId, liveP95);
     });
 
-    const fanOutResults = services.map((serviceId) => {
-      const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
-      const liveLatency = snap ? (snap.prometheus.avgResponseTimeMs || 20.0) : 20.0;
-      return fanOutEngine.analyzeTopology(serviceId, liveLatency);
-    });
+    const fanOutResults = await Promise.all(
+      services.map((serviceId) => {
+        const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
+        const liveLatency = snap ? (snap.prometheus.avgResponseTimeMs || 0) : 0;
+        return fanOutEngine.analyzeTopology(serviceId, liveLatency);
+      })
+    );
 
     return sendJson(response, 200, {
       pipeline: 'Phase 3: Core Signal Sub-Modules (Drift Analysis & Fan-Out Engine)',

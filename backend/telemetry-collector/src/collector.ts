@@ -1,3 +1,4 @@
+import { DockerCollector } from './docker.js';
 import { JaegerCollector } from './jaeger.js';
 import { K8sCollector } from './k8s.js';
 import { LokiCollector } from './loki.js';
@@ -9,12 +10,14 @@ export class TelemetryCollectorEngine {
   private readonly jaegerCollector: JaegerCollector;
   private readonly k8sCollector: K8sCollector;
   private readonly lokiCollector: LokiCollector;
+  private readonly dockerCollector: DockerCollector;
 
   constructor(endpoints: { prometheus?: string; jaeger?: string; kubernetes?: string; loki?: string } = {}) {
     this.promCollector = new PrometheusCollector(endpoints.prometheus);
     this.jaegerCollector = new JaegerCollector(endpoints.jaeger);
     this.k8sCollector = new K8sCollector(endpoints.kubernetes);
     this.lokiCollector = new LokiCollector(endpoints.loki);
+    this.dockerCollector = new DockerCollector();
   }
 
   public async collectServiceSnapshot(serviceId: string): Promise<RawTelemetrySnapshot> {
@@ -64,12 +67,14 @@ export class TelemetryCollectorEngine {
   public async discoverServices(): Promise<{
     prometheusJobs: string[];
     jaegerServices: string[];
+    dockerContainers: string[];
     applicationServices: string[];
     infrastructureServices: string[];
     allServices: string[];
   }> {
     let prometheusJobs: string[] = [];
     let jaegerServices: string[] = [];
+    let dockerContainers: string[] = [];
 
     try {
       const promEndpoint = (this.promCollector as any).endpoint || 'http://localhost:9090';
@@ -97,10 +102,28 @@ export class TelemetryCollectorEngine {
       // ignore
     }
 
-    const infraKeywords = ['prometheus', 'jaeger', 'loki', 'grafana', 'collector'];
+    try {
+      const containers = await this.dockerCollector.getRunningContainers();
+      dockerContainers = containers.map((c) => c.displayId);
+    } catch {
+      // ignore
+    }
+
+    const infraKeywords = [
+      'prometheus',
+      'jaeger',
+      'loki',
+      'grafana',
+      'collector',
+      'anomaly-detection',
+      'mongo',
+      'postgres',
+      'redis',
+      'mysql',
+    ];
     const isInfra = (name: string) => infraKeywords.some((kw) => name.toLowerCase().includes(kw));
 
-    const allSet = new Set<string>([...prometheusJobs, ...jaegerServices]);
+    const allSet = new Set<string>([...dockerContainers, ...prometheusJobs, ...jaegerServices]);
     const allServices = Array.from(allSet);
     const applicationServices = allServices.filter((s) => !isInfra(s));
     const infrastructureServices = allServices.filter((s) => isInfra(s));
@@ -108,6 +131,7 @@ export class TelemetryCollectorEngine {
     return {
       prometheusJobs,
       jaegerServices,
+      dockerContainers,
       applicationServices,
       infrastructureServices,
       allServices,
