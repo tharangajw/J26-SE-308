@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTelemetry } from '../context/TelemetryContext';
 import { PageContainer } from '../components/layout/PageContainer';
+import { Card, CardContent } from '../components/ui/Card';
 import { AlertCircle, Database, Server, BarChart2, ShieldCheck, Radio, Zap, GitBranch, Activity, Calculator } from 'lucide-react';
 
 import TabNav from '../components/observability/TabNav';
@@ -17,73 +18,56 @@ import { ObservabilityMethodology } from '../components/observability/Observabil
 
 import { INITIAL_MOCK_HISTORY, INITIAL_MOCK_DATA, INITIAL_MOCK_CCI } from '../components/observability/mockData';
 
-const ScoreRing = ({ score }: { score: number }) => {
-  const color = score >= 80 ? '#34d399' : score >= 50 ? '#fbbf24' : '#f43f5e';
-  const dashArray = 2 * Math.PI * 60;
-  const dashOffset = dashArray * (1 - score / 100);
-
-  return (
-    <div className="obs-score-ring-wrapper">
-      <svg width="160" height="160" style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx="80" cy="80" r="60" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="12" />
-        <circle cx="80" cy="80" r="60" fill="none"
-          stroke={color} strokeWidth="12" strokeLinecap="round"
-          strokeDasharray={dashArray} strokeDashoffset={dashOffset}
-          style={{ transition: 'stroke-dashoffset 1s ease-out', filter: `drop-shadow(0 0 10px ${color}80)` }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-4xl font-black" style={{ color }}>{score.toFixed(1)}</span>
-        <span className="text-xs font-bold text-slate-500 mt-1 uppercase tracking-wider">/ 100</span>
-      </div>
-    </div>
-  );
-};
-
 const MetricCard = ({ icon, title, value, description, source, isAlert = false }: any) => {
-  const sourceColor = source === 'prometheus' ? '#f97316' : source === 'jaeger' ? '#818cf8' : '#22d3ee';
-  
+  const sourceColor =
+    source === 'prometheus' ? 'text-orange-400 border-orange-400/30 bg-orange-400/10' :
+    source === 'jaeger' ? 'text-indigo-400 border-indigo-400/30 bg-indigo-400/10' :
+    'text-cyan-400 border-cyan-400/30 bg-cyan-400/10';
+
   return (
-    <div className={`obs-glass obs-metric-card obs-lift ${isAlert ? 'border-rose-500/50 bg-rose-500/5' : ''}`}>
-      <div className="obs-card-glow" style={{ background: isAlert ? '#f43f5e' : sourceColor }} />
-      <div className="flex justify-between items-start mb-4 relative z-10">
-        <div className="flex items-center gap-2">
-          {icon}
-          <h3 className="text-slate-300 font-medium text-sm">{title}</h3>
+    <Card className={`h-full ${isAlert ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-surface-secondary/20'}`}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {icon}
+            <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">{title}</span>
+          </div>
+          <span className={`rounded-md border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${sourceColor}`}>
+            {source}
+          </span>
         </div>
-        <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold border`} 
-              style={{ color: sourceColor, borderColor: `${sourceColor}40`, backgroundColor: `${sourceColor}10` }}>
-          {source}
-        </span>
-      </div>
-      <div className="relative z-10">
-        <h2 className={`text-3xl font-black ${isAlert ? 'text-rose-400' : 'text-white'}`}>{value}</h2>
-        <p className="text-xs text-slate-500 mt-2 font-medium">{description}</p>
-      </div>
-    </div>
+        <div className={`mt-3 font-mono text-2xl font-semibold ${isAlert ? 'text-rose-400' : 'text-text-primary'}`}>{value}</div>
+        <p className="mt-1 text-[11px] text-text-muted">{description}</p>
+      </CardContent>
+    </Card>
   );
 };
 
-const SourceBadge = ({ name, status }: { name: string, status: string }) => {
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/50 border border-slate-700">
-      <div className={`w-2 h-2 rounded-full ${status === 'live' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-rose-500 animate-pulse'}`} />
-      <span className="text-xs font-semibold text-slate-300">{name}</span>
-    </div>
-  );
-};
+const SourceBadge = ({ name, status }: { name: string; status: string }) => (
+  <div className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-secondary/40 px-3 py-1.5">
+    <div className={`h-2 w-2 rounded-full ${status === 'live' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+    <span className="text-xs font-medium text-text-secondary">{name}</span>
+  </div>
+);
 
 export const Observability: React.FC = () => {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const isCalculationView = pathname.endsWith('/calculation');
+  const routeTab = pathname.endsWith('/cci-audit') ? 'cci' : pathname.endsWith('/ai-analysis') ? 'rca' : pathname.endsWith('/remediation') ? 'remediation' : 'overview';
+  const isAiAnalysisView = routeTab === 'rca';
   const { telemetry, oScore, cciIndex, history: liveHistory } = useTelemetry();
 
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(routeTab);
   const [rcaReport, setRcaReport] = useState<any>(null);
 
   const [mockData, setMockData] = useState(INITIAL_MOCK_DATA);
   const [mockCci, setMockCci] = useState(INITIAL_MOCK_CCI);
   const [mockHistory, setMockHistory] = useState(INITIAL_MOCK_HISTORY);
+
+  useEffect(() => {
+    if (!isCalculationView) setActiveTab(routeTab);
+  }, [isCalculationView, routeTab]);
   const chartHistory = liveHistory.map(record => ({
     timestamp: record.date,
     oscore: record.oscore,
@@ -91,18 +75,18 @@ export const Observability: React.FC = () => {
     blind_spot_count: record.blindSpots,
   }));
 
-  // Bind the detail page to the real telemetry response instead of random mock fluctuations.
   useEffect(() => {
     if (!telemetry) return;
 
     setMockData(prev => ({
       ...prev,
-      oscore: oScore,
+      oscore: telemetry.calculation.oScore,
+      realtime: telemetry,
       details: {
         ...prev.details,
         metrics_coverage_rate: telemetry.sources.prometheus ? 1 : 0,
         system_error_rate: telemetry.traces.errorRate / 100,
-        service_latency_p95_ms: telemetry.traces.latency,
+        service_latency_p95_ms: telemetry.metrics.p95Latency || telemetry.traces.latency,
         service_count: telemetry.traces.serviceCount,
         log_structural_integrity: telemetry.sources.loki ? 1 : 0,
         log_error_count: telemetry.logs.errorCount,
@@ -111,16 +95,7 @@ export const Observability: React.FC = () => {
       },
     }));
 
-    setMockCci(prev => ({
-      ...prev,
-      cci_index: cciIndex,
-      pillar_coverage: {
-        metric: telemetry.sources.prometheus ? 1 : 0,
-        trace: telemetry.sources.jaeger ? 1 : 0,
-        log: telemetry.sources.loki ? 1 : 0,
-      },
-      blind_spots: Object.values(telemetry.sources).every(Boolean) ? [] : prev.blind_spots,
-    }));
+    setMockCci(telemetry.calculation.cciData);
   }, [telemetry, oScore, cciIndex]);
 
   const handleChaosExperiment = (expId: string) => {
@@ -163,137 +138,107 @@ export const Observability: React.FC = () => {
   };
 
   const d = mockData.details;
-  
+  const maturityLabel = oScore >= 80 ? 'Proactive' : oScore >= 50 ? 'Intermediate' : 'Reactive';
+
   return (
-    <PageContainer>
-      {/* App Header */}
-      <header className="mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <PageContainer className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 drop-shadow-sm flex items-center gap-3">
-            <Activity className="w-8 h-8 text-indigo-400" />
-            Observability Engine
-          </h1>
-          <p className="text-sm text-slate-400 mt-1 font-medium">Real-Time Telemetry Correlation & AI Analysis</p>
+          <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-brand-obs">
+            <Activity className="h-6 w-6 text-brand-obs" />
+            {isCalculationView ? 'Observability Calculation' : isAiAnalysisView ? 'AI Root-Cause Analysis' : 'Telemetry Explorer'}
+          </h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            {isCalculationView
+              ? 'Parameters, correlation weights, and penalty deductions behind the O-Score.'
+              : isAiAnalysisView
+                ? 'Use Gemini or Claude to diagnose correlated telemetry and explain the likely root cause.'
+                : 'Real-time telemetry correlation across Prometheus, Loki, and Jaeger.'}
+          </p>
         </div>
-        
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <div className={`px-3 py-1.5 rounded-full flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 text-emerald-400`}>
-              <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
-              <span className="text-sm font-medium">Live</span>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <SourceBadge name="Prometheus" status={telemetry?.sources.prometheus ? 'live' : 'offline'} />
+          <SourceBadge name="Loki" status={telemetry?.sources.loki ? 'live' : 'offline'} />
+          <SourceBadge name="Jaeger" status={telemetry?.sources.jaeger ? 'live' : 'offline'} />
+          {!isCalculationView && (
+            <div className="text-right">
+              <div className="font-mono text-4xl font-semibold text-brand-obs">
+                {oScore.toFixed(0)}
+                <span className="text-lg text-text-muted">/100</span>
+              </div>
+              <div className="mt-0.5 text-xs font-medium uppercase tracking-widest text-text-secondary">
+                {maturityLabel}
+              </div>
             </div>
-            <div className="flex gap-2 flex-wrap justify-end">
-              <SourceBadge name="Prometheus" status={telemetry?.sources.prometheus ? 'live' : 'offline'} />
-              <SourceBadge name="Loki"       status={telemetry?.sources.loki ? 'live' : 'offline'} />
-              <SourceBadge name="Jaeger"     status={telemetry?.sources.jaeger ? 'live' : 'offline'} />
-            </div>
-          </div>
+          )}
         </div>
-      </header>
+      </div>
 
       {isCalculationView ? (
-        <main className="w-full max-w-7xl z-10 space-y-6">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Calculator className="w-5 h-5 text-brand-obs" /> How we calculate the O-Score
-            </h2>
+        <div className="space-y-6">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-semibold">
+              <Calculator className="h-5 w-5 text-brand-obs" /> How we calculate the O-Score
+            </h3>
             <p className="mt-1 text-sm text-text-secondary">
               Review the parameters, cross-pillar correlation weights, and penalty deductions behind the current score.
             </p>
           </div>
-          <ObservabilityMethodology />
-        </main>
+          <ObservabilityMethodology calculation={telemetry?.calculation} />
+        </div>
       ) : (
         <>
-          {/* Navigation */}
-          <div className="w-full max-w-7xl z-10 mb-8">
-            <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
-          </div>
+          <TabNav
+            activeTab={activeTab}
+            onTabChange={(tab) => {
+              setActiveTab(tab);
+              navigate('/dimensions/observability/detail');
+            }}
+          />
 
-          {/* Main Content Area */}
-          <main className="w-full max-w-7xl z-10">
-            {activeTab === 'overview' && (
-              <div className="space-y-8 obs-fade-up">
-                
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* O-Score */}
-                  <div className="lg:col-span-1 obs-glass obs-score-card p-8 flex flex-col items-center justify-center obs-lift relative overflow-hidden group">
-                    <div className="obs-score-hover absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                    <h2 className="relative z-10 text-xl font-medium text-slate-300 mb-6">Real-Time O-Score</h2>
-                    <div className="relative z-10">
-                      <ScoreRing score={oScore} />
-                    </div>
-                    
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <Card className="border-brand-obs/40 bg-brand-obs/5">
+                  <CardContent className="flex h-full flex-col justify-center p-6">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">Live O-Score</p>
+                    <div className="mt-3 font-mono text-5xl font-semibold text-brand-obs">{oScore.toFixed(1)}</div>
+                    <p className="mt-2 text-xs text-text-muted">/ 100 · {maturityLabel} maturity</p>
                     {mockCci.blind_spots.length > 0 && (
-                      <div className="relative z-10 mt-6 px-4 py-2 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm flex items-center gap-2 font-medium">
-                        <AlertCircle className="w-4 h-4" />
+                      <div className="mt-5 flex items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+                        <AlertCircle className="h-4 w-4" />
                         Penalty: -{mockData.scoring_weights.blind_spot_penalty} pts for blind spots
                       </div>
                     )}
-                  </div>
+                  </CardContent>
+                </Card>
 
-                  {/* History Chart */}
-                  <div className="lg:col-span-2 flex flex-col justify-end">
-                    <ScoreHistory history={chartHistory.length ? chartHistory : mockHistory} />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <MetricCard icon={<Database className="w-5 h-5 text-emerald-400" />} title="Metrics Coverage" value={`${(d.metrics_coverage_rate * 100).toFixed(0)}%`} description="Healthy scrape targets" source="prometheus" />
-                  <MetricCard icon={<AlertCircle className="w-5 h-5 text-rose-400" />} title="HTTP Error Rate" value={`${(d.system_error_rate * 100).toFixed(2)}%`} description="5xx responses (5m)" source="prometheus" isAlert={d.system_error_rate > 0.05} />
-                  <MetricCard icon={<Server className="w-5 h-5 text-amber-400" />} title="p95 Latency" value={`${d.service_latency_p95_ms.toFixed(1)} ms`} description="95th percentile request duration" source="prometheus" isAlert={d.service_latency_p95_ms > 1000} />
-                  <MetricCard icon={<BarChart2 className="w-5 h-5 text-sky-400" />} title="Active Services" value={d.service_count} description="Instrumented services" source="jaeger" />
-                  
-                  <MetricCard icon={<ShieldCheck className="w-5 h-5 text-blue-400" />} title="Log Integrity" value={`${(d.log_structural_integrity * 100).toFixed(0)}%`} description="Structured level labels" source="loki" />
-                  <MetricCard icon={<Radio className="w-5 h-5 text-rose-400" />} title="Log Errors (15m)" value={d.log_error_count.toLocaleString()} description="Error-level log lines" source="loki" isAlert={d.log_error_count > 100} />
-                  <MetricCard icon={<Zap className="w-5 h-5 text-purple-400" />} title="Trace Propagation" value={`${(d.trace_id_propagation_rate * 100).toFixed(0)}%`} description="Multi-service traces" source="jaeger" />
-                  <MetricCard icon={<GitBranch className="w-5 h-5 text-teal-400" />} title="Avg Trace Duration" value={`${d.avg_trace_duration_ms.toFixed(1)} ms`} description="End-to-end trace length" source="jaeger" />
+                <div className="lg:col-span-2">
+                  <ScoreHistory history={chartHistory.length ? chartHistory : mockHistory} />
                 </div>
               </div>
-            )}
 
-            {activeTab === 'metrics' && (
-              <div className="obs-fade-up">
-                <MetricsDashboard data={mockData} />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <MetricCard icon={<Database className="h-4 w-4 text-emerald-400" />} title="Metrics Coverage" value={`${(d.metrics_coverage_rate * 100).toFixed(0)}%`} description="Healthy scrape targets" source="prometheus" />
+                <MetricCard icon={<AlertCircle className="h-4 w-4 text-rose-400" />} title="HTTP Error Rate" value={`${(d.system_error_rate * 100).toFixed(2)}%`} description="5xx responses (5m)" source="prometheus" isAlert={d.system_error_rate > 0.05} />
+                <MetricCard icon={<Server className="h-4 w-4 text-amber-400" />} title="p95 Latency" value={`${d.service_latency_p95_ms.toFixed(1)} ms`} description="95th percentile request duration" source="prometheus" isAlert={d.service_latency_p95_ms > 1000} />
+                <MetricCard icon={<BarChart2 className="h-4 w-4 text-cyan-400" />} title="Active Services" value={d.service_count} description="Instrumented services" source="jaeger" />
+                <MetricCard icon={<ShieldCheck className="h-4 w-4 text-brand-obs" />} title="Log Integrity" value={`${(d.log_structural_integrity * 100).toFixed(0)}%`} description="Structured level labels" source="loki" />
+                <MetricCard icon={<Radio className="h-4 w-4 text-rose-400" />} title="Log Errors (15m)" value={d.log_error_count.toLocaleString()} description="Error-level log lines" source="loki" isAlert={d.log_error_count > 100} />
+                <MetricCard icon={<Zap className="h-4 w-4 text-amber-400" />} title="Trace Propagation" value={`${(d.trace_id_propagation_rate * 100).toFixed(0)}%`} description="Multi-service traces" source="jaeger" />
+                <MetricCard icon={<GitBranch className="h-4 w-4 text-cyan-400" />} title="Avg Trace Duration" value={`${d.avg_trace_duration_ms.toFixed(1)} ms`} description="End-to-end trace length" source="jaeger" />
               </div>
-            )}
+            </div>
+          )}
 
-            {activeTab === 'logs' && (
-              <div className="obs-fade-up">
-                <LogsDashboard data={mockData} />
-              </div>
-            )}
-
-            {activeTab === 'traces' && (
-              <div className="obs-fade-up">
-                <TracesDashboard data={mockData} />
-              </div>
-            )}
-
-            {activeTab === 'cci' && (
-              <div className="obs-fade-up">
-                <CCIPanel cciData={{ ...mockCci, cci_index: cciIndex }} />
-              </div>
-            )}
-
-            {activeTab === 'rca' && (
-              <div className="obs-fade-up">
-                <RCAPanel cciData={{ ...mockCci, cci_index: cciIndex }} onRcaComplete={(report: any) => { setRcaReport(report); setActiveTab('remediation'); }} />
-              </div>
-            )}
-
-            {activeTab === 'remediation' && (
-              <div className="obs-fade-up">
-                <RemediationPanel rcaReport={rcaReport} />
-              </div>
-            )}
-
-            {activeTab === 'chaos' && (
-              <div className="obs-fade-up">
-                <ChaosPanel onExperimentRun={handleChaosExperiment} />
-              </div>
-            )}
-          </main>
+          {activeTab === 'metrics' && <MetricsDashboard data={mockData} />}
+          {activeTab === 'logs' && <LogsDashboard data={mockData} />}
+          {activeTab === 'traces' && <TracesDashboard data={mockData} />}
+          {activeTab === 'cci' && <CCIPanel cciData={{ ...mockCci, cci_index: cciIndex }} />}
+          {activeTab === 'rca' && <RCAPanel cciData={{ ...mockCci, cci_index: cciIndex }} onRcaComplete={(report: any) => { setRcaReport(report); navigate('/dimensions/observability/remediation'); }} />}
+          {activeTab === 'remediation' && <RemediationPanel rcaReport={rcaReport} />}
+          {activeTab === 'chaos' && <ChaosPanel onExperimentRun={handleChaosExperiment} />}
         </>
       )}
     </PageContainer>

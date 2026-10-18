@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { OBS_AHP } from '../../lib/ahpEngine';
 import { 
   Activity, 
   Database, 
@@ -19,8 +18,25 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
-export const ObservabilityMethodology: React.FC = () => {
+// Display metadata only. The actual AHP/O-Score calculation runs in the Python backend.
+const DISPLAY_AHP = {
+  labels: [
+    'Metrics Coverage (Prometheus)',
+    'Trace Propagation (Jaeger)',
+    'Log Structural Integrity (Loki)',
+  ],
+  matrix: [[1, 1, 1.2], [1, 1, 1.2], [0.8333, 0.8333, 1]],
+  weights: [0.3529, 0.3529, 0.2941],
+  lambdaMax: 3,
+  consistencyIndex: 0,
+  randomIndex: 0.58,
+  consistencyRatio: 0,
+  isConsistent: true,
+};
+
+export const ObservabilityMethodology: React.FC<{ calculation?: any }> = ({ calculation }) => {
   const [selectedStage, setSelectedStage] = useState<number>(1);
+  const ahp = calculation?.ahp ?? DISPLAY_AHP;
 
   const stages = [
     {
@@ -45,7 +61,7 @@ export const ObservabilityMethodology: React.FC = () => {
       subtitle: 'Blind Spot Deductions',
       icon: Gauge,
       color: 'border-emerald-500 text-emerald-400 bg-emerald-500/10',
-      desc: `AHP-weighted O-Score: (Metrics×${(OBS_AHP.weights[0]*100).toFixed(1)}% + Traces×${(OBS_AHP.weights[1]*100).toFixed(1)}% + Logs×${(OBS_AHP.weights[2]*100).toFixed(1)}%) × 100 − Blind Spot Penalty (−2 pts each, capped at −15).`,
+      desc: `AHP-weighted O-Score: (Metrics×${(ahp.weights[0]*100).toFixed(1)}% + Traces×${(ahp.weights[1]*100).toFixed(1)}% + Logs×${(ahp.weights[2]*100).toFixed(1)}%) × 100 − Blind Spot Penalty (−2 pts each, capped at −15).`,
     },
     {
       id: 4,
@@ -69,15 +85,14 @@ export const ObservabilityMethodology: React.FC = () => {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
       {/* Hero Header */}
-      <Card className="border-brand-obs/30 bg-brand-obs/5 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-brand-obs/10 blur-3xl rounded-full translate-x-1/3 -translate-y-1/3 pointer-events-none" />
+      <Card className="border-brand-obs/40 bg-brand-obs/5">
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-3 text-xl font-bold">
-              <Gauge className="h-6 w-6 text-brand-obs" /> Real-Time Observability Engine Pipeline
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
+              <Gauge className="h-4 w-4 text-brand-obs" /> Observability Engine Pipeline
             </CardTitle>
-            <span className="px-3 py-1 rounded-full bg-brand-obs/20 border border-brand-obs/40 text-brand-obs text-xs font-mono font-bold">
-              End-to-End Pipeline Active
+            <span className="text-xs font-medium uppercase tracking-wider text-brand-obs">
+              End-to-end pipeline active
             </span>
           </div>
           <p className="mt-2 max-w-4xl text-sm leading-relaxed text-text-secondary">
@@ -252,15 +267,15 @@ export const ObservabilityMethodology: React.FC = () => {
                   <thead>
                     <tr>
                       <th className="p-2 text-left text-text-muted font-medium border border-border/40 bg-surface-secondary/60"></th>
-                      {OBS_AHP.labels.map(l => (
+                      {ahp.labels.map((l: string) => (
                         <th key={l} className="p-2 text-center text-text-secondary font-bold border border-border/40 bg-surface-secondary/60 whitespace-nowrap">{l.split(' ')[0]}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {OBS_AHP.matrix.map((row, i) => (
+                    {ahp.matrix.map((row: number[], i: number) => (
                       <tr key={i}>
-                        <td className="p-2 font-bold text-text-secondary border border-border/40 bg-surface-secondary/40 whitespace-nowrap">{OBS_AHP.labels[i].split(' ')[0]}</td>
+                        <td className="p-2 font-bold text-text-secondary border border-border/40 bg-surface-secondary/40 whitespace-nowrap">{ahp.labels[i].split(' ')[0]}</td>
                         {row.map((val, j) => (
                           <td key={j} className={`p-2 text-center font-mono border border-border/40 ${
                             i === j ? 'bg-slate-800/80 text-slate-400' :
@@ -281,8 +296,8 @@ export const ObservabilityMethodology: React.FC = () => {
             {/* AHP-Derived Priority Weights */}
             <div className="space-y-3">
               <div className="text-[10px] uppercase tracking-widest font-bold text-text-muted mb-1">AHP-Derived Priority Weights</div>
-              {OBS_AHP.labels.map((label, i) => {
-                const pct = OBS_AHP.weights[i] * 100;
+              {ahp.labels.map((label: string, i: number) => {
+                const pct = ahp.weights[i] * 100;
                 const colors = ['text-orange-400 bg-orange-400', 'text-indigo-400 bg-indigo-400', 'text-cyan-400 bg-cyan-400'];
                 const [textCls, barCls] = colors[i].split(' ');
                 return (
@@ -302,10 +317,10 @@ export const ObservabilityMethodology: React.FC = () => {
             {/* Consistency Stats */}
             <div className="grid grid-cols-2 gap-2 text-xs">
               {[
-                { label: 'λ_max (Principal Eigenvalue)', value: OBS_AHP.lambdaMax.toFixed(4) },
-                { label: 'CI (Consistency Index)', value: OBS_AHP.consistencyIndex.toFixed(4) },
-                { label: 'RI (Random Index, n=3)', value: OBS_AHP.randomIndex.toFixed(2) },
-                { label: 'CR (Consistency Ratio)', value: OBS_AHP.consistencyRatio.toFixed(4) },
+                { label: 'λ_max (Principal Eigenvalue)', value: ahp.lambdaMax.toFixed(4) },
+                { label: 'CI (Consistency Index)', value: ahp.consistencyIndex.toFixed(4) },
+                { label: 'RI (Random Index, n=3)', value: ahp.randomIndex.toFixed(2) },
+                { label: 'CR (Consistency Ratio)', value: ahp.consistencyRatio.toFixed(4) },
               ].map(({ label, value }) => (
                 <div key={label} className="p-2 rounded bg-surface-secondary/50 border border-border/40 flex justify-between gap-2">
                   <span className="text-text-muted">{label}</span>
@@ -315,19 +330,19 @@ export const ObservabilityMethodology: React.FC = () => {
             </div>
 
             <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-bold ${
-              OBS_AHP.isConsistent
+              ahp.isConsistent
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                 : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
             }`}>
               <CheckCircle2 className="w-4 h-4 shrink-0" />
-              {OBS_AHP.isConsistent
-                ? `Judgements Consistent (CR = ${OBS_AHP.consistencyRatio.toFixed(4)} < 0.10) ✓`
-                : `Inconsistent judgements detected (CR = ${OBS_AHP.consistencyRatio.toFixed(4)} ≥ 0.10) — review matrix`}
+              {ahp.isConsistent
+                ? `Judgements Consistent (CR = ${ahp.consistencyRatio.toFixed(4)} < 0.10) ✓`
+                : `Inconsistent judgements detected (CR = ${ahp.consistencyRatio.toFixed(4)} ≥ 0.10) — review matrix`}
             </div>
 
             {/* O-Score Formula */}
             <div className="p-3 bg-surface-secondary/60 rounded-lg border border-border/50 text-xs text-text-muted leading-relaxed font-mono">
-              O-Score = (Metrics × {OBS_AHP.weights[0].toFixed(4)} + Traces × {OBS_AHP.weights[1].toFixed(4)} + Logs × {OBS_AHP.weights[2].toFixed(4)}) × 100 − Penalty
+              O-Score = (Metrics × {ahp.weights[0].toFixed(4)} + Traces × {ahp.weights[1].toFixed(4)} + Logs × {ahp.weights[2].toFixed(4)}) × 100 − Penalty
             </div>
           </CardContent>
         </Card>

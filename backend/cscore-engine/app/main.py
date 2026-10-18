@@ -134,6 +134,7 @@ def get_phase2_dashboard():
     runs = db.get_runs(limit=20)
     
     prs = []
+    relevant_prs = []
     total_blast = 0
     total_api_changes = 0
     count = 0
@@ -144,7 +145,7 @@ def get_phase2_dashboard():
         downstream = features.get("downstream_count", 0)
         blast = r.get("blast_radius") or (api_changes * downstream)
         
-        prs.append({
+        pr_item = {
             "id": f"PR #{r['pr_number']}",
             "title": f"Update {r['service_name']}",
             "services": [r["service_name"]],
@@ -152,8 +153,13 @@ def get_phase2_dashboard():
             "downstreamCount": downstream,
             "blastRadius": blast,
             "status": "Passed" if r["decision"] == "LOW_RISK" else "Blocked",
-            "time": r["created_at"]
-        })
+            "time": r["created_at"],
+            "hasContractChange": api_changes > 0 or blast > 0
+        }
+        prs.append(pr_item)
+        
+        if api_changes > 0 or blast > 0:
+            relevant_prs.append(pr_item)
         
         total_blast += blast
         total_api_changes += api_changes
@@ -162,32 +168,54 @@ def get_phase2_dashboard():
     avg_blast = round(total_blast / count, 1) if count > 0 else 0
     avg_api_changes = round(total_api_changes / count, 1) if count > 0 else 0
 
+    # Build history for Blast Radius chart (reverse for chronological)
+    history_data = []
+    for p in reversed(prs[:7]):
+        time_label = p["time"].split(" ")[1][:5] if " " in p["time"] else p["time"]
+        history_data.append({
+            "name": time_label,
+            "blastRadius": p["blastRadius"],
+            "apiChanges": p["apiChanges"],
+            "downstreamCount": p["downstreamCount"]
+        })
+
     # Get dependencies for the graph
-    # Assume repo 1 for the dashboard
     deps = db.get_all_dependencies(repo_id=1)
     
-    # Format graph nodes and edges
+    # Compute downstream exposure count per service (provider)
+    service_exposure_map = {}
     nodes_set = set()
     edges = []
     for d in deps:
         nodes_set.add(d["consumer"])
         nodes_set.add(d["provider"])
         edges.append({"source": d["consumer"], "target": d["provider"]})
+        service_exposure_map[d["provider"]] = service_exposure_map.get(d["provider"], 0) + 1
         
+    service_exposure = [
+        {"service": s, "downstreamConsumers": service_exposure_map.get(s, 0)}
+        for s in (nodes_set if nodes_set else ["order-service", "book-service", "user-service", "gateway"])
+    ]
+    
     nodes = [{"id": n, "label": n} for n in nodes_set]
-    # Default mock graph if db is empty
     if not nodes:
         nodes = [
             {"id": "gateway", "label": "gateway"},
             {"id": "order-service", "label": "order-service"},
-            {"id": "payment-service", "label": "payment-service"},
-            {"id": "inventory-service", "label": "inventory-service"},
+            {"id": "book-service", "label": "book-service"},
+            {"id": "user-service", "label": "user-service"},
         ]
         edges = [
             {"source": "gateway", "target": "order-service"},
-            {"source": "gateway", "target": "payment-service"},
-            {"source": "order-service", "target": "payment-service"},
-            {"source": "order-service", "target": "inventory-service"},
+            {"source": "gateway", "target": "book-service"},
+            {"source": "order-service", "target": "book-service"},
+            {"source": "order-service", "target": "user-service"},
+        ]
+        service_exposure = [
+            {"service": "book-service", "downstreamConsumers": 2},
+            {"service": "order-service", "downstreamConsumers": 1},
+            {"service": "user-service", "downstreamConsumers": 1},
+            {"service": "gateway", "downstreamConsumers": 0},
         ]
 
     return {
@@ -195,9 +223,28 @@ def get_phase2_dashboard():
             "blastRadius": avg_blast,
             "apiChanges": avg_api_changes
         },
+        "allPRs": prs,
+        "relevantPRs": relevant_prs if relevant_prs else prs,
         "recentPRs": prs,
+        "history": history_data,
+        "serviceExposure": service_exposure,
         "graph": {
             "nodes": nodes,
             "edges": edges
         }
     }
+
+
+@app.post("/api/phase2/sync-architecture")
+def sync_architecture():
+    # Fetch first active repo
+    repo = db.get_repo("tharangajw/rp-core-product")
+    if not repo:
+        conn = db.get_conn()
+        row = conn.execute("SELECT * FROM repos ORDER BY id ASC LIMIT 1").fetchone()
+        conn.close()
+        repo = dict(row) if row else {"id": 1, "installation_id": 5239950, "full_name": "tharangajw/rp-core-product"}
+        
+    from app.phase2 import auto_discover_dependencies
+    count = auto_discover_dependencies(repo["installation_id"], repo["full_name"], repo["id"])
+    return {"status": "ok", "dependencies_discovered": count, "repo": repo["full_name"]}

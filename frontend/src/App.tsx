@@ -21,6 +21,7 @@ import { FaultToleranceCalculation } from './components/resilience/FaultToleranc
 import { ResilienceHistory } from './components/resilience/ResilienceHistory';
 import { Phase1Dashboard } from './pages/Phase1Dashboard';
 import { Phase2Dashboard } from './pages/Phase2Dashboard';
+import { CiCdOverview } from './pages/CiCdOverview';
 
 function App() {
   return (
@@ -33,6 +34,9 @@ function App() {
             <Route path="dimensions/observability" element={<ObservabilityDashboard />} />
             <Route path="dimensions/observability/overview" element={<ObservabilityDashboard />} />
             <Route path="dimensions/observability/detail" element={<Observability />} />
+            <Route path="dimensions/observability/cci-audit" element={<Observability />} />
+            <Route path="dimensions/observability/ai-analysis" element={<Observability />} />
+            <Route path="dimensions/observability/remediation" element={<Observability />} />
             <Route path="dimensions/observability/calculation" element={<Observability />} />
             <Route path="dimensions/observability/history" element={<ObservabilityHistory />} />
             <Route path="dimensions/performance" element={<PerformanceDimensionPage />} />
@@ -44,6 +48,7 @@ function App() {
             <Route path="dimensions/FaultToleranceDashboard" element={<FaultToleranceDashboard />} />
             <Route path="dimensions/fault-tolerance/calculation" element={<FaultToleranceCalculation />} />
             <Route path="dimensions/fault-tolerance/history" element={<ResilienceHistory />} />
+            <Route path="dimensions/cicd" element={<CiCdOverview />} />
             <Route path="dimensions/:dimensionId" element={<DimensionPage />} />
             <Route path="phase1/coupling" element={<Phase1Dashboard />} />
             <Route path="phase2/blast-radius" element={<Phase2Dashboard />} />

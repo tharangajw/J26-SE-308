@@ -1,177 +1,195 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { BrainCircuit, CheckCircle2, LoaderCircle, Sparkles, TriangleAlert, Zap } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
-const SEV_STYLE: any = {
-  Critical: 'obs-sev obs-sev-critical',
-  High:     'obs-sev obs-sev-high',
-  Medium:   'obs-sev obs-sev-medium',
-  Low:      'obs-sev obs-sev-low',
+const SEV_STYLE: Record<string, string> = {
+  Critical: 'text-rose-400',
+  High:     'text-orange-400',
+  Medium:   'text-amber-400',
+  Low:      'text-cyan-400',
 };
 
-export default function RCAPanel({ onRcaComplete }: any) {
+export default function RCAPanel({ onRcaComplete, cciData }: any) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [rca, setRca]         = useState<any>(null);
+  const [provider, setProvider] = useState<'gemini' | 'claude' | 'openrouter'>('gemini');
+  const [providers, setProviders] = useState<Record<string, { configured: boolean; model: string }>>({});
 
-  const handleAnalyze = () => {
+  useEffect(() => {
+    fetch('/api/observability/ai/providers')
+      .then(response => response.ok ? response.json() : null)
+      .then(data => data && setProviders(data))
+      .catch(() => setProviders({}));
+  }, []);
+
+  const handleAnalyze = async () => {
     setLoading(true); setError(null);
-    
-    // Mock the backend generation
-    setTimeout(() => {
-      const mockRca = {
-        summary: 'Detected MongoDB connection timeouts in order-service. The service is attempting to reconnect repeatedly but failing due to exhausted pool connections.',
-        root_cause: 'MongoDB connection pool exhaustion under high load in order-service.',
-        recommendations: [
-          'Increase the MongoDB connection pool size in order-service configuration.',
-          'Implement circuit breaking for the database connection.',
-          'Scale up the MongoDB instance if CPU is saturated.'
-        ],
-        severity: 'High',
-        affected_services: ['order-service', 'api-gateway'],
-        mode: 'demo',
-        ai_response_time_ms: 0,
-        evidence: [
-          'Metrics: High latency in p95 HTTP requests.',
-          'Traces: order-service POST /api/orders spans exceeding 5s.',
-          'Logs: MongoTimeoutError in order-service.'
-        ]
-      };
-      setRca(mockRca);
-      if (onRcaComplete) onRcaComplete(mockRca);
+    try {
+      const response = await fetch('/api/observability/ai/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, snapshot: cciData ?? {} }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || `${provider} analysis failed (${response.status})`);
+      setRca(data);
+      if (onRcaComplete) onRcaComplete(data);
+    } catch (err) {
+      const providerLabel = provider === 'gemini' ? 'Gemini' : provider === 'claude' ? 'Claude' : 'OpenRouter';
+      setError(`${providerLabel} API Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
       setLoading(false);
-    }, 2000);
+    }
   };
 
   return (
-    <div className="obs-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* ── Header action bar ── */}
-      <div className="obs-glass-bright" style={{ padding: '20px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-            <span style={{ fontSize: 22 }}>⚡</span>
-            <h2 style={{ fontSize: 18, fontWeight: 800, color: '#f1f5f9', margin: 0 }}>GenAI Root-Cause Analysis</h2>
+    <div className="space-y-6">
+      <Card className="border-brand-obs/30 bg-gradient-to-br from-brand-obs/10 via-surface to-surface">
+        <CardContent className="space-y-5 p-5">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+              <BrainCircuit className="h-4 w-4 text-brand-obs" /> AI Root-Cause Analysis
+            </h3>
+            <p className="mt-1 text-xs text-text-muted">
+              Run the same correlated telemetry snapshot through Gemini, Claude, or OpenRouter.
+            </p>
           </div>
-          <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
-            Powered by <strong style={{ color: '#c084fc' }}>Anthropic Claude AI</strong> · Sends correlated Prometheus + Jaeger + Loki snapshot for instant diagnosis
-          </p>
-        </div>
-        <button className="obs-btn-primary" onClick={handleAnalyze} disabled={loading} style={{ flexShrink: 0 }}>
-          {loading
-            ? <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⚙</span> Analyzing Telemetry…</>
-            : <><span style={{ fontSize: 16 }}>⚡</span> Analyze Recent Errors</>
-          }
-        </button>
-      </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {(['gemini', 'claude', 'openrouter'] as const).map((name) => {
+              const selected = provider === name;
+              const configured = providers[name]?.configured;
+              return (
+                <button key={name} type="button" onClick={() => setProvider(name)} className={`rounded-xl border p-4 text-left transition-colors ${selected ? 'border-brand-obs/70 bg-brand-obs/10' : 'border-border bg-surface-secondary/25 hover:border-brand-obs/40'}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 font-semibold capitalize text-text-primary">
+                      {name === 'gemini' ? <Sparkles className="h-4 w-4 text-cyan-300" /> : name === 'claude' ? <Zap className="h-4 w-4 text-orange-300" /> : <BrainCircuit className="h-4 w-4 text-violet-300" />}{name}
+                    </span>
+                    <span className={`text-[10px] font-medium uppercase ${configured ? 'text-emerald-400' : 'text-amber-400'}`}>{configured ? 'Connected' : 'Demo fallback'}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-text-muted">{providers[name]?.model || 'Configure provider key in Docker'}</p>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={handleAnalyze}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-obs px-4 py-2 text-xs font-semibold text-slate-950 transition-colors hover:bg-brand-obs/80 disabled:cursor-wait disabled:opacity-60"
+          >
+            {loading ? 'Analyzing telemetry…' : 'Analyze recent errors'}
+          </button>
+        </CardContent>
+      </Card>
 
-      {/* ── Error ── */}
       {error && (
-        <div style={{ padding: '14px 18px', borderRadius: 12, background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', color: '#fda4af', display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span style={{ fontSize: 18 }}>⚠</span> {error}
+        <div className="flex items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
+          <TriangleAlert className="h-4 w-4 shrink-0" /> {error}
         </div>
       )}
 
-      {/* ── RCA result ── */}
       {rca && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 20 }}>
-          {/* Left — analysis */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Summary */}
-            <div className="obs-glass" style={{ padding: 24 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Diagnostic Summary</p>
-              <p style={{ fontSize: 15, color: '#cbd5e1', lineHeight: 1.75 }}>{rca.summary}</p>
-            </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Diagnostic Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm leading-relaxed text-text-secondary">{rca.summary}</p>
+              </CardContent>
+            </Card>
 
-            {/* Root cause highlight */}
-            <div style={{ padding: 24, borderRadius: 14, background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.25)', boxShadow: 'inset 0 0 40px rgba(99,102,241,0.04)' }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>🔍 Identified Root Cause</p>
-              <p style={{ fontSize: 15, color: '#e2e8f0', lineHeight: 1.75, fontWeight: 500 }}>{rca.root_cause}</p>
-            </div>
+            <Card className="border-brand-obs/40 bg-brand-obs/5">
+              <CardHeader>
+                <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Identified Root Cause</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm leading-relaxed text-text-primary">{rca.root_cause}</p>
+              </CardContent>
+            </Card>
 
-            {/* Recommendations */}
-            <div className="obs-glass" style={{ padding: 24 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Recommendations</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Recommendations</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 {rca.recommendations?.map((rec: string, i: number) => (
-                  <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                    <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', color: '#818cf8', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                      {i + 1}
-                    </span>
-                    <span style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.6 }}>{rec}</span>
+                  <div key={i} className="flex items-start gap-3 rounded-md border border-border/80 bg-surface-secondary/30 p-3">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-brand-obs/40 text-[11px] font-mono text-brand-obs">{i + 1}</span>
+                    <span className="text-sm leading-relaxed text-text-secondary">{rec}</span>
                   </div>
                 ))}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Right — metadata */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Metadata */}
-            <div className="obs-glass" style={{ padding: 22 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Metadata</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Metadata</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div>
-                  <p style={{ fontSize: 11, color: '#475569', marginBottom: 6 }}>Severity</p>
-                  <span className={SEV_STYLE[rca.severity] || SEV_STYLE.Medium}>{rca.severity}</span>
+                  <p className="text-[11px] uppercase tracking-wider text-text-muted">Severity</p>
+                  <span className={`mt-1 text-sm font-medium ${SEV_STYLE[rca.severity] || SEV_STYLE.Medium}`}>{rca.severity}</span>
                 </div>
                 <div>
-                  <p style={{ fontSize: 11, color: '#475569', marginBottom: 8 }}>Affected Services</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <p className="mb-2 text-[11px] uppercase tracking-wider text-text-muted">Affected Services</p>
+                  <div className="flex flex-wrap gap-2">
                     {rca.affected_services?.map((s: string) => (
-                      <span key={s} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', fontSize: 12, color: '#a5b4fc', fontWeight: 500 }}>{s}</span>
+                      <span key={s} className="rounded-md border border-border bg-surface-secondary/40 px-2 py-1 font-mono text-[11px] text-text-secondary">{s}</span>
                     ))}
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-                    <p style={{ fontSize: 10, color: '#475569', marginBottom: 4 }}>AI Model</p>
-                    <p style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 600 }}>
-                      {rca.mode === 'demo' ? 'Demo Mode' : 'Claude AI'}
-                    </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-md border border-border/80 bg-surface-secondary/30 p-3">
+                    <p className="text-[10px] uppercase text-text-muted">AI Model</p>
+                    <p className="mt-1 text-xs font-medium capitalize">{rca.mode === 'demo' ? `${rca.provider} demo` : `${rca.provider} AI`}</p>
                   </div>
-                  <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.04)' }}>
-                    <p style={{ fontSize: 10, color: '#475569', marginBottom: 4 }}>Response</p>
-                    <p style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 600 }}>
-                      {rca.mode === 'demo' ? '< 1 ms' : `${rca.ai_response_time_ms} ms`}
-                    </p>
+                  <div className="rounded-md border border-border/80 bg-surface-secondary/30 p-3">
+                    <p className="text-[10px] uppercase text-text-muted">Response</p>
+                    <p className="mt-1 font-mono text-xs">{rca.mode === 'demo' ? '< 1 ms' : `${rca.ai_response_time_ms} ms`}</p>
                   </div>
                 </div>
                 {rca.mode === 'demo' && (
-                  <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)' }}>
-                    <p style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600 }}>Demo Mode Active</p>
-                    <p style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Set ANTHROPIC_API_KEY env var for live Claude analysis</p>
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+                    Demo fallback active. {rca.fallback_reason || 'Configure the provider key in Docker for live analysis.'}
                   </div>
                 )}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
-            {/* Evidence */}
-            <div className="obs-glass" style={{ padding: 22 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 14 }}>🧪 Evidence</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Evidence</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
                 {rca.evidence?.map((ev: string, i: number) => (
-                  <div key={i} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.06)', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                  <div key={i} className="rounded-md border border-border/80 bg-surface-secondary/30 p-3 text-xs leading-relaxed text-text-secondary">
                     {ev}
                   </div>
                 ))}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
-            {/* Auto-navigate hint */}
-            <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', fontSize: 13, color: '#6ee7b7', fontWeight: 500 }}>
-              ✓ RCA complete · <strong>Remediation</strong> tab loaded automatically
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">
+              RCA complete · Remediation tab loaded automatically
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Empty state ── */}
       {!rca && !loading && !error && (
-        <div className="obs-glass" style={{ padding: '60px 40px', textAlign: 'center' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>⚡</div>
-          <p style={{ fontSize: 17, fontWeight: 700, color: '#475569', marginBottom: 8 }}>Ready for AI-Powered Diagnosis</p>
-          <p style={{ fontSize: 13, color: '#334155', maxWidth: 420, margin: '0 auto', lineHeight: 1.7 }}>
-            Click <strong style={{ color: '#818cf8' }}>Analyze Recent Errors</strong> to send a correlated telemetry snapshot (Prometheus + Jaeger + Loki) to Claude AI for instant root-cause discovery.
-          </p>
-        </div>
+        <Card>
+          <CardContent className="p-10 text-center">
+            <p className="text-sm font-medium text-text-primary">Ready for AI-powered diagnosis</p>
+            <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-text-muted">
+              Click Analyze recent errors to send a correlated telemetry snapshot to the RCA engine.
+            </p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
