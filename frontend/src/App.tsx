@@ -13,6 +13,8 @@ import { ObservabilityHistory } from './pages/ObservabilityHistory';
 import { PerformanceDataCollection } from './pages/PerformanceDataCollection';
 import { DataPipelineOutputs } from './pages/DataPipelineOutputs';
 import { DriftAnalysisPage } from './pages/DriftAnalysisPage';
+import { AnomalyDetectionPage } from './pages/AnomalyDetectionPage';
+import { FanOutAnalysisPage } from './pages/FanOutAnalysisPage';
 import { PerformanceDimensionPage } from './pages/PerformanceDimensionPage';
 import { FaultToleranceDashboard } from './components/resilience/FaultToleranceDashboard';
 import { FaultToleranceCalculation } from './components/resilience/FaultToleranceCalculation';
@@ -41,6 +43,8 @@ function App() {
             <Route path="dimensions/performance/collection" element={<PerformanceDataCollection />} />
             <Route path="dimensions/performance/pipeline" element={<DataPipelineOutputs />} />
             <Route path="dimensions/performance/drift" element={<DriftAnalysisPage />} />
+            <Route path="dimensions/performance/fanout" element={<FanOutAnalysisPage />} />
+            <Route path="dimensions/performance/anomaly" element={<AnomalyDetectionPage />} />
             <Route path="dimensions/FaultToleranceDashboard" element={<FaultToleranceDashboard />} />
             <Route path="dimensions/fault-tolerance/calculation" element={<FaultToleranceCalculation />} />
             <Route path="dimensions/fault-tolerance/history" element={<ResilienceHistory />} />

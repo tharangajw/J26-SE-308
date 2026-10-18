@@ -123,4 +123,96 @@ export class TelemetryService {
     const body = await response.json();
     return { ...body.telemetry, calculation: body.calculation, history: body.history };
   }
+
+  static async discoverServices(): Promise<{
+    prometheusJobs: string[];
+    jaegerServices: string[];
+    dockerContainers?: string[];
+    applicationServices: string[];
+    infrastructureServices: string[];
+    allServices: string[];
+  }> {
+    // 0. Query Telemetry Collector (/api/telemetry/discovered-services) which inspects Docker Socket + Prometheus + Jaeger
+    const collectorUrls = [
+      '/api/telemetry/discovered-services',
+      'http://localhost:8787/api/telemetry/discovered-services',
+    ];
+    for (const url of collectorUrls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const body = await res.json();
+          if (body && Array.isArray(body.allServices) && body.allServices.length > 0) {
+            return {
+              prometheusJobs: body.prometheusJobs || [],
+              jaegerServices: body.jaegerServices || [],
+              dockerContainers: body.dockerContainers || [],
+              applicationServices: body.applicationServices || [],
+              infrastructureServices: body.infrastructureServices || [],
+              allServices: body.allServices || [],
+            };
+          }
+        }
+      } catch {
+        // fallback to direct queries below
+      }
+    }
+
+    let prometheusJobs: string[] = [];
+    let jaegerServices: string[] = [];
+
+    // 1. Fetch Prometheus job labels
+    try {
+      const promRes = await fetchJson(`${PROMETHEUS_URL}/api/v1/label/job/values`, {}, 'Prometheus');
+      if (promRes?.status === 'success' && Array.isArray(promRes.data)) {
+        prometheusJobs = promRes.data;
+      }
+    } catch {
+      try {
+        const res = await fetch('http://localhost:9090/api/v1/label/job/values');
+        const data = await res.json();
+        if (data?.status === 'success' && Array.isArray(data.data)) {
+          prometheusJobs = data.data;
+        }
+      } catch {
+        // unreachable
+      }
+    }
+
+    // 2. Fetch Jaeger services
+    try {
+      const jaegerRes = await this.fetchJaegerTraces();
+      if (jaegerRes?.data && Array.isArray(jaegerRes.data)) {
+        jaegerServices = jaegerRes.data;
+      }
+    } catch {
+      try {
+        const res = await fetch('http://localhost:16686/api/services');
+        const data = await res.json();
+        if (Array.isArray(data.data)) {
+          jaegerServices = data.data;
+        }
+      } catch {
+        // unreachable
+      }
+    }
+
+    const infraKeywords = ['prometheus', 'jaeger', 'loki', 'grafana', 'collector'];
+    const isInfra = (name: string) => infraKeywords.some((kw) => name.toLowerCase().includes(kw));
+
+    const allSet = new Set<string>([...prometheusJobs, ...jaegerServices]);
+    const allServices = Array.from(allSet);
+    const applicationServices = allServices.filter((s) => !isInfra(s));
+    const infrastructureServices = allServices.filter((s) => isInfra(s));
+
+    return {
+      prometheusJobs,
+      jaegerServices,
+      dockerContainers: [],
+      applicationServices,
+      infrastructureServices,
+      allServices,
+    };
+  }
 }
+
