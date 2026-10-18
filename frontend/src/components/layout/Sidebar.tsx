@@ -16,7 +16,7 @@ import {
   GitMerge,
   ChevronDown,
   TrendingUp,
-  ShieldAlert
+  ShieldAlert,
   Sparkles,
   Wrench
 } from 'lucide-react';
