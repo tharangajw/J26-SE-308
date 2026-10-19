@@ -139,7 +139,7 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/fault-tolerance/history" icon={<History />} label="R-Score History" />
               <NavItem to="/dimensions/fault-tolerance/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
-            <NavGroup icon={<GitMerge />} label="CI/CD Integration" defaultOpen={true}>
+            <NavGroup icon={<GitMerge />} label="CI/CD Integration">
               <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />
               <NavItem to="/phase1/coupling" icon={<GitMerge />} label="Phase 1: Assessor Dashboard" />
               <NavItem to="/phase2/blast-radius" icon={<Network />} label="Phase 2: Blast Radius" />
