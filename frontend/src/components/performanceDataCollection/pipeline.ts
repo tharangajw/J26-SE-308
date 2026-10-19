@@ -15,62 +15,53 @@ export const DEFAULT_NORMALIZATION_BOUNDS: NormalizationBounds = {
 };
 
 /**
- * Step 0: Generate raw heterogeneous telemetry with unaligned timestamps and intentional scrape gaps.
+ * Step 0: Fetch real heterogeneous telemetry samples from the backend Telemetry Collector (:8787).
+ * Zero Math.random() or synthetic mock generation.
  */
-export function generateMockRawTelemetry(
-  services: string[] = ['api-gateway', 'order-service', 'payment-service'],
-  windowMinutes: number = 5,
-  gapProbability: number = 0.15
-): RawTelemetrySample[] {
-  const samples: RawTelemetrySample[] = [];
-  const now = Date.now();
-  const startTime = now - windowMinutes * 60 * 1000;
-  
-  services.forEach((serviceId) => {
-    let currentTime = startTime;
-    let baseCpu = 250 + Math.random() * 300;      // millicores
-    let baseMem = 400 + Math.random() * 400;      // MB
-    let baseLat = 40 + Math.random() * 80;        // ms
-    let baseRps = 150 + Math.random() * 300;      // rps
+export async function fetchRealTelemetrySamples(
+  services: string[] = [],
+  imputationMethod: ImputationMethod = 'linear_interpolation'
+): Promise<RawTelemetrySample[]> {
+  const queryServices = services.filter(Boolean).join(',');
+  const queryParam = queryServices ? `services=${encodeURIComponent(queryServices)}&` : '';
+  const urls = [
+    `/api/telemetry/normalized?${queryParam}imputation=${encodeURIComponent(imputationMethod)}`,
+    `http://localhost:8787/api/telemetry/normalized?${queryParam}imputation=${encodeURIComponent(imputationMethod)}`,
+  ];
 
-    let sampleIdx = 0;
-    while (currentTime <= now) {
-      // Unaligned timestamps (random jitter +/- 2.5s off regular schedule)
-      const jitter = (Math.random() - 0.5) * 4500;
-      const sampleTime = new Date(currentTime + jitter);
-
-      // Scrape gap simulation
-      const isGap = Math.random() < gapProbability;
-
-      // Random walk for metric values
-      baseCpu = Math.max(50, Math.min(1850, baseCpu + (Math.random() - 0.48) * 60));
-      baseMem = Math.max(128, Math.min(1900, baseMem + (Math.random() - 0.47) * 40));
-      baseLat = Math.max(15, Math.min(950, baseLat + (Math.random() - 0.49) * 25));
-      baseRps = Math.max(10, Math.min(950, baseRps + (Math.random() - 0.48) * 50));
-
-      const sources: Array<'prometheus' | 'jaeger' | 'k8s' | 'loki'> = ['prometheus', 'jaeger', 'k8s', 'loki'];
-      const source = sources[sampleIdx % sources.length];
-
-      samples.push({
-        id: `raw-${serviceId}-${sampleIdx}`,
-        timestamp: sampleTime.toISOString(),
-        timestampMs: sampleTime.getTime(),
-        serviceId,
-        cpuMillicores: isGap ? null : Math.round(baseCpu),
-        memoryMB: isGap ? null : Math.round(baseMem),
-        latencyMs: isGap ? null : Math.round(baseLat),
-        requestRateRps: isGap ? null : Math.round(baseRps),
-        source,
-        hasScrapeGap: isGap
-      });
-
-      // Next unaligned step ~5 seconds
-      currentTime += 4500 + Math.random() * 1500;
-      sampleIdx++;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const body = await res.json();
+      if (Array.isArray(body?.rawSamples) && body.rawSamples.length > 0) {
+        return body.rawSamples as RawTelemetrySample[];
+      }
+      if (Array.isArray(body?.dataset) && body.dataset.length > 0) {
+        return (body.dataset as NormalizedSample[]).map((item, idx) => ({
+          id: `real-${item.serviceId}-${item.timestampMs || idx}`,
+          timestamp: new Date(item.timestampMs || Date.now()).toISOString(),
+          timestampMs: item.timestampMs || Date.now(),
+          serviceId: item.serviceId,
+          cpuMillicores: item.imputedFields?.cpu ? null : item.raw.cpuMillicores,
+          memoryMB: item.imputedFields?.memory ? null : item.raw.memoryMB,
+          latencyMs: item.imputedFields?.latency ? null : item.raw.latencyMs,
+          requestRateRps: item.imputedFields?.requestRate ? null : item.raw.requestRateRps,
+          source: 'prometheus',
+          hasScrapeGap: Boolean(
+            item.imputedFields?.cpu ||
+              item.imputedFields?.memory ||
+              item.imputedFields?.latency ||
+              item.imputedFields?.requestRate
+          ),
+        }));
+      }
+    } catch {
+      // try next URL
     }
-  });
+  }
 
-  return samples.sort((a, b) => a.timestampMs - b.timestampMs);
+  return [];
 }
 
 /**

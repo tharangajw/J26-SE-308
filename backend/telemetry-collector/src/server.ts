@@ -4,7 +4,8 @@ import {
   alignTo5SecondGrid,
   applyImputation,
   applyMinMaxNormalization,
-  generateTelemetrySamples
+  generateTelemetrySamples,
+  recordRealSnapshotsToPipeline
 } from './pipeline.js';
 
 import { HistoricalDriftAnalyzer } from './drift.js';
@@ -38,28 +39,48 @@ createServer(async (request, response) => {
   }
 
   if (url.pathname === '/api/telemetry/snapshot') {
-    const services = (url.searchParams.get('services') ?? 'api-gateway,order-service').split(',').map((s) => s.trim()).filter(Boolean);
-    if (services.length === 0) return sendJson(response, 400, { error: 'Provide at least one service in the services query parameter' });
-    return sendJson(response, 200, await engine.collectServiceSnapshots([...new Set(services)]));
+    const servicesParam = url.searchParams.get('services');
+    let services: string[] = [];
+    if (servicesParam) {
+      services = servicesParam.split(',').map((s) => s.trim()).filter(Boolean);
+    } else {
+      const discovery = await engine.discoverServices();
+      services = discovery.applicationServices.length > 0 ? discovery.applicationServices : discovery.allServices;
+    }
+    if (services.length === 0) return sendJson(response, 200, { requestedServices: [], collectedAt: Date.now(), snapshots: [], errors: [] });
+    const snapshotResult = await engine.collectServiceSnapshots([...new Set(services)]);
+    recordRealSnapshotsToPipeline(snapshotResult.snapshots);
+    return sendJson(response, 200, snapshotResult);
   }
 
   if (url.pathname === '/api/telemetry/normalized') {
-    const servicesParam = url.searchParams.get('services') ?? 'api-gateway,order-service,payment-service';
-    const services = servicesParam.split(',').map((s) => s.trim()).filter(Boolean);
+    const servicesParam = url.searchParams.get('services');
+    let services: string[] = [];
+    if (servicesParam) {
+      services = servicesParam.split(',').map((s) => s.trim()).filter(Boolean);
+    } else {
+      const discovery = await engine.discoverServices();
+      services = discovery.applicationServices.length > 0 ? discovery.applicationServices : discovery.allServices;
+    }
     const imputationMethod = (url.searchParams.get('imputation') ?? 'linear_interpolation') as any;
-    const gapRate = Number(url.searchParams.get('gap_rate') ?? 0.15);
 
-    const rawSamples = generateTelemetrySamples(services, 6, gapRate);
+    if (services.length > 0) {
+      const liveBatch = await engine.collectServiceSnapshots([...new Set(services)]);
+      recordRealSnapshotsToPipeline(liveBatch.snapshots);
+    }
+
+    const rawSamples = generateTelemetrySamples(services, 6, 0);
     const gridAligned = alignTo5SecondGrid(rawSamples, 5);
     const imputed = applyImputation(gridAligned, imputationMethod);
     const normalized = applyMinMaxNormalization(imputed);
 
     return sendJson(response, 200, {
-      pipeline: 'Phase 2 Telemetry Data Pipeline (Preprocessing & Normalization)',
+      pipeline: 'Phase 2 Telemetry Data Pipeline (Real-Time Preprocessing & Normalization)',
       gridInterval: '5s',
       imputationMethod,
       requestedServices: services,
       totalNormalizedSamples: normalized.length,
+      rawSamples,
       dataset: normalized
     });
   }
@@ -91,10 +112,11 @@ createServer(async (request, response) => {
     }
 
     const snapshotData = await engine.collectServiceSnapshots(services);
+    recordRealSnapshotsToPipeline(snapshotData.snapshots);
 
     const driftResults = services.map((serviceId) => {
       const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
-      const liveP95 = snap ? (snap.prometheus.p95LatencyMs || snap.prometheus.avgResponseTimeMs * 1.3 || 0) : 0;
+      const liveP95 = snap ? (snap.prometheus.p95LatencyMs || snap.prometheus.avgResponseTimeMs || 0) : 0;
       return driftAnalyzer.analyzeDrift(serviceId, liveP95);
     });
 
