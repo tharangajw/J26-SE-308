@@ -434,15 +434,23 @@
   color: var(--text-main);
 }
 .ft-dashboard-scope .metric-value.fail-val {
-  color: var(--color-danger);
-  text-shadow: 0 0 10px rgba(244, 63, 94, 0.3);
+  color: #f43f5e !important;
+  text-shadow: 0 0 12px rgba(244, 63, 94, 0.45);
 }
 .ft-dashboard-scope .metric-value.warning-val {
-  color: var(--color-warning);
+  color: #f59e0b;
 }
 .ft-dashboard-scope .metric-status {
   font-size: 10px;
   color: var(--text-dim);
+}
+.ft-dashboard-scope .metric-status.status-breached {
+  color: #fda4af;
+  font-weight: 600;
+}
+.ft-dashboard-scope .metric-item.card-breached {
+  border-color: rgba(244, 63, 94, 0.35) !important;
+  background: rgba(244, 63, 94, 0.05);
 }
 
 /* ELEGANT RECENT ACTIVITIES & AUDIT TRAIL PANEL */
