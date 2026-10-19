@@ -126,7 +126,7 @@ export const Sidebar: React.FC = () => {
                 <NavItem to="/dimensions/observability/remediation" icon={<Wrench />} label="Remediation" badge="AI" />
               </NavGroup>
             </NavGroup>
-            <NavGroup icon={<Zap />} label="Performance" defaultOpen={true}>
+            <NavGroup icon={<Zap />} label="Performance">
               <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" end />
               <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Telemetry Collection Data" />
               <NavItem to="/dimensions/performance/pipeline" icon={<Activity />} label="Data Pipeline Outputs" />
