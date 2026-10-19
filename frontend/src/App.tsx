@@ -46,6 +46,7 @@ function App() {
             <Route path="dimensions/performance/fanout" element={<FanOutAnalysisPage />} />
             <Route path="dimensions/performance/anomaly" element={<AnomalyDetectionPage />} />
             <Route path="dimensions/FaultToleranceDashboard" element={<FaultToleranceDashboard />} />
+            <Route path="dimensions/fault-tolerance/chaos" element={<FaultToleranceDashboard standaloneChaos />} />
             <Route path="dimensions/fault-tolerance/calculation" element={<FaultToleranceCalculation />} />
             <Route path="dimensions/fault-tolerance/history" element={<ResilienceHistory />} />
             <Route path="dimensions/cicd" element={<CiCdOverview />} />

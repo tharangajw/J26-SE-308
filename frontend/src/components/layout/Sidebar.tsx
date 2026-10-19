@@ -13,6 +13,7 @@ import {
   Eye,
   Zap,
   Shield,
+  Flame,
   GitMerge,
   ChevronDown,
   TrendingUp,
@@ -136,6 +137,19 @@ export const Sidebar: React.FC = () => {
             </NavGroup>
             <NavGroup icon={<Shield />} label="Fault Tolerance">
               <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
+              <NavLink
+                to="/dimensions/fault-tolerance/chaos"
+                className={({ isActive }) => twMerge(clsx(
+                  'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
+                  'hover:bg-surface-secondary hover:text-text-primary',
+                  isActive
+                    ? 'bg-surface-secondary text-text-primary border border-border/50 shadow-sm'
+                    : 'text-text-secondary'
+                ))}
+              >
+                <Flame className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span className="flex-1">Chaos Engineering Suite</span>
+              </NavLink>
               <NavItem to="/dimensions/fault-tolerance/history" icon={<History />} label="R-Score History" />
               <NavItem to="/dimensions/fault-tolerance/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>

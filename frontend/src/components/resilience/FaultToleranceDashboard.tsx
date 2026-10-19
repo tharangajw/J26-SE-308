@@ -31,12 +31,20 @@ import { TelemetryTrends } from './TelemetryTrends';
 import { ResilienceOverview } from './ResilienceOverview';
 import './FaultToleranceDashboard.css';
 
-export const FaultToleranceDashboard: React.FC = () => {
+interface FaultToleranceDashboardProps {
+  standaloneChaos?: boolean;
+}
+
+export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = ({ standaloneChaos = false }) => {
   const [isSimulation, setIsSimulation] = useState(true);
   const [metrics, setMetrics] = useState<FaultMetrics>(mockInitialFaultMetrics);
   const [history, setHistory] = useState<HistoryPoint[]>(generateInitialHistory());
   const [services, setServices] = useState<Service[]>(mockFaultToleranceServices);
-  const [mainViewMode, setMainViewMode] = useState<'overview' | 'telemetry' | 'chaos'>('overview');
+  const [mainViewMode, setMainViewMode] = useState<'overview' | 'telemetry' | 'chaos'>(standaloneChaos ? 'chaos' : 'overview');
+
+  useEffect(() => {
+    setMainViewMode(standaloneChaos ? 'chaos' : 'overview');
+  }, [standaloneChaos]);
 
   const [cardSettings, setCardSettings] = useState<Record<string, CardSetting>>(mockDefaultCardSettings);
 
@@ -715,7 +723,7 @@ export const FaultToleranceDashboard: React.FC = () => {
       </header>
 
       {/* Subheader Navigation Tabs */}
-      <div className="view-mode-tabs-bar">
+      {!standaloneChaos && <div className="view-mode-tabs-bar">
         <button 
           className={`view-mode-tab ${mainViewMode === 'overview' ? 'active' : ''}`}
           onClick={() => setMainViewMode('overview')}
@@ -724,20 +732,13 @@ export const FaultToleranceDashboard: React.FC = () => {
           <span>Resilience &amp; Health Overview</span>
         </button>
         <button 
-          className={`view-mode-tab ${mainViewMode === 'chaos' ? 'active' : ''}`}
-          onClick={() => setMainViewMode('chaos')}
-        >
-          <Flame size={15} className="text-danger" />
-          <span>Chaos Engineering Fault Injection Suite</span>
-        </button>
-        <button 
           className={`view-mode-tab ${mainViewMode === 'telemetry' ? 'active' : ''}`}
           onClick={() => setMainViewMode('telemetry')}
         >
           <TrendingUp size={15} className="text-primary" />
           <span>Historical Telemetry Trends</span>
         </button>
-      </div>
+      </div>}
 
       {/* Section 2: Telemetry Data Sources Pipeline Bar */}
       {/* <div className="telemetry-pipeline-bar">
