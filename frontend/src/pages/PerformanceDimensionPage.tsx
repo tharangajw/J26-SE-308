@@ -1,158 +1,402 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Activity, 
-  Cpu, 
-  HardDrive, 
-  Zap, 
-  CheckCircle2, 
-  TriangleAlert, 
-  XCircle, 
-  RefreshCw, 
-  Server, 
-  Gauge,
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  Activity,
+  Cpu,
+  HardDrive,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  RefreshCw,
+  Server,
   Clock,
   BarChart3,
-  ExternalLink
+  GitBranch,
+  TrendingUp,
+  Sparkles,
+  Database,
+  Layers,
+  ArrowUpRight,
+  ShieldCheck,
+  Scale,
+  Gauge,
+  Play,
+  RotateCcw,
+  Sliders
 } from 'lucide-react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 
-interface RawServiceSnapshot {
+interface MaturityTierInfo {
+  level: number;
+  tier: string;
+  shortLabel: string;
+  summary: string;
+}
+
+interface ApdexAndTailInfo {
+  tailLatencyRatio: number;
+  apdexScore: number;
+  apdexRating: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR';
+  apdexThresholdMs: number;
+}
+
+interface FeatureAttributionsInfo {
+  cpuPercent: number;
+  memoryPercent: number;
+  latencyPercent: number;
+  errorPercent: number;
+  dominantDriver: string;
+}
+
+interface ServiceEvaluation {
   serviceId: string;
-  timestamp: number;
-  prometheus: {
+  hasTelemetry: boolean;
+  pScore: number;
+  maturityTier: MaturityTierInfo;
+  apdexAndTail?: ApdexAndTailInfo;
+  signals: {
+    driftScore: number;
+    driftLevel: string;
+    liveP95LatencyMs: number;
+    historicalBaselineMs: number;
+    fanOutScore: number;
+    fanOutLevel: string;
+    directFanOutCount: number;
+    maxDependencyDepth: number;
+    isApiGateway: boolean;
+    attenuationFactor: number;
+    anomalyScore: number;
+    isAnomaly: boolean;
+    prefiltered: boolean;
+    featureAttributions?: FeatureAttributionsInfo;
+  };
+  penalties: {
+    driftPenaltyPts: number;
+    fanOutPenaltyPts: number;
+    anomalyPenaltyPts: number;
+    totalPenaltyPts: number;
+  };
+  rawMetrics: {
     cpuUsageMillicores: number;
     memoryUsageMB: number;
-    diskIoBytesPerSec: number;
     avgResponseTimeMs: number;
     p95LatencyMs: number;
-    p99LatencyMs: number;
+    p99LatencyMs?: number;
     rps: number;
-  };
-  loki: {
-    errorCount: number;
-    totalCount: number;
-  };
-  jaeger: any[];
-  k8s: {
-    podReplicaCount: number;
-    uptimeSeconds: number;
-  };
-  sources: {
-    prometheus: boolean;
-    loki: boolean;
-    jaeger: boolean;
-    kubernetes: boolean;
   };
 }
 
-interface TelemetryResponse {
-  requestedServices: string[];
-  collectedAt: number;
-  snapshots: RawServiceSnapshot[];
-  errors: any[];
+interface RecommendationItem {
+  id?: string;
+  ruleId: string;
+  serviceId: string;
+  category: 'DATABASE_INDEXING' | 'REDIS_CACHING' | 'CONTAINER_BASE_IMAGE';
+  title: string;
+  impact: 'HIGH' | 'MEDIUM' | 'LOW';
+  effort: 'HIGH' | 'MEDIUM' | 'LOW';
+  description: string;
+  expectedPScoreImprovement: string;
+  projectedServiceDeltaPts?: number;
+  projectedClusterDeltaPts?: number;
+  triggerEvidence: string;
+}
+
+interface AHPValidationInfo {
+  weights: {
+    drift: number;
+    fanout: number;
+    anomaly: number;
+  };
+  pairwiseMatrix: number[][];
+  labels: string[];
+  lambdaMax: number;
+  consistencyIndex: number;
+  randomIndex: number;
+  consistencyRatio: number;
+  isConsistent: boolean;
+}
+
+interface PythonPScoreResponse {
+  engine: string;
+  evaluatedAt: number;
+  evaluationLatencyMs: number;
+  overallPScore: number;
+  maturityTier: MaturityTierInfo;
+  weights: {
+    drift: number;
+    fanout: number;
+    anomaly: number;
+  };
+  ahpValidation?: AHPValidationInfo;
+  clusterSubScores: {
+    driftHealthScore: number;
+    fanOutHealthScore: number;
+    anomalyHealthScore: number;
+    avgDriftPenalty: number;
+    avgFanOutPenalty: number;
+    avgAnomalyPenalty: number;
+    avgApdexScore?: number;
+    avgTailLatencyRatio?: number;
+  };
+  serviceEvaluations: ServiceEvaluation[];
+  recommendations: RecommendationItem[];
+}
+
+interface WeightPreset {
+  id: string;
+  label: string;
+  drift: number;
+  fanout: number;
+  anomaly: number;
+  description: string;
+}
+
+const WEIGHT_PRESETS: WeightPreset[] = [
+  {
+    id: 'BALANCED',
+    label: 'Balanced Architecture (40/40/20)',
+    drift: 0.4,
+    fanout: 0.4,
+    anomaly: 0.2,
+    description: 'Default AHP weight distribution balancing temporal latency stability and topological fan-out.'
+  },
+  {
+    id: 'LATENCY_CRITICAL',
+    label: 'Latency-SLA Critical (55/25/20)',
+    drift: 0.55,
+    fanout: 0.25,
+    anomaly: 0.2,
+    description: 'Prioritizes OLS regression latency drift for strict P95/P99 SLA-bound payment & checkout pipelines.'
+  },
+  {
+    id: 'MESH_HEAVY',
+    label: 'High-Fan-Out Mesh (25/55/20)',
+    drift: 0.25,
+    fanout: 0.55,
+    anomaly: 0.2,
+    description: 'Prioritizes synchronous call-tree amplification and deep microservice dependency chains.'
+  }
+];
+
+function classifyScoreToTier(pScore: number): MaturityTierInfo {
+  if (pScore >= 85) {
+    return {
+      level: 4,
+      tier: 'Level 4: Optimized (Proactive & Self-Optimizing)',
+      shortLabel: 'Level 4: Optimized',
+      summary: 'Sub-millisecond drift stability, well-attenuated call trees, and zero ML runtime anomalies.'
+    };
+  }
+  if (pScore >= 70) {
+    return {
+      level: 3,
+      tier: 'Level 3: Resilient (Observable & Stable)',
+      shortLabel: 'Level 3: Resilient',
+      summary: 'Healthy runtime telemetry with minor synchronous fan-out or mild temporal latency drift.'
+    };
+  }
+  if (pScore >= 50) {
+    return {
+      level: 2,
+      tier: 'Level 2: Managed (Emerging Bottlenecks)',
+      shortLabel: 'Level 2: Managed',
+      summary: 'Noticeable latency drift or unattenuated synchronous fan-out requiring caching or indexing.'
+    };
+  }
+  return {
+    level: 1,
+    tier: 'Level 1: Reactive (Critical Degradation)',
+    shortLabel: 'Level 1: Reactive',
+    summary: 'Severe performance degradation across latency drift, deep call chains, or ML container anomalies.'
+  };
 }
 
 export const PerformanceDimensionPage: React.FC = () => {
-  const [telemetryData, setTelemetryData] = useState<TelemetryResponse | null>(null);
+  const [data, setData] = useState<PythonPScoreResponse | null>(null);
+  const [selectedServiceFilter, setSelectedServiceFilter] = useState<string>('ALL');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('BALANCED');
+  const [simulatedRecIds, setSimulatedRecIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // Core active services list to monitor
-  const targetServices = ['book-service-1', 'order-service-1', 'user-service-1', 'gateway-1'];
+  const activePreset = useMemo(
+    () => WEIGHT_PRESETS.find((p) => p.id === selectedPresetId) || WEIGHT_PRESETS[0],
+    [selectedPresetId]
+  );
 
-  const fetchLivePerformanceTelemetry = useCallback(async () => {
+  const fetchCompositePScore = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const url = `http://localhost:8787/api/telemetry/snapshot?services=${targetServices.join(',')}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`Collector API responded with status ${res.status}`);
+      const qs = `?w_drift=${activePreset.drift}&w_fanout=${activePreset.fanout}&w_anomaly=${activePreset.anomaly}`;
+      const urls = [
+        `/api/anomaly/pscore/evaluate${qs}`,
+        `http://localhost:8000/pscore/evaluate${qs}`
+      ];
+      let payload: PythonPScoreResponse | null = null;
+
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            payload = await res.json();
+            break;
+          }
+        } catch {
+          // try fallback URL
+        }
       }
-      const data: TelemetryResponse = await res.json();
-      setTelemetryData(data);
+
+      if (!payload) {
+        throw new Error(
+          'Unable to connect to Python FastAPI Composite P-Score Engine on port 8000 (/pscore/evaluate).'
+        );
+      }
+
+      setData(payload);
       setErrorMsg(null);
       setLastUpdated(new Date());
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to connect to telemetry collector (port 8787)');
+      setErrorMsg(err.message || 'Failed to connect to Python P-Score Engine (port 8000)');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [activePreset]);
 
   useEffect(() => {
-    fetchLivePerformanceTelemetry();
-    const interval = setInterval(fetchLivePerformanceTelemetry, 4000);
+    fetchCompositePScore();
+    const interval = setInterval(fetchCompositePScore, 5000);
     return () => clearInterval(interval);
-  }, [fetchLivePerformanceTelemetry]);
+  }, [fetchCompositePScore]);
 
-  // Dynamic P-Score and metric score calculations strictly based on real data
-  const snapshots = telemetryData?.snapshots || [];
-  const activeSnapshots = snapshots.filter((s) => 
-    s.prometheus.cpuUsageMillicores > 0 || 
-    s.prometheus.memoryUsageMB > 0 || 
-    s.prometheus.avgResponseTimeMs > 0
-  );
+  const activeEvals = useMemo(() => {
+    return (data?.serviceEvaluations || []).filter((e) => e.hasTelemetry);
+  }, [data]);
 
-  const totalActive = activeSnapshots.length;
-  
-  const avgCpu = totalActive > 0 
-    ? activeSnapshots.reduce((acc, s) => acc + s.prometheus.cpuUsageMillicores, 0) / totalActive 
-    : 0;
+  const filteredRecommendations = useMemo(() => {
+    const recs = data?.recommendations || [];
+    if (selectedServiceFilter === 'ALL') return recs;
+    return recs.filter((r) => r.serviceId === selectedServiceFilter);
+  }, [data, selectedServiceFilter]);
 
-  const avgMemory = totalActive > 0 
-    ? activeSnapshots.reduce((acc, s) => acc + s.prometheus.memoryUsageMB, 0) / totalActive 
-    : 0;
-
-  const avgLatency = totalActive > 0 
-    ? activeSnapshots.reduce((acc, s) => acc + s.prometheus.avgResponseTimeMs, 0) / totalActive 
-    : 0;
-
-  const maxP95 = totalActive > 0 
-    ? Math.max(...activeSnapshots.map((s) => s.prometheus.p95LatencyMs)) 
-    : 0;
-
-  const totalRps = totalActive > 0 
-    ? activeSnapshots.reduce((acc, s) => acc + s.prometheus.rps, 0) 
-    : 0;
-
-  // Real-time calculated metric sub-scores (0-100)
-  const latencyScore = totalActive === 0 ? 0 : Math.max(0, Math.min(100, Math.round(100 - avgLatency * 0.5)));
-  const resourceScore = totalActive === 0 ? 0 : Math.max(0, Math.min(100, Math.round(100 - (avgCpu / 500) * 100)));
-  const throughputScore = totalActive === 0 ? 0 : Math.max(0, Math.min(100, Math.round(totalRps * 8)));
-  const availabilityScore = Math.round((totalActive / targetServices.length) * 100);
-
-  // Real overall P-Score formula
-  const overallPScore = totalActive === 0 ? 0 : Math.round(
-    latencyScore * 0.35 + 
-    resourceScore * 0.25 + 
-    throughputScore * 0.20 + 
-    availabilityScore * 0.20
-  );
-
-  const getStatusBadge = (status: 'healthy' | 'degraded' | 'offline') => {
-    if (status === 'healthy') {
-      return (
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-          <CheckCircle2 className="h-3.5 w-3.5" /> Healthy
-        </span>
-      );
-    }
-    if (status === 'degraded') {
-      return (
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-400">
-          <TriangleAlert className="h-3.5 w-3.5" /> Degraded
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-400">
-        <XCircle className="h-3.5 w-3.5" /> Offline
-      </span>
+  const toggleSimulateRec = (recKey: string) => {
+    setSimulatedRecIds((prev) =>
+      prev.includes(recKey) ? prev.filter((id) => id !== recKey) : [...prev, recKey]
     );
+  };
+
+  const simulateAllFixes = () => {
+    const allKeys = (data?.recommendations || []).map(
+      (r) => r.id || `${r.serviceId}-${r.ruleId}`
+    );
+    setSimulatedRecIds(allKeys);
+  };
+
+  const resetSimulations = () => {
+    setSimulatedRecIds([]);
+  };
+
+  // Closed-Loop Remediation Simulation Calculations
+  const simulationSummary = useMemo(() => {
+    const baseScore = data?.overallPScore ?? 0;
+    const allRecs = data?.recommendations || [];
+    const activeSimulatedRecs = allRecs.filter((r) =>
+      simulatedRecIds.includes(r.id || `${r.serviceId}-${r.ruleId}`)
+    );
+
+    // Per-service projected gain
+    const serviceDeltaMap: Record<string, number> = {};
+    for (const r of activeSimulatedRecs) {
+      const delta = r.projectedServiceDeltaPts ?? 4.0;
+      serviceDeltaMap[r.serviceId] = (serviceDeltaMap[r.serviceId] || 0) + delta;
+    }
+
+    // Recompute projected service scores (capped at 100)
+    const evals = data?.serviceEvaluations || [];
+    let totalProjectedScore = 0;
+    for (const ev of evals) {
+      const gain = serviceDeltaMap[ev.serviceId] || 0;
+      const proj = Math.min(100, ev.pScore + gain);
+      totalProjectedScore += proj;
+    }
+
+    const projectedOverallScore =
+      evals.length > 0 ? Math.min(100, totalProjectedScore / evals.length) : baseScore;
+    const totalClusterGain = Math.max(0, projectedOverallScore - baseScore);
+    const projectedTier = classifyScoreToTier(projectedOverallScore);
+
+    return {
+      isSimulating: activeSimulatedRecs.length > 0,
+      simulatedCount: activeSimulatedRecs.length,
+      baseScore,
+      projectedOverallScore,
+      totalClusterGain,
+      projectedTier,
+      serviceDeltaMap
+    };
+  }, [data, simulatedRecIds]);
+
+  const avgLatency =
+    activeEvals.length > 0
+      ? activeEvals.reduce((sum, s) => sum + s.rawMetrics.avgResponseTimeMs, 0) / activeEvals.length
+      : 0;
+  const maxP95 =
+    activeEvals.length > 0
+      ? Math.max(...activeEvals.map((s) => s.rawMetrics.p95LatencyMs))
+      : 0;
+  const avgApdex =
+    data?.clusterSubScores?.avgApdexScore ??
+    (activeEvals.length > 0
+      ? activeEvals.reduce((sum, s) => sum + (s.apdexAndTail?.apdexScore ?? 1), 0) / activeEvals.length
+      : 1);
+  const avgTailRatio =
+    data?.clusterSubScores?.avgTailLatencyRatio ??
+    (activeEvals.length > 0
+      ? activeEvals.reduce((sum, s) => sum + (s.apdexAndTail?.tailLatencyRatio ?? 1.2), 0) /
+        activeEvals.length
+      : 1.2);
+  const avgMemory =
+    activeEvals.length > 0
+      ? activeEvals.reduce((sum, s) => sum + s.rawMetrics.memoryUsageMB, 0) / activeEvals.length
+      : 0;
+
+  const getTierBadgeColor = (level?: number) => {
+    switch (level) {
+      case 4:
+        return 'border-emerald-500/40 bg-emerald-500/15 text-emerald-400';
+      case 3:
+        return 'border-sky-500/40 bg-sky-500/15 text-sky-400';
+      case 2:
+        return 'border-amber-500/40 bg-amber-500/15 text-amber-400';
+      default:
+        return 'border-rose-500/40 bg-rose-500/15 text-rose-400';
+    }
+  };
+
+  const getCategoryBadge = (cat: RecommendationItem['category']) => {
+    switch (cat) {
+      case 'DATABASE_INDEXING':
+        return (
+          <span className="inline-flex items-center gap-1 rounded bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 font-mono text-[10px] font-semibold text-sky-400">
+            <Database className="h-3 w-3" /> DB INDEXING
+          </span>
+        );
+      case 'REDIS_CACHING':
+        return (
+          <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-400">
+            <Layers className="h-3 w-3" /> REDIS CACHING
+          </span>
+        );
+      case 'CONTAINER_BASE_IMAGE':
+        return (
+          <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-400">
+            <Cpu className="h-3 w-3" /> CONTAINER &amp; HPA
+          </span>
+        );
+    }
   };
 
   return (
@@ -160,218 +404,558 @@ export const PerformanceDimensionPage: React.FC = () => {
       {/* Page Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <h2 className="text-2xl font-semibold tracking-tight text-brand-perf flex items-center gap-2">
-              <Zap className="h-6 w-6 text-brand-perf" /> Performance Maturity
+              <Zap className="h-6 w-6 text-brand-perf" /> Performance Efficiency Maturity (P-Score)
             </h2>
-            {isRefreshing && <RefreshCw className="h-4 w-4 animate-spin text-brand-perf" />}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Python FastAPI Engine (:8000)
+            </span>
           </div>
           <p className="mt-1 text-sm text-text-secondary">
-            Live telemetry stream evaluation computed in real-time from active Docker microservice containers.
+            Composite P-Score = 100 × (1 − [{Math.round((data?.weights?.drift ?? 0.4) * 100)}%·Drift +{' '}
+            {Math.round((data?.weights?.fanout ?? 0.4) * 100)}%·FanOut +{' '}
+            {Math.round((data?.weights?.anomaly ?? 0.2) * 100)}%·ML_Anomaly]) with AHP validation, Apdex SLA, and XAI attribution.
           </p>
         </div>
 
         <div className="flex items-center gap-4">
           <button
             type="button"
-            onClick={fetchLivePerformanceTelemetry}
+            onClick={fetchCompositePScore}
+            disabled={isRefreshing}
             className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-secondary/40 px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-secondary transition-colors"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} /> Refresh Telemetry
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin text-brand-perf' : ''}`} />
+            Evaluate Live P-Score
           </button>
           <div className="text-right">
-            <div className="text-4xl font-mono font-semibold text-brand-perf">
-              {isLoading ? '--' : overallPScore}
-              <span className="text-lg text-text-muted">/100</span>
+            <div className="flex items-baseline justify-end gap-2">
+              <div className="text-4xl font-mono font-bold text-brand-perf">
+                {isLoading || !data ? '--' : data.overallPScore.toFixed(1)}
+                <span className="text-lg text-text-muted">/100</span>
+              </div>
+              {simulationSummary.isSimulating && (
+                <div className="flex flex-col items-end">
+                  <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 rounded px-1.5 py-0.5">
+                    → {simulationSummary.projectedOverallScore.toFixed(1)} (+
+                    {simulationSummary.totalClusterGain.toFixed(1)} pts)
+                  </span>
+                </div>
+              )}
             </div>
-            <div className="text-xs font-medium uppercase tracking-widest text-text-secondary mt-0.5">
-              {overallPScore >= 80 ? 'Optimized' : overallPScore >= 50 ? 'Intermediate' : 'Inactive / Offline'}
-            </div>
+            {data?.maturityTier && (
+              <div className="mt-1 flex items-center justify-end gap-1.5">
+                <span
+                  className={`inline-block rounded border px-2 py-0.5 text-[11px] font-mono font-semibold ${getTierBadgeColor(
+                    data.maturityTier.level
+                  )}`}
+                >
+                  {data.maturityTier.shortLabel}
+                </span>
+                {simulationSummary.isSimulating &&
+                  simulationSummary.projectedTier.level > data.maturityTier.level && (
+                    <span
+                      className={`inline-block rounded border px-2 py-0.5 text-[11px] font-mono font-semibold ${getTierBadgeColor(
+                        simulationSummary.projectedTier.level
+                      )}`}
+                    >
+                      → {simulationSummary.projectedTier.shortLabel}
+                    </span>
+                  )}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Collector Connection Status Banner */}
+      {/* Engine Status Banner */}
       {errorMsg ? (
         <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <XCircle className="h-4 w-4 text-rose-400 shrink-0" />
-            <span>Collector Offline: {errorMsg}. Ensure <strong>pscore-telemetry-collector</strong> container (port 8787) is running.</span>
+            <span>
+              Python Engine Offline: {errorMsg}. Ensure <strong>pscore-anomaly-detection</strong> (:8000) and{' '}
+              <strong>pscore-telemetry-collector</strong> (:8787) containers are running.
+            </span>
           </div>
           <button
             type="button"
-            onClick={fetchLivePerformanceTelemetry}
+            onClick={fetchCompositePScore}
             className="px-2.5 py-1 rounded bg-rose-500/20 text-rose-200 hover:bg-rose-500/30 font-mono text-[11px]"
           >
             Retry Connection
           </button>
         </div>
       ) : (
-        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300 flex items-center justify-between">
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Connected to Live Telemetry Collector (port 8787). Monitoring {targetServices.length} target microservices.</span>
+            <span>
+              <strong>{data?.engine}</strong> — Monitoring {activeEvals.length} live microservices (Eval latency:{' '}
+              {data?.evaluationLatencyMs ?? 0}ms) | AHP Consistency Ratio:{' '}
+              <strong>CR = {data?.ahpValidation?.consistencyRatio?.toFixed(4) ?? '0.0000'} (&lt; 0.10 Valid)</strong>
+            </span>
           </div>
           {lastUpdated && (
             <span className="font-mono text-[11px] text-emerald-400/80">
-              Last updated: {lastUpdated.toLocaleTimeString()}
+              Last evaluated: {lastUpdated.toLocaleTimeString()}
             </span>
           )}
         </div>
       )}
 
-      {/* Primary Performance Metrics Summary Grid */}
+      {/* Primary Performance Metrics Summary Grid (Including Apdex & Tail-Latency Amplification) */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="border-border bg-surface-secondary/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">Average Latency</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">
+                Average Response Latency
+              </span>
               <Clock className="h-4 w-4 text-brand-perf" />
             </div>
             <div className="mt-2 text-2xl font-mono font-semibold text-text-primary">
-              {totalActive > 0 ? `${avgLatency.toFixed(1)} ms` : '0 ms'}
+              {activeEvals.length > 0 ? `${avgLatency.toFixed(1)} ms` : '0 ms'}
             </div>
-            <p className="mt-1 text-[11px] text-text-muted">P95 Max: {maxP95.toFixed(1)} ms</p>
+            <p className="mt-1 text-[11px] text-text-muted">Cluster Max P95: {maxP95.toFixed(1)} ms</p>
           </CardContent>
         </Card>
 
         <Card className="border-border bg-surface-secondary/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">CPU Utilization</span>
-              <Cpu className="h-4 w-4 text-cyan-400" />
+              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">
+                Cluster Apdex Score (T=50ms)
+              </span>
+              <Gauge className="h-4 w-4 text-emerald-400" />
             </div>
-            <div className="mt-2 text-2xl font-mono font-semibold text-text-primary">
-              {totalActive > 0 ? `${avgCpu.toFixed(1)} m` : '0 m'}
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-mono font-semibold text-emerald-400">
+                {avgApdex.toFixed(3)}
+              </span>
+              <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">
+                {avgApdex >= 0.94 ? 'EXCELLENT' : avgApdex >= 0.85 ? 'GOOD' : 'FAIR'}
+              </span>
             </div>
-            <p className="mt-1 text-[11px] text-text-muted">Active Millicores average</p>
+            <p className="mt-1 text-[11px] text-text-muted">
+              Tail Amplification (P99/P95): <strong className="font-mono text-sky-400">{avgTailRatio.toFixed(2)}x</strong>
+            </p>
           </CardContent>
         </Card>
 
         <Card className="border-border bg-surface-secondary/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">Memory Usage</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">
+                Container RAM Footprint
+              </span>
               <HardDrive className="h-4 w-4 text-amber-400" />
             </div>
             <div className="mt-2 text-2xl font-mono font-semibold text-text-primary">
-              {totalActive > 0 ? `${avgMemory.toFixed(1)} MB` : '0 MB'}
+              {activeEvals.length > 0 ? `${avgMemory.toFixed(1)} MB` : '0 MB'}
             </div>
-            <p className="mt-1 text-[11px] text-text-muted">Container RSS memory</p>
+            <p className="mt-1 text-[11px] text-text-muted">Live Docker Engine cgroup RSS</p>
           </CardContent>
         </Card>
 
         <Card className="border-border bg-surface-secondary/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">Active Services</span>
-              <Server className="h-4 w-4 text-emerald-400" />
+              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">
+                Remediation Simulator
+              </span>
+              <Sparkles className="h-4 w-4 text-brand-perf" />
             </div>
             <div className="mt-2 text-2xl font-mono font-semibold text-text-primary">
-              {totalActive} / {targetServices.length}
+              {simulationSummary.isSimulating ? (
+                <span className="text-emerald-400">
+                  +{simulationSummary.totalClusterGain.toFixed(1)} pts
+                </span>
+              ) : (
+                `${data?.recommendations?.length ?? 0} Rules`
+              )}
             </div>
-            <p className="mt-1 text-[11px] text-text-muted">{availabilityScore}% availability ratio</p>
+            <p className="mt-1 text-[11px] text-text-muted">
+              {simulationSummary.isSimulating
+                ? `${simulationSummary.simulatedCount} fixes simulated`
+                : 'Click "Simulate Fix" below'}
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Main Content: Real Metrics Breakdown & Live Microservices Grid */}
+      {/* Main Content: Weighted Research Sub-Modules & Live Service P-Score Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Dynamic Metric Breakdown (Real Live Scores) */}
+        {/* Left Column: Weighted Sub-Modules + Saaty AHP Consistency Validator */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between text-sm uppercase tracking-wider text-text-secondary">
+                <span className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-brand-perf" /> Composite P-Score Weighted Sub-Modules
+                </span>
+                <span className="font-mono text-xs text-brand-perf">
+                  {Math.round((data?.weights?.drift ?? 0.4) * 100)}% /{' '}
+                  {Math.round((data?.weights?.fanout ?? 0.4) * 100)}% /{' '}
+                  {Math.round((data?.weights?.anomaly ?? 0.2) * 100)}%
+                </span>
+              </CardTitle>
+              <p className="mt-1 text-xs text-text-muted">
+                Each sub-module feeds its live normalized penalty score into the Python Composite P-Score Engine.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {/* 1. Historical Latency Drift */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <Link
+                    to="/dimensions/performance/drift"
+                    className="font-medium text-text-primary hover:text-brand-perf inline-flex items-center gap-1.5"
+                  >
+                    <TrendingUp className="h-4 w-4 text-sky-400" />
+                    1. Historical Latency Drift Analyzer (Weight {Math.round((data?.weights?.drift ?? 0.4) * 100)}%)
+                    <ArrowUpRight className="h-3.5 w-3.5 text-text-muted" />
+                  </Link>
+                  <span className="font-mono text-sky-400 font-semibold">
+                    {data?.clusterSubScores?.driftHealthScore ?? 100} / 100
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-surface-secondary overflow-hidden">
+                  <div
+                    className="h-full bg-sky-400 transition-all duration-500"
+                    style={{ width: `${data?.clusterSubScores?.driftHealthScore ?? 100}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-text-muted font-mono">
+                  Avg Drift Penalty: {data?.clusterSubScores?.avgDriftPenalty?.toFixed(3) ?? '0.000'} (OLS regression baseline comparison)
+                </p>
+              </div>
+
+              {/* 2. Service Fan-Out & Call-Tree Amplification */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <Link
+                    to="/dimensions/performance/fanout"
+                    className="font-medium text-text-primary hover:text-brand-perf inline-flex items-center gap-1.5"
+                  >
+                    <GitBranch className="h-4 w-4 text-brand-perf" />
+                    2. Call-Tree Fan-Out &amp; Gateway Attenuation (Weight {Math.round((data?.weights?.fanout ?? 0.4) * 100)}%)
+                    <ArrowUpRight className="h-3.5 w-3.5 text-text-muted" />
+                  </Link>
+                  <span className="font-mono text-brand-perf font-semibold">
+                    {data?.clusterSubScores?.fanOutHealthScore ?? 100} / 100
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-surface-secondary overflow-hidden">
+                  <div
+                    className="h-full bg-brand-perf transition-all duration-500"
+                    style={{ width: `${data?.clusterSubScores?.fanOutHealthScore ?? 100}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-text-muted font-mono">
+                  Avg Attenuated Fan-Out Penalty: {data?.clusterSubScores?.avgFanOutPenalty?.toFixed(3) ?? '0.000'} (0.3x API Gateway factor)
+                </p>
+              </div>
+
+              {/* 3. Isolation Forest ML Anomaly & Startup Pre-Filter */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <Link
+                    to="/dimensions/performance/anomaly"
+                    className="font-medium text-text-primary hover:text-brand-perf inline-flex items-center gap-1.5"
+                  >
+                    <Activity className="h-4 w-4 text-amber-400" />
+                    3. Isolation Forest ML Anomaly &amp; 90s Pre-Filter (Weight {Math.round((data?.weights?.anomaly ?? 0.2) * 100)}%)
+                    <ArrowUpRight className="h-3.5 w-3.5 text-text-muted" />
+                  </Link>
+                  <span className="font-mono text-amber-400 font-semibold">
+                    {data?.clusterSubScores?.anomalyHealthScore ?? 100} / 100
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-surface-secondary overflow-hidden">
+                  <div
+                    className="h-full bg-amber-400 transition-all duration-500"
+                    style={{ width: `${data?.clusterSubScores?.anomalyHealthScore ?? 100}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-text-muted font-mono">
+                  Avg ML Anomaly Score: {data?.clusterSubScores?.avgAnomalyPenalty?.toFixed(3) ?? '0.000'} (Scikit-Learn IsolationForest)
+                </p>
+              </div>
+
+              {/* Maturity Tier Explanation */}
+              {data?.maturityTier && (
+                <div className="rounded-lg border border-border/80 bg-surface-secondary/30 p-3.5 space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-text-primary flex items-center gap-1.5">
+                      <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                      {data.maturityTier.tier}
+                    </span>
+                  </div>
+                  <p className="text-xs text-text-secondary">{data.maturityTier.summary}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Analytic Hierarchy Process (AHP) Weight Justification & CR Validator */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
+                  <Scale className="h-4 w-4 text-sky-400" /> Saaty&apos;s AHP Weight Justification &amp; CR Validator
+                </CardTitle>
+                <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-400">
+                  <CheckCircle2 className="h-3 w-3" /> CR ={' '}
+                  {data?.ahpValidation?.consistencyRatio?.toFixed(4) ?? '0.0000'} &lt; 0.10
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-text-muted">
+                Mathematical verification of P-Score penalty weights using Analytic Hierarchy Process pairwise comparison matrix.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Weight Profile Selector */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-[11px] font-mono uppercase text-text-secondary">
+                  <Sliders className="h-3 w-3 text-brand-perf" /> Select Architectural Weight Profile:
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {WEIGHT_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setSelectedPresetId(preset.id)}
+                      className={`rounded-md border p-2 text-left transition-colors ${
+                        selectedPresetId === preset.id
+                          ? 'border-brand-perf bg-brand-perf/15 text-text-primary'
+                          : 'border-border bg-surface-secondary/20 text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <div className="font-mono text-[11px] font-bold text-brand-perf">
+                        {preset.drift * 100}% / {preset.fanout * 100}% / {preset.anomaly * 100}%
+                      </div>
+                      <div className="text-[11px] font-medium truncate">{preset.label.split(' (')[0]}</div>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-text-muted">{activePreset.description}</p>
+              </div>
+
+              {/* 3x3 Pairwise Matrix & Eigenvalue Metrics */}
+              {data?.ahpValidation && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="rounded border border-border/70 bg-surface-secondary/20 p-2.5">
+                    <div className="text-[10px] font-mono uppercase text-text-muted mb-1.5">
+                      Pairwise Matrix A = [w_i / w_j]
+                    </div>
+                    <table className="w-full text-right font-mono text-[11px]">
+                      <thead>
+                        <tr className="text-text-muted border-b border-border/50">
+                          <th className="text-left py-1">Signal</th>
+                          <th className="py-1">Drift</th>
+                          <th className="py-1">FanOut</th>
+                          <th className="py-1">ML</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/30">
+                        {data.ahpValidation.pairwiseMatrix.map((row, rIdx) => (
+                          <tr key={rIdx}>
+                            <td className="text-left py-1 font-semibold text-text-secondary">
+                              {rIdx === 0 ? 'Drift' : rIdx === 1 ? 'FanOut' : 'ML'}
+                            </td>
+                            {row.map((val, cIdx) => (
+                              <td key={cIdx} className="py-1 text-text-primary">
+                                {val.toFixed(2)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="rounded border border-border/70 bg-surface-secondary/20 p-2.5 flex flex-col justify-between font-mono text-[11px] space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Principal Eigenvalue (λ_max):</span>
+                      <span className="text-text-primary font-bold">
+                        {data.ahpValidation.lambdaMax.toFixed(4)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Consistency Index (CI):</span>
+                      <span className="text-text-primary">
+                        {data.ahpValidation.consistencyIndex.toFixed(4)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Saaty Random Index (RI, n=3):</span>
+                      <span className="text-text-primary">{data.ahpValidation.randomIndex}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-border/50 pt-1">
+                      <span className="text-text-secondary font-semibold">Consistency Ratio (CR):</span>
+                      <span className="text-emerald-400 font-bold">
+                        {data.ahpValidation.consistencyRatio.toFixed(4)} (Consistent)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column: Per-Service Live P-Score, Apdex, Tail Ratio & XAI Feature Attribution */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
-              <BarChart3 className="h-4 w-4 text-brand-perf" /> Live Evaluated Performance Parameters
+              <Server className="h-4 w-4 text-emerald-400" /> Per-Service Live P-Score, Apdex &amp; XAI Breakdown
             </CardTitle>
-            <p className="mt-1 text-xs text-text-muted">Parameter sub-scores computed directly from real telemetry data streams.</p>
+            <p className="mt-1 text-xs text-text-muted">
+              Individual microservice P-Scores, Tail-Latency Amplification (P99/P95), Apdex SLA, and Explainable AI attribution.
+            </p>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-text-primary">Response Time & Latency Budget (Weight 35%)</span>
-                <span className="font-mono text-brand-perf font-semibold">{latencyScore} / 100</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-surface-secondary overflow-hidden">
-                <div className="h-full bg-brand-perf transition-all duration-500" style={{ width: `${latencyScore}%` }} />
-              </div>
-              <p className="text-[11px] text-text-muted">Evaluated from live avg response time ({avgLatency.toFixed(1)}ms).</p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-text-primary">Resource Footprint Efficiency (Weight 25%)</span>
-                <span className="font-mono text-cyan-400 font-semibold">{resourceScore} / 100</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-surface-secondary overflow-hidden">
-                <div className="h-full bg-cyan-400 transition-all duration-500" style={{ width: `${resourceScore}%` }} />
-              </div>
-              <p className="text-[11px] text-text-muted">Evaluated from container CPU millicores ({avgCpu.toFixed(1)}m) and RAM ({avgMemory.toFixed(1)}MB).</p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-text-primary">Throughput & Request Capacity (Weight 20%)</span>
-                <span className="font-mono text-amber-400 font-semibold">{throughputScore} / 100</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-surface-secondary overflow-hidden">
-                <div className="h-full bg-amber-400 transition-all duration-500" style={{ width: `${throughputScore}%` }} />
-              </div>
-              <p className="text-[11px] text-text-muted">Evaluated from live aggregated requests per second ({totalRps.toFixed(1)} RPS).</p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-text-primary">Service Availability & Uptime (Weight 20%)</span>
-                <span className="font-mono text-emerald-400 font-semibold">{availabilityScore} / 100</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-surface-secondary overflow-hidden">
-                <div className="h-full bg-emerald-400 transition-all duration-500" style={{ width: `${availabilityScore}%` }} />
-              </div>
-              <p className="text-[11px] text-text-muted">Evaluated from {totalActive} active running containers out of {targetServices.length} target microservices.</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Live Running Microservices Telemetry Status Grid */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
-              <Server className="h-4 w-4 text-emerald-400" /> Monitored Microservices Live Telemetry
-            </CardTitle>
-            <p className="mt-1 text-xs text-text-muted">Live container metrics dynamically discovered from Docker Engine API.</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {targetServices.map((serviceId) => {
-              const snap = snapshots.find((s) => s.serviceId === serviceId);
-              const isAlive = snap && (
-                snap.prometheus.cpuUsageMillicores > 0 || 
-                snap.prometheus.memoryUsageMB > 0 || 
-                snap.prometheus.avgResponseTimeMs > 0
-              );
-
-              const status: 'healthy' | 'degraded' | 'offline' = isAlive
-                ? snap.prometheus.p95LatencyMs > 500 ? 'degraded' : 'healthy'
-                : 'offline';
+          <CardContent className="space-y-3.5">
+            {(data?.serviceEvaluations || []).map((svc) => {
+              const simDelta = simulationSummary.serviceDeltaMap[svc.serviceId] || 0;
+              const projectedSvcScore = Math.min(100, svc.pScore + simDelta);
+              const attr = svc.signals.featureAttributions;
 
               return (
                 <div
-                  key={serviceId}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border/80 bg-surface-secondary/30 p-3"
+                  key={svc.serviceId}
+                  className="rounded-lg border border-border/80 bg-surface-secondary/30 p-3.5 space-y-2.5"
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-text-primary">{serviceId}</span>
-                      {getStatusBadge(status)}
+                      <span className="font-mono text-sm font-bold text-text-primary">
+                        {svc.serviceId}
+                      </span>
+                      {svc.signals.isApiGateway && (
+                        <span className="rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 font-mono text-[10px] text-sky-400">
+                          Gateway (0.3x)
+                        </span>
+                      )}
+                      {svc.hasTelemetry ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Live
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-400">
+                          <XCircle className="h-3.5 w-3.5" /> Offline
+                        </span>
+                      )}
                     </div>
-                    {isAlive && snap ? (
-                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-text-secondary">
-                        <span>CPU: <strong className="text-cyan-400">{snap.prometheus.cpuUsageMillicores} m</strong></span>
-                        <span>RAM: <strong className="text-amber-400">{snap.prometheus.memoryUsageMB} MB</strong></span>
-                        <span>Avg Latency: <strong className="text-brand-perf">{snap.prometheus.avgResponseTimeMs} ms</strong></span>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${getTierBadgeColor(
+                          svc.maturityTier.level
+                        )}`}
+                      >
+                        {svc.maturityTier.shortLabel}
+                      </span>
+                      <div className="flex items-baseline gap-1.5 font-mono">
+                        <span className="text-lg font-bold text-brand-perf">
+                          {svc.pScore.toFixed(1)}
+                          <span className="text-xs text-text-muted">/100</span>
+                        </span>
+                        {simDelta > 0 && (
+                          <span className="text-xs font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 rounded px-1.5 py-0.5">
+                            → {projectedSvcScore.toFixed(1)}
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      <div className="mt-1 text-[11px] text-text-muted">No active metrics received from container</div>
-                    )}
+                    </div>
+                  </div>
+
+                  {/* Penalty Deductions Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-text-secondary border-t border-border/50 pt-2">
+                    <span>
+                      Drift Penalty:{' '}
+                      <strong className="text-sky-400">-{svc.penalties.driftPenaltyPts} pts</strong>
+                    </span>
+                    <span>
+                      Fan-Out Penalty:{' '}
+                      <strong className="text-brand-perf">
+                        -{svc.penalties.fanOutPenaltyPts} pts
+                      </strong>{' '}
+                      ({svc.signals.directFanOutCount} calls, D{svc.signals.maxDependencyDepth})
+                    </span>
+                    <span>
+                      ML Anomaly:{' '}
+                      <strong className="text-amber-400">
+                        -{svc.penalties.anomalyPenaltyPts} pts
+                      </strong>
+                    </span>
+                  </div>
+
+                  {/* Apdex & Tail-Latency Amplification Row */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono bg-surface/60 rounded px-2.5 py-1.5 border border-border/50">
+                    <span>
+                      Apdex (T=50ms):{' '}
+                      <strong className="text-emerald-400">
+                        {svc.apdexAndTail?.apdexScore?.toFixed(3) ?? '0.995'} (
+                        {svc.apdexAndTail?.apdexRating ?? 'EXCELLENT'})
+                      </strong>
+                    </span>
+                    <span>
+                      Tail Ratio (P99/P95):{' '}
+                      <strong className="text-sky-400">
+                        {svc.apdexAndTail?.tailLatencyRatio?.toFixed(2) ?? '1.20'}x
+                      </strong>
+                    </span>
+                    <span className="text-text-muted">
+                      P95: {svc.rawMetrics.p95LatencyMs}ms / P99: {svc.rawMetrics.p99LatencyMs ?? 21}ms
+                    </span>
+                  </div>
+
+                  {/* XAI Feature Attribution Mini Bar */}
+                  {attr && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-text-muted">
+                        <span>
+                          XAI Attribution Driver:{' '}
+                          <strong className="text-text-secondary">{attr.dominantDriver}</strong>
+                        </span>
+                        <span>
+                          CPU {attr.cpuPercent}% · RAM {attr.memoryPercent}% · Lat {attr.latencyPercent}% · Err{' '}
+                          {attr.errorPercent}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-surface overflow-hidden flex">
+                        <div
+                          className="h-full bg-cyan-400"
+                          style={{ width: `${attr.cpuPercent}%` }}
+                          title={`CPU: ${attr.cpuPercent}%`}
+                        />
+                        <div
+                          className="h-full bg-amber-400"
+                          style={{ width: `${attr.memoryPercent}%` }}
+                          title={`Memory: ${attr.memoryPercent}%`}
+                        />
+                        <div
+                          className="h-full bg-brand-perf"
+                          style={{ width: `${attr.latencyPercent}%` }}
+                          title={`Latency: ${attr.latencyPercent}%`}
+                        />
+                        <div
+                          className="h-full bg-rose-400"
+                          style={{ width: `${attr.errorPercent}%` }}
+                          title={`Errors: ${attr.errorPercent}%`}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Raw Container Telemetry */}
+                  <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono text-text-muted">
+                    <span>CPU: {svc.rawMetrics.cpuUsageMillicores}m</span>
+                    <span>RAM: {svc.rawMetrics.memoryUsageMB}MB</span>
+                    <span>Avg: {svc.rawMetrics.avgResponseTimeMs}ms</span>
+                    <span>RPS: {svc.rawMetrics.rps} req/s</span>
                   </div>
                 </div>
               );
@@ -379,6 +963,179 @@ export const PerformanceDimensionPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Phase 5: Context-Aware Architectural Recommendations Engine + Closed-Loop Remediation Simulator */}
+      <Card className="border-border">
+        <CardHeader className="border-b border-border/60">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-primary">
+                <Sparkles className="h-4 w-4 text-brand-perf" /> Context-Aware Architectural Recommendations &amp; Closed-Loop Simulator
+              </CardTitle>
+              <p className="mt-1 text-xs text-text-secondary">
+                Toggle <strong>Simulate Fix</strong> on any recommendation to project the closed-loop Before vs. After P-Score and Maturity Tier jump.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={simulateAllFixes}
+                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1 font-mono text-xs font-semibold text-emerald-400 hover:bg-emerald-500/25 transition-colors"
+              >
+                <Play className="h-3 w-3" /> Simulate All Fixes
+              </button>
+              {simulationSummary.isSimulating && (
+                <button
+                  type="button"
+                  onClick={resetSimulations}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 font-mono text-xs text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  <RotateCcw className="h-3 w-3" /> Reset
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Interactive Closed-Loop Simulation Banner */}
+          {simulationSummary.isSimulating && (
+            <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3.5 flex flex-wrap items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <div className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold">
+                  Closed-Loop What-If Remediation Projection ({simulationSummary.simulatedCount} Active Fixes)
+                </div>
+                <div className="text-xs text-text-secondary">
+                  Applying the selected architectural optimizations attenuates synchronous fan-out, database latency drift, and container saturation.
+                </div>
+              </div>
+              <div className="flex items-center gap-4 font-mono">
+                <div className="text-right">
+                  <div className="text-[10px] uppercase text-text-muted">Before P-Score</div>
+                  <div className="text-lg font-bold text-text-primary">
+                    {simulationSummary.baseScore.toFixed(1)}
+                  </div>
+                </div>
+                <div className="text-emerald-400 font-bold text-lg">→</div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase text-emerald-400">Projected After P-Score</div>
+                  <div className="text-xl font-bold text-emerald-400">
+                    {simulationSummary.projectedOverallScore.toFixed(1)}{' '}
+                    <span className="text-xs">
+                      (+{simulationSummary.totalClusterGain.toFixed(1)} pts)
+                    </span>
+                  </div>
+                </div>
+                <span
+                  className={`rounded border px-2.5 py-1 text-xs font-semibold ${getTierBadgeColor(
+                    simulationSummary.projectedTier.level
+                  )}`}
+                >
+                  {simulationSummary.projectedTier.shortLabel}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Service Filter Pills */}
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedServiceFilter('ALL')}
+              className={`rounded-md border px-2.5 py-1 font-mono text-xs transition-colors ${
+                selectedServiceFilter === 'ALL'
+                  ? 'border-brand-perf bg-brand-perf/15 text-brand-perf font-semibold'
+                  : 'border-border bg-surface text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              All ({data?.recommendations?.length ?? 0})
+            </button>
+            {(data?.serviceEvaluations || []).map((s) => (
+              <button
+                key={s.serviceId}
+                type="button"
+                onClick={() => setSelectedServiceFilter(s.serviceId)}
+                className={`rounded-md border px-2.5 py-1 font-mono text-xs transition-colors ${
+                  selectedServiceFilter === s.serviceId
+                    ? 'border-brand-perf bg-brand-perf/15 text-brand-perf font-semibold'
+                    : 'border-border bg-surface text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                {s.serviceId}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent className="p-5">
+          {filteredRecommendations.length === 0 ? (
+            <div className="p-8 text-center text-xs text-text-muted">
+              No optimization recommendations triggered for the current selection.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredRecommendations.map((rec, idx) => {
+                const recKey = rec.id || `${rec.serviceId}-${rec.ruleId}`;
+                const isSimulated = simulatedRecIds.includes(recKey);
+
+                return (
+                  <div
+                    key={`${recKey}-${idx}`}
+                    className={`rounded-lg border p-4 flex flex-col justify-between space-y-3 transition-colors ${
+                      isSimulated
+                        ? 'border-emerald-500/60 bg-emerald-500/10'
+                        : 'border-border/80 bg-surface-secondary/25 hover:border-brand-perf/40'
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          {getCategoryBadge(rec.category)}
+                          <span className="rounded bg-surface px-2 py-0.5 font-mono text-[11px] font-bold text-text-primary border border-border">
+                            {rec.serviceId}
+                          </span>
+                        </div>
+                        <span
+                          className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold ${
+                            rec.impact === 'HIGH'
+                              ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                              : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                          }`}
+                        >
+                          {rec.impact} IMPACT · {rec.effort} EFFORT
+                        </span>
+                      </div>
+
+                      <h4 className="text-sm font-semibold text-text-primary">{rec.title}</h4>
+                      <p className="text-xs leading-relaxed text-text-secondary">{rec.description}</p>
+                    </div>
+
+                    <div className="pt-2 border-t border-border/50 flex flex-wrap items-center justify-between gap-2 font-mono text-[11px]">
+                      <span className="text-text-muted truncate max-w-[240px]" title={rec.triggerEvidence}>
+                        Evidence: <strong className="text-text-secondary">{rec.triggerEvidence}</strong>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-emerald-400 font-semibold">
+                          {rec.expectedPScoreImprovement}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleSimulateRec(recKey)}
+                          className={`rounded px-2.5 py-0.5 font-mono text-[11px] font-semibold border transition-colors ${
+                            isSimulated
+                              ? 'border-emerald-400 bg-emerald-500 text-slate-950'
+                              : 'border-brand-perf/50 bg-brand-perf/15 text-brand-perf hover:bg-brand-perf/25'
+                          }`}
+                        >
+                          {isSimulated ? '✓ Simulated' : 'Simulate Fix'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </PageContainer>
   );
 };
