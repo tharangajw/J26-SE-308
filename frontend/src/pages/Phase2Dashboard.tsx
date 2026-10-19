@@ -41,25 +41,25 @@ export const Phase2Dashboard = () => {
   const [serviceExposure, setServiceExposure] = useState<any[]>([]);
   const [graph, setGraph] = useState({ nodes: [], edges: [] });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await fetch('http://127.0.0.1:8000/api/phase2/dashboard');
-        if (response.ok) {
-          const data = await response.json();
-          setAvgBlast(data.averages.blastRadius);
-          setAvgApiChanges(data.averages.apiChanges);
-          setAllPrs(data.allPRs || data.recentPRs || []);
-          setRelevantPrs(data.relevantPRs || []);
-          setHistory(data.history || []);
-          setServiceExposure(data.serviceExposure || []);
-          setGraph(data.graph || { nodes: [], edges: [] });
-        }
-      } catch (error) {
-        console.error('Failed to fetch Phase 2 data', error);
+  const fetchData = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/phase2/dashboard');
+      if (response.ok) {
+        const data = await response.json();
+        setAvgBlast(data.averages.blastRadius);
+        setAvgApiChanges(data.averages.apiChanges);
+        setAllPrs(data.allPRs || data.recentPRs || []);
+        setRelevantPrs(data.relevantPRs || []);
+        setHistory(data.history || []);
+        setServiceExposure(data.serviceExposure || []);
+        setGraph(data.graph || { nodes: [], edges: [] });
       }
-    };
-    
+    } catch (error) {
+      console.error('Failed to fetch Phase 2 data', error);
+    }
+  };
+
+  useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);

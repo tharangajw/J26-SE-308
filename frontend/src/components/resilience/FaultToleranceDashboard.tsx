@@ -23,6 +23,7 @@ import {
   type RecentActivity,
   type AiFailurePrediction,
   type SelfHealingMetrics,
+  type KubernetesChaosLog,
   mockTelemetrySources
 } from '../../data/mockData';
 import { ChaosEngineeringSuite } from './ChaosEngineeringSuite';
@@ -53,17 +54,20 @@ export const FaultToleranceDashboard: React.FC = () => {
     confidence: 94.8
   });
 
-  const [selfHealing] = useState<SelfHealingMetrics>({
+  const [selfHealing, setSelfHealing] = useState<SelfHealingMetrics>({
     podRestartSuccessRate: 98.5,
     replicaReplacementSuccessRate: 100,
     hpaEffectiveness: 95.0,
     circuitBreakerEffectiveness: 96.8
   });
+  const [deviceHardware, setDeviceHardware] = useState<any>(null);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<AiRecommendation[]>([]);
+  const [aiError, setAiError] = useState('');
+  const [aiGeneratedAt, setAiGeneratedAt] = useState<string | null>(null);
 
   const simulationRef = useRef(isSimulation);
   simulationRef.current = isSimulation;
@@ -106,6 +110,49 @@ export const FaultToleranceDashboard: React.FC = () => {
           setMetrics(data.metrics);
           if (data.services && data.services.length > 0) {
             setServices(data.services);
+          }
+          if (data.aiPrediction) {
+            setAiPrediction(data.aiPrediction);
+          }
+          if (data.selfHealing) {
+            setSelfHealing(data.selfHealing);
+          }
+          if (data.deviceHardware) {
+            setDeviceHardware(data.deviceHardware);
+          }
+          if (data.activeChaos && !data.activeChaos.status.toLowerCase().includes('healed') && !data.activeChaos.status.toLowerCase().includes('recovered') && !data.activeChaos.status.toLowerCase().includes('completed')) {
+            setActiveChaosEvent({
+              service: data.activeChaos.serviceName,
+              targetId: data.activeChaos.serviceId,
+              time: new Date(data.activeChaos.injectedAt).toLocaleTimeString(),
+              type: data.activeChaos.faultType,
+              status: data.activeChaos.status,
+              recoveryTime: data.activeChaos.metricsSnapshot?.mttrObservedSec ? `${data.activeChaos.metricsSnapshot.mttrObservedSec}s` : undefined,
+              engine: data.activeChaos.engine,
+              experimentName: data.activeChaos.experimentName,
+              kubernetesLogs: data.activeChaos.kubernetesLogs,
+              metricsSnapshot: data.activeChaos.metricsSnapshot,
+              selfHealingValidation: data.activeChaos.selfHealingValidation
+            });
+          } else {
+            setActiveChaosEvent(null);
+          }
+          // ✅ Append real backend metrics to history every poll cycle so Historical Telemetry Trends stays live
+          if (data.metrics) {
+            setHistory(prev => {
+              const next = [...prev];
+              if (next.length >= 60) next.shift();
+              next.push({
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                cpu: data.metrics.cpu ?? 0,
+                memory: data.metrics.memory ?? 0,
+                latency: data.metrics.latency ?? 0,
+                errorRate: data.metrics.errorRate ?? 0,
+                availability: data.metrics.availability ?? 100,
+                score: data.metrics.score ?? 0
+              });
+              return next;
+            });
           }
           setIsSimulation(false);
         }
@@ -197,28 +244,35 @@ export const FaultToleranceDashboard: React.FC = () => {
         : parseFloat(Math.max(0, 99.9 - (avgErrorRate * 0.2)).toFixed(2));
 
       let score = 0;
+      const failoverSuccess = (offlineCount > 0 || degradedCount > 0) ? (offlineCount > 1 ? 65 : 80) : 100;
+      const simulatedMttr = (offlineCount > 0 || degradedCount > 0) ? 18 : 12;
+
       const rules = {
-        availability: availability > 99.0,
+        availability: availability >= 99.0,
         cpu: avgCpu < 70,
         memory: avgMem < 75,
+        latency: avgLatency < 50,
         errorRate: avgErrorRate < 1.0,
-        restarts: totalRestarts < 2
+        restarts: totalRestarts < 2,
+        mttr: simulatedMttr <= 15,
+        failover: failoverSuccess >= 100
       };
 
-      if (rules.availability) score += 20;
-      if (rules.cpu) score += 20;
-      if (rules.memory) score += 20;
-      if (rules.errorRate) score += 20;
-      if (rules.restarts) score += 20;
-
-      const failoverSuccess = (offlineCount > 0 || degradedCount > 0) ? (offlineCount > 1 ? 65 : 80) : 100;
+      if (rules.availability) score += 12.5;
+      if (rules.cpu) score += 12.5;
+      if (rules.memory) score += 12.5;
+      if (rules.latency) score += 12.5;
+      if (rules.errorRate) score += 12.5;
+      if (rules.restarts) score += 12.5;
+      if (rules.mttr) score += 12.5;
+      if (rules.failover) score += 12.5;
 
       let maturity: FaultMetrics['maturity'] = 'Initial';
-      if (score >= 90) maturity = 'Optimized';
-      else if (score >= 70) maturity = 'Mature';
+      if (score >= 87.5) maturity = 'Optimized';
+      else if (score >= 75) maturity = 'Mature';
       else if (score >= 50) maturity = 'Developing';
 
-      // Novelty 1: Dynamic AI Failure Prediction Engine
+      // Dynamic AI Failure Prediction Engine
       const activeFList = activeFaultsRef.current;
       if (activeFList.length > 0) {
         const topFault = activeFList[0];
@@ -316,18 +370,25 @@ export const FaultToleranceDashboard: React.FC = () => {
 
     setActiveChaosEvent(prev => {
       if (prev && (prev.targetId === serviceId || serviceId === 'all')) {
-        return { ...prev, status: 'Recovered / Self-Healed', recoveryTime: '15s' };
+        return null;
       }
       return prev;
     });
   };
 
-  const injectChaosFault = async (fType: string, target = 'gateway', duration = 15, latencyMs = 2500, errorRate = 35) => {
+  const injectChaosFault = async (
+    fType: string, 
+    target = 'gateway', 
+    duration = 15, 
+    latencyMs = 2500, 
+    errorRate = 35,
+    engine: 'Chaos Mesh' = 'Chaos Mesh'
+  ) => {
     const faultMeta = mockFaultTypes.find(f => f.id === fType) || mockFaultTypes[0];
     const now = Date.now();
     const endTime = now + duration * 1000;
 
-    logActivity('INJECT', `Chaos Experiment: ${faultMeta.name}`, `Target: ${target === 'all' ? 'Cluster Wide' : target} | Duration: ${duration}s`, 'danger');
+    logActivity('INJECT', `Chaos Mesh: ${faultMeta.name}`, `Target: ${target === 'all' ? 'Cluster Wide' : target} | Duration: ${duration}s`, 'danger');
 
     const newFaultObj: ActiveFault = {
       id: `${target}-${fType}-${now}`,
@@ -342,17 +403,47 @@ export const FaultToleranceDashboard: React.FC = () => {
 
     setActiveFaults(prev => [...prev.filter(f => f.targetId !== target || target === 'all'), newFaultObj]);
 
+    const initialLogs: KubernetesChaosLog[] = [
+      {
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'INFO',
+        source: 'Chaos Mesh',
+        message: `[Chaos Mesh] Initializing ${faultMeta.name} experiment on '${target}'. Scheduled duration: ${duration}s`
+      },
+      {
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'INFO',
+        source: 'Chaos Mesh',
+        message: `[Host Monitor] Baseline: CPU ${metrics.cpu}%, RAM ${metrics.memory}%, Latency ${metrics.latency}ms, Error Rate ${metrics.errorRate}%`
+      }
+    ];
+
     setActiveChaosEvent({
       service: target === 'all' ? 'All Microservices' : services.find(s => s.id === target)?.name || target,
       targetId: target,
       time: new Date().toLocaleTimeString(),
       type: faultMeta.name,
-      status: 'Injected (Active Fault)'
+      status: `Executing via ${engine}: ${faultMeta.name}`,
+      engine,
+      experimentName: `${fType.toLowerCase().replace(/_/g, '-')}-${target}-exp`,
+      kubernetesLogs: initialLogs,
+      metricsSnapshot: {
+        preChaosAvailability: metrics.availability,
+        postChaosAvailability: Math.max(75, metrics.availability - 15),
+        errorRateSpike: errorRate
+      },
+      selfHealingValidation: {
+        podRestarted: false,
+        replicaReplaced: false,
+        hpaTriggered: fType === 'HIGH_CPU' || fType === 'HIGH_MEMORY',
+        circuitBreakerTripped: fType === 'API_ERROR' || fType === 'LATENCY',
+        validationStatus: 'VALIDATING'
+      }
     });
 
     if (!isSimulation) {
       try {
-        await fetch('http://localhost:3010/api/chaos/inject', {
+        const resp = await fetch('http://localhost:3010/api/chaos/inject', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -360,9 +451,27 @@ export const FaultToleranceDashboard: React.FC = () => {
             faultType: fType, 
             duration, 
             latencyMs, 
-            errorRate 
+            errorRate,
+            engine
           })
         });
+        if (resp.ok) {
+          const resData = await resp.json();
+          if (resData.event) {
+            setActiveChaosEvent({
+              service: resData.event.serviceName,
+              targetId: resData.event.serviceId,
+              time: new Date(resData.event.injectedAt).toLocaleTimeString(),
+              type: resData.event.faultType,
+              status: resData.event.status,
+              engine: resData.event.engine,
+              experimentName: resData.event.experimentName,
+              kubernetesLogs: resData.event.kubernetesLogs,
+              metricsSnapshot: resData.event.metricsSnapshot,
+              selfHealingValidation: resData.event.selfHealingValidation
+            });
+          }
+        }
       } catch (err) {
         console.error('Failed to trigger backend chaos:', err);
       }
@@ -510,21 +619,31 @@ export const FaultToleranceDashboard: React.FC = () => {
     }];
   };
 
-  const handleOpenAiPanel = () => {
+  const handleOpenAiPanel = async () => {
     setAiPanelOpen(true);
     setAiLoading(true);
+    setAiError('');
     setAiRecommendations([]);
-    setTimeout(() => {
-      const recs = generateAiRecommendations(metrics, activeFaults);
-      setAiRecommendations(recs);
+    try {
+      const response = await fetch('http://localhost:3010/api/resilience/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Insight request failed (${response.status}).`);
+      setAiRecommendations(data.recommendations);
+      setAiGeneratedAt(data.generatedAt || new Date().toISOString());
+      logActivity('AI_RECOMMEND', 'Gemini AI Insights', `Analysed the live engine snapshot and generated ${data.recommendations.length} recommendations.`, 'info');
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'Unable to generate Gemini insights.');
+    } finally {
       setAiLoading(false);
-      logActivity('AI_RECOMMEND', 'AI Insights Engine', `Evaluated system health and generated ${recs.length} actionable insights.`, 'info');
-    }, 1000);
+    }
   };
 
   const getScoreColor = (score: number) => {
-    if (score >= 90) return 'color-success';
-    if (score >= 70) return 'color-warning';
+    if (score >= 87.5) return 'color-success';
+    if (score >= 50) return 'color-warning';
     return 'color-danger';
   };
 
@@ -562,8 +681,11 @@ export const FaultToleranceDashboard: React.FC = () => {
               <Zap size={14} className="pulse-icon" /> SIMULATION MODE (Mock Telemetry Active)
             </span>
           ) : (
-            <span className="mode-badge live">
-              <Activity size={14} className="pulse-icon" /> LIVE CLUSTER METRICS
+            <span className="mode-badge live" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Activity size={14} className="pulse-icon" />
+              <span>
+                LIVE HOST: {deviceHardware?.hostname || 'Current Device'} ({deviceHardware?.cpuCores ? `${deviceHardware.cpuCores} Cores` : '8 Cores'} · {deviceHardware?.totalMemoryGB ? `${deviceHardware.totalMemoryGB}GB RAM` : '16GB RAM'})
+              </span>
             </span>
           )}
           <button className="btn-icon" onClick={resetMetrics} title="Reset All Metrics">
@@ -684,7 +806,7 @@ export const FaultToleranceDashboard: React.FC = () => {
                 <Brain size={20} className="ai-brain-icon" />
                 <div>
                   <h2>AI Resilience Advisor</h2>
-                  <p>Smart recommendations based on active chaos telemetry</p>
+                  <p>Gemini analysis of the latest resilience engine telemetry</p>
                 </div>
               </div>
               <button className="ai-close-btn" onClick={() => setAiPanelOpen(false)}>
@@ -698,6 +820,11 @@ export const FaultToleranceDashboard: React.FC = () => {
                   <div className="ai-loading-orb"></div>
                   <p>Analysing system metrics &amp; chaos patterns...</p>
                   <span>Evaluating fault tolerance playbooks</span>
+                </div>
+              ) : aiError ? (
+                <div className="ai-loading">
+                  <p>{aiError}</p>
+                  <span>Check that the resilience backend is running and its Gemini settings are configured.</span>
                 </div>
               ) : (
                 <div className="ai-recs-list">
@@ -727,7 +854,7 @@ export const FaultToleranceDashboard: React.FC = () => {
               <button className="btn-ai-refresh" onClick={handleOpenAiPanel}>
                 <RefreshCw size={13} /> Refresh Analysis
               </button>
-              <span>Based on {new Date().toLocaleTimeString()} snapshot</span>
+              <span>{aiGeneratedAt ? `Gemini snapshot ${new Date(aiGeneratedAt).toLocaleTimeString()}` : 'Uses a fresh engine snapshot'}</span>
             </div>
           </div>
         </div>
