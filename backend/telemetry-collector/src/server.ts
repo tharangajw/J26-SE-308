@@ -19,7 +19,9 @@ const engine = new TelemetryCollectorEngine({
 });
 
 const driftAnalyzer = new HistoricalDriftAnalyzer();
-const fanOutEngine = new FanOutEngine();
+const fanOutEngine = new FanOutEngine({
+  jaeger: process.env.JAEGER_URL ?? 'http://localhost:16686',
+});
 
 const sendJson = (response: import('node:http').ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
@@ -62,23 +64,47 @@ createServer(async (request, response) => {
     });
   }
 
+  if (url.pathname === '/api/telemetry/discovered-services') {
+    const discovery = await engine.discoverServices();
+    return sendJson(response, 200, discovery);
+  }
+
   if (url.pathname === '/api/telemetry/phase3') {
-    const servicesParam = url.searchParams.get('services') ?? 'gateway-1,book-service-1,user-service-1,order-service-1';
-    const services = servicesParam.split(',').map((s) => s.trim()).filter(Boolean);
+    let services: string[] = [];
+    const requested = url.searchParams.get('services');
+
+    if (requested) {
+      services = requested.split(',').map((s) => s.trim()).filter(Boolean);
+    } else {
+      const discovery = await engine.discoverServices();
+      services = discovery.applicationServices.length > 0 ? discovery.applicationServices : discovery.allServices;
+    }
+
+    if (services.length === 0) {
+      return sendJson(response, 200, {
+        pipeline: 'Phase 3: Core Signal Sub-Modules (Drift Analysis & Fan-Out Engine)',
+        requestedServices: [],
+        evaluatedAt: Date.now(),
+        historicalDriftAnalysis: [],
+        fanOutTopologyAnalysis: [],
+      });
+    }
 
     const snapshotData = await engine.collectServiceSnapshots(services);
 
     const driftResults = services.map((serviceId) => {
       const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
-      const liveP95 = snap ? (snap.prometheus.p95LatencyMs || snap.prometheus.avgResponseTimeMs * 1.3 || 25.0) : 25.0;
+      const liveP95 = snap ? (snap.prometheus.p95LatencyMs || snap.prometheus.avgResponseTimeMs * 1.3 || 0) : 0;
       return driftAnalyzer.analyzeDrift(serviceId, liveP95);
     });
 
-    const fanOutResults = services.map((serviceId) => {
-      const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
-      const liveLatency = snap ? (snap.prometheus.avgResponseTimeMs || 20.0) : 20.0;
-      return fanOutEngine.analyzeTopology(serviceId, liveLatency);
-    });
+    const fanOutResults = await Promise.all(
+      services.map((serviceId) => {
+        const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
+        const liveLatency = snap ? (snap.prometheus.avgResponseTimeMs || 0) : 0;
+        return fanOutEngine.analyzeTopology(serviceId, liveLatency);
+      })
+    );
 
     return sendJson(response, 200, {
       pipeline: 'Phase 3: Core Signal Sub-Modules (Drift Analysis & Fan-Out Engine)',

@@ -23,12 +23,13 @@ export interface DriftForecastResult {
 
 export interface DriftAnalysisResult {
   serviceId: string;
+  hasTelemetry?: boolean;
   liveP95LatencyMs: number;
   historicalBaselineMs: number;
   latencyDeltaMs: number;
   driftRatio: number;      // e.g. 1.25 = 25% increase
   driftScore: number;      // 0.000 (ideal) to 1.000 (critical drift)
-  driftLevel: 'NO_DRIFT' | 'SLIGHT_DRIFT' | 'MODERATE_DRIFT' | 'CRITICAL_DRIFT';
+  driftLevel: 'NO_DRIFT' | 'SLIGHT_DRIFT' | 'MODERATE_DRIFT' | 'CRITICAL_DRIFT' | 'NO_DATA';
   historicalDeployments: HistoricalDeploymentRecord[];
   recommendation: string;
   forecast?: DriftForecastResult;
@@ -185,14 +186,32 @@ export class HistoricalDriftAnalyzer {
    */
   public analyzeDrift(serviceId: string, liveP95LatencyMs: number): DriftAnalysisResult {
     const sId = serviceId.trim().toLowerCase();
-    const history = this.baselineHistory.get(sId) || [
-      { version: 'v1.0.0', evaluatedAt: '7d ago', p95LatencyMs: 20.0 },
-      { version: 'v1.1.0', evaluatedAt: '3d ago', p95LatencyMs: 22.0 },
+    const history = this.baselineHistory.get(sId);
+
+    // If the service has no baseline history and no live telemetry, it has NO DATA!
+    if (!history && liveP95LatencyMs <= 0) {
+      return {
+        serviceId,
+        hasTelemetry: false,
+        liveP95LatencyMs: 0,
+        historicalBaselineMs: 0,
+        latencyDeltaMs: 0,
+        driftRatio: 0,
+        driftScore: 0,
+        driftLevel: 'NO_DATA',
+        historicalDeployments: [],
+        recommendation: `No active telemetry metrics or traces found in Prometheus or Jaeger for '${serviceId}'.`,
+      };
+    }
+
+    const effectiveHistory = history || [
+      { version: 'v1.0.0', evaluatedAt: '7d ago', p95LatencyMs: liveP95LatencyMs },
+      { version: 'v1.1.0', evaluatedAt: '3d ago', p95LatencyMs: liveP95LatencyMs },
     ];
 
     // Compute moving average of historical P95 baseline latencies
-    const sumHistorical = history.reduce((acc, r) => acc + r.p95LatencyMs, 0);
-    const historicalBaselineMs = parseFloat((sumHistorical / history.length).toFixed(2));
+    const sumHistorical = effectiveHistory.reduce((acc, r) => acc + r.p95LatencyMs, 0);
+    const historicalBaselineMs = parseFloat((sumHistorical / effectiveHistory.length).toFixed(2));
 
     const latencyDeltaMs = parseFloat((liveP95LatencyMs - historicalBaselineMs).toFixed(2));
     const rawRatio = historicalBaselineMs > 0 ? liveP95LatencyMs / historicalBaselineMs : 1.0;
@@ -218,7 +237,7 @@ export class HistoricalDriftAnalyzer {
       recommendation = `Slight latency increase (+${(driftScore * 100).toFixed(1)}% above baseline). Within acceptable variance threshold.`;
     }
 
-    const forecast = this.forecastFutureDrift(historicalBaselineMs, liveP95LatencyMs, history, 3, 50.0);
+    const forecast = this.forecastFutureDrift(historicalBaselineMs, liveP95LatencyMs, effectiveHistory, 3, 50.0);
 
     return {
       serviceId,
@@ -229,7 +248,7 @@ export class HistoricalDriftAnalyzer {
       driftScore,
       driftLevel,
       historicalDeployments: [
-        ...history,
+        ...effectiveHistory,
         { version: 'Live (v2.1.0)', evaluatedAt: 'Current', p95LatencyMs: liveP95LatencyMs }
       ],
       recommendation,

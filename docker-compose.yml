@@ -58,11 +58,38 @@ services:
       - pscore-net
 
   loki:
-    image: grafana/loki:2.9.0
+    image: grafana/loki:2.9.8
     container_name: pscore-loki
     ports:
       - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - pscore-net
+
+  observability-engine:
+    build:
+      context: ./backend/observability-engine
+      dockerfile: Dockerfile
+    container_name: pscore-observability-engine
+    ports:
+      - "8010:8010"
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
+      JAEGER_URL: http://jaeger:16686
+      OBSERVABILITY_TIMEOUT_SECONDS: 2
+      # Support the existing frontend-style variable while keeping the key server-side.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-${VITE_GEMINI_API_KEY:-}}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      GEMINI_FALLBACK_MODELS: ${GEMINI_FALLBACK_MODELS:-gemini-3.8-flash}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-3-5-sonnet-latest}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/free}
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
     networks:
       - pscore-net
 

@@ -55,6 +55,7 @@ export const Observability: React.FC = () => {
   const navigate = useNavigate();
   const isCalculationView = pathname.endsWith('/calculation');
   const routeTab = pathname.endsWith('/cci-audit') ? 'cci' : pathname.endsWith('/ai-analysis') ? 'rca' : pathname.endsWith('/remediation') ? 'remediation' : 'overview';
+  const isAiAnalysisView = routeTab === 'rca';
   const { telemetry, oScore, cciIndex, history: liveHistory } = useTelemetry();
 
   const [activeTab, setActiveTab] = useState(routeTab);
@@ -79,12 +80,13 @@ export const Observability: React.FC = () => {
 
     setMockData(prev => ({
       ...prev,
-      oscore: oScore,
+      oscore: telemetry.calculation.oScore,
+      realtime: telemetry,
       details: {
         ...prev.details,
         metrics_coverage_rate: telemetry.sources.prometheus ? 1 : 0,
         system_error_rate: telemetry.traces.errorRate / 100,
-        service_latency_p95_ms: telemetry.traces.latency,
+        service_latency_p95_ms: telemetry.metrics.p95Latency || telemetry.traces.latency,
         service_count: telemetry.traces.serviceCount,
         log_structural_integrity: telemetry.sources.loki ? 1 : 0,
         log_error_count: telemetry.logs.errorCount,
@@ -93,42 +95,7 @@ export const Observability: React.FC = () => {
       },
     }));
 
-    // Build the CCI snapshot from the live source health on every telemetry poll.
-    // A missing source is an automatic blind spot; no manual/demo data is needed.
-    const hasMetric = telemetry.sources.prometheus;
-    const hasTrace = telemetry.sources.jaeger;
-    const hasLog = telemetry.sources.loki;
-    const missingPillars = [
-      !hasMetric ? 'Prometheus Metric' : null,
-      !hasTrace ? 'Jaeger Trace' : null,
-      !hasLog ? 'Loki Log' : null,
-    ].filter(Boolean) as string[];
-    const observedEvents = Math.max(
-      telemetry.logs.errorCount,
-      telemetry.traces.errorRate > 0 ? 1 : 0,
-      missingPillars.length > 0 ? 1 : 0,
-    );
-    const blindSpots = missingPillars.length > 0 ? [{
-      timestamp_utc: telemetry.lastUpdated,
-      has_metric: hasMetric,
-      has_trace: hasTrace,
-      has_log: hasLog,
-      missing_pillars: missingPillars,
-    }] : [];
-
-    setMockCci(prev => ({
-      ...prev,
-      cci_index: Math.round(([hasMetric, hasTrace, hasLog].filter(Boolean).length / 3) * 100),
-      total_events: observedEvents,
-      matched_events: missingPillars.length === 0 ? observedEvents : 0,
-      pillar_coverage: {
-        metric: hasMetric ? 1 : 0,
-        trace: hasTrace ? 1 : 0,
-        log: hasLog ? 1 : 0,
-      },
-      blind_spots: blindSpots,
-      event_source: hasMetric ? 'prometheus' : hasTrace ? 'jaeger' : 'loki',
-    }));
+    setMockCci(telemetry.calculation.cciData);
   }, [telemetry, oScore, cciIndex]);
 
   const handleChaosExperiment = (expId: string) => {
@@ -179,12 +146,14 @@ export const Observability: React.FC = () => {
         <div>
           <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-brand-obs">
             <Activity className="h-6 w-6 text-brand-obs" />
-            {isCalculationView ? 'Observability Calculation' : 'Telemetry Explorer'}
+            {isCalculationView ? 'Observability Calculation' : isAiAnalysisView ? 'AI Root-Cause Analysis' : 'Telemetry Explorer'}
           </h2>
           <p className="mt-1 text-sm text-text-secondary">
             {isCalculationView
               ? 'Parameters, correlation weights, and penalty deductions behind the O-Score.'
-              : 'Real-time telemetry correlation across Prometheus, Loki, and Jaeger.'}
+              : isAiAnalysisView
+                ? 'Use Gemini or Claude to diagnose correlated telemetry and explain the likely root cause.'
+                : 'Real-time telemetry correlation across Prometheus, Loki, and Jaeger.'}
           </p>
         </div>
 
@@ -216,7 +185,7 @@ export const Observability: React.FC = () => {
               Review the parameters, cross-pillar correlation weights, and penalty deductions behind the current score.
             </p>
           </div>
-          <ObservabilityMethodology />
+          <ObservabilityMethodology calculation={telemetry?.calculation} />
         </div>
       ) : (
         <>

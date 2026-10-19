@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
@@ -6,32 +5,10 @@ import { Search, Filter, TriangleAlert, BarChart3 } from 'lucide-react';
 import { ChartTooltip } from './ChartTooltip';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
-const generateLogStats = () => {
-  const data = [];
-  const now = new Date();
-  for (let i = 24; i >= 0; i--) {
-    const time = new Date(now.getTime() - i * 60000 * 5);
-    data.push({
-      time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      info: Math.floor(Math.random() * 500) + 200,
-      error: Math.floor(Math.random() * 10) + (Math.random() > 0.8 ? 50 : 0)
-    });
-  }
-  return data;
-};
-
-const MOCK_LOGS = [
-  { time: '10:45:12.342', level: 'ERROR', service: 'order-service', msg: 'Failed to process payment for order #8329', traceId: 'a3f92b...' },
-  { time: '10:45:12.110', level: 'INFO',  service: 'payment-gateway', msg: 'Payment request initiated for user 921', traceId: 'a3f92b...' },
-  { time: '10:45:11.905', level: 'INFO',  service: 'order-service', msg: 'Validating cart inventory', traceId: 'a3f92b...' },
-  { time: '10:45:09.554', level: 'WARN',  service: 'user-service', msg: 'High latency detected in db query', traceId: 'c9d12a...' },
-  { time: '10:45:08.201', level: 'INFO',  service: 'api-gateway', msg: 'GET /api/orders/8329 - 200 OK', traceId: 'a3f92b...' },
-  { time: '10:45:05.100', level: 'ERROR', service: 'book-service', msg: 'Connection timeout to MongoDB', traceId: '-' },
-  { time: '10:45:02.000', level: 'INFO',  service: 'api-gateway', msg: 'POST /api/users/login - 200 OK', traceId: 'f1e2d3...' },
-];
-
 export default function LogsDashboard({ data }: any) {
-  const logData = useMemo(() => generateLogStats(), []);
+  const realtime = data?.realtime;
+  const logData = realtime?.logs?.series ?? [];
+  const logs = realtime?.logs?.recentLogs ?? [];
 
   return (
     <div className="space-y-6">
@@ -94,12 +71,12 @@ export default function LogsDashboard({ data }: any) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60 font-mono text-xs">
-              {MOCK_LOGS.map((log, idx) => (
+              {logs.map((log: any, idx: number) => (
                 <tr key={idx} className="hover:bg-surface-secondary/30">
-                  <td className="px-4 py-2.5 text-text-muted">{log.time}</td>
+                  <td className="px-4 py-2.5 text-text-muted">{new Date(Number(log.timestamp) / 1000000).toLocaleTimeString()}</td>
                   <td className="px-4 py-2.5">
                     <span className={`text-[10px] font-medium uppercase ${
-                      log.level === 'ERROR' ? 'text-rose-400' :
+                      log.level === 'ERROR' || log.level === 'CRITICAL' ? 'text-rose-400' :
                       log.level === 'WARN'  ? 'text-amber-400' :
                       'text-emerald-400'
                     }`}>
@@ -107,8 +84,8 @@ export default function LogsDashboard({ data }: any) {
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-brand-obs">{log.service}</td>
-                  <td className={`max-w-md truncate px-4 py-2.5 ${log.level === 'ERROR' ? 'text-rose-300' : 'text-text-secondary'}`}>
-                    {log.msg}
+                  <td className={`max-w-md truncate px-4 py-2.5 ${log.level === 'ERROR' || log.level === 'CRITICAL' ? 'text-rose-300' : 'text-text-secondary'}`}>
+                    {log.message}
                   </td>
                   <td className="cursor-pointer px-4 py-2.5 text-cyan-400 hover:underline">
                     {log.traceId}

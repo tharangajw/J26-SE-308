@@ -11,7 +11,13 @@ export default defineConfig({
     react()
   ],
   server: {
+    host: '127.0.0.1',
+    port: 3000,
     proxy: {
+      '/api/observability': {
+        target: 'http://localhost:8010',
+        changeOrigin: true,
+      },
       '/proxy/prometheus': {
         target: process.env.PROMETHEUS_PROXY_TARGET || 'http://localhost:9090',
         changeOrigin: true,
@@ -26,6 +32,15 @@ export default defineConfig({
         target: process.env.JAEGER_PROXY_TARGET || 'http://localhost:16686',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/jaeger/, '')
+      },
+      '/api/telemetry': {
+        target: 'http://localhost:8787',
+        changeOrigin: true
+      },
+      '/api/anomaly': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/anomaly/, '')
       }
     }
   }

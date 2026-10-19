@@ -35,6 +35,10 @@ services:
     container_name: pscore-anomaly-detection
     ports:
       - "8000:8000"
+    volumes:
+      - ./performance/anomaly-detection:/app
+    environment:
+      COLLECTOR_URL: http://telemetry-collector:8787
     networks:
       - pscore-net
 
