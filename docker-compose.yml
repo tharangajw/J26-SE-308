@@ -40,6 +40,7 @@ services:
       LOKI_URL: http://loki:3100
       JAEGER_URL: http://jaeger:16686
       OBSERVABILITY_TIMEOUT_SECONDS: 2
+      TELEMETRY_COLLECTOR_URL: http://telemetry-collector:8787
       # Support the existing frontend-style variable while keeping the key server-side.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-${VITE_GEMINI_API_KEY:-}}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -52,6 +53,7 @@ services:
       - prometheus
       - loki
       - jaeger
+      - telemetry-collector
     networks:
       - pscore-net
 
