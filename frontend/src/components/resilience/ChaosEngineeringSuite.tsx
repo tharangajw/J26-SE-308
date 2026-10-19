@@ -24,6 +24,7 @@ interface ChaosEngineeringSuiteProps {
   services: Service[];
   activeFaults: ActiveFault[];
   activeChaosEvent: ActiveChaosEvent | null;
+  kubernetesConnected: boolean;
   cardSettings: Record<string, CardSetting>;
   onInjectFault: (
     faultType: string,
@@ -42,6 +43,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
   services,
   activeFaults,
   activeChaosEvent,
+  kubernetesConnected,
   cardSettings,
   onInjectFault,
   onHealService,
@@ -417,64 +419,70 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                 </p>
               </div>
 
-              <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '6px 14px', borderRadius: '8px' }}>
-                <span style={{ fontSize: '11px', color: '#6ee7b7', fontWeight: 700 }}>
-                  VALIDATION STATUS: {activeChaosEvent?.selfHealingValidation?.validationStatus || 'HEALTHY (STANDBY)'}
+              <div style={{ background: kubernetesConnected ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)', border: `1px solid ${kubernetesConnected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`, padding: '6px 14px', borderRadius: '8px' }}>
+                <span style={{ fontSize: '11px', color: kubernetesConnected ? '#6ee7b7' : '#fcd34d', fontWeight: 700 }}>
+                  KUBERNETES API: {kubernetesConnected ? 'CONNECTED' : 'NOT CONNECTED'}
                 </span>
               </div>
             </div>
+
+            <p style={{ margin: '0 0 16px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>
+              {kubernetesConnected
+                ? 'The Kubernetes API is reachable. Pod recovery, replica replacement, HPA, and circuit-breaker outcomes are shown as unmeasured until live cluster event metrics are connected.'
+                : 'No Kubernetes API connection is available. The current Docker stack reports host and application telemetry; Kubernetes recovery checks cannot be validated.'}
+            </p>
 
             {/* Validation Checklist Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '20px' }}>
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Pod Auto-Restart</span>
-                  <CheckCircle2 size={16} className="text-success" />
+                  <Activity size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {activeChaosEvent?.selfHealingValidation?.podRestartTimeSec ? `${activeChaosEvent.selfHealingValidation.podRestartTimeSec}s Recovery` : 'Ready / Active'}
+                  {kubernetesConnected ? 'Not measured' : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Kubelet restart policy: <code>Always</code>
+                  Requires observed pod restart events
                 </div>
               </div>
 
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Replica Replacement</span>
-                  <CheckCircle2 size={16} className="text-success" />
+                  <Activity size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {activeChaosEvent?.selfHealingValidation?.replicaReplaced ? '100% Success' : 'Nominal (Healthy)'}
+                  {kubernetesConnected ? 'Not measured' : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Deployment controller replica reconciliation
+                  Requires before/after pod identity and replica counts
                 </div>
               </div>
 
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <span style={{ fontSize: '12px', color: '#cbd5e1' }}>HPA Auto-Scaling</span>
-                  <Activity size={16} className="text-primary" />
+                  <Activity size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {activeChaosEvent?.selfHealingValidation?.hpaTriggered ? 'Triggered / Scaling' : 'Target Threshold < 70%'}
+                  {kubernetesConnected ? 'Not measured' : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Horizontal Pod Autoscaler responsiveness
+                  Requires HPA status and scaling event metrics
                 </div>
               </div>
 
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Circuit Breaker</span>
-                  <ShieldCheck size={16} className="text-accent" />
+                  <ShieldCheck size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {activeChaosEvent?.selfHealingValidation?.circuitBreakerTripped ? 'Tripped (Isolating)' : 'Closed (Traffic OK)'}
+                  {kubernetesConnected ? 'Not measured' : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Istio / Envoy fail-fast threshold
+                  Requires service-mesh or application circuit-breaker telemetry
                 </div>
               </div>
             </div>
@@ -483,19 +491,19 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
             {activeChaosEvent?.metricsSnapshot && (
               <div style={{ background: 'rgba(0,0,0,0.2)', padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#e2e8f0' }}>
-                  Validation Snapshot: Experiment Impact on Cluster Telemetry
+                  Fault Experiment Snapshot (Application-Level)
                 </h4>
                 <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '12px' }}>
                   <div>
-                    <span style={{ color: '#94a3b8' }}>Pre-Chaos Availability:</span>{' '}
+                    <span style={{ color: '#94a3b8' }}>Baseline Probe Availability:</span>{' '}
                     <strong style={{ color: '#6ee7b7' }}>{activeChaosEvent.metricsSnapshot.preChaosAvailability}%</strong>
                   </div>
                   <div>
-                    <span style={{ color: '#94a3b8' }}>Degraded Availability:</span>{' '}
+                    <span style={{ color: '#94a3b8' }}>Estimated Degraded Availability:</span>{' '}
                     <strong style={{ color: '#fda4af' }}>{activeChaosEvent.metricsSnapshot.postChaosAvailability}%</strong>
                   </div>
                   <div>
-                    <span style={{ color: '#94a3b8' }}>Error Spike Injected:</span>{' '}
+                    <span style={{ color: '#94a3b8' }}>Configured Error Injection:</span>{' '}
                     <strong style={{ color: '#fcd34d' }}>+{activeChaosEvent.metricsSnapshot.errorRateSpike}%</strong>
                   </div>
                   {activeChaosEvent.metricsSnapshot.mttrObservedSec && (
@@ -505,6 +513,9 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                     </div>
                   )}
                 </div>
+                <p style={{ margin: '10px 0 0', color: '#64748b', fontSize: '11px' }}>
+                  These values describe the application-level experiment; they are not Kubernetes pod or cluster measurements.
+                </p>
               </div>
             )}
           </div>

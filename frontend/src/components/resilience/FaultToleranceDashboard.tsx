@@ -61,6 +61,7 @@ export const FaultToleranceDashboard: React.FC = () => {
     circuitBreakerEffectiveness: 96.8
   });
   const [deviceHardware, setDeviceHardware] = useState<any>(null);
+  const [kubernetesConnected, setKubernetesConnected] = useState(false);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
@@ -107,6 +108,7 @@ export const FaultToleranceDashboard: React.FC = () => {
         const res = await fetch('http://localhost:3010/api/resilience/score');
         if (res.ok) {
           const data = await res.json();
+          setKubernetesConnected(Boolean(data.sources?.kubernetes));
           setMetrics(data.metrics);
           if (data.services && data.services.length > 0) {
             setServices(data.services);
@@ -158,6 +160,7 @@ export const FaultToleranceDashboard: React.FC = () => {
         }
       } catch {
         setIsSimulation(true);
+        setKubernetesConnected(false);
       }
     };
     checkBackend();
@@ -779,6 +782,7 @@ export const FaultToleranceDashboard: React.FC = () => {
             services={services}
             activeFaults={activeFaults}
             activeChaosEvent={activeChaosEvent}
+            kubernetesConnected={kubernetesConnected}
             cardSettings={cardSettings}
             onInjectFault={injectChaosFault}
             onHealService={healService}
