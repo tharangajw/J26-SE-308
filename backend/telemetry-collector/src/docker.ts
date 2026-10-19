@@ -19,6 +19,13 @@ export interface LiveContainerStats {
   diskIoBytesPerSec: number;
 }
 
+export interface ContainerLifecycleState {
+  podReplicaCount: number;
+  hpaTriggerEvents: number;
+  podSpinUpLagSec: number;
+  uptimeSeconds: number;
+}
+
 export class DockerCollector {
   private socketPath: string;
   private statsCache: Map<string, { stats: LiveContainerStats; fetchedAt: number }> = new Map();
@@ -344,5 +351,76 @@ export class DockerCollector {
     }
 
     return null;
+  }
+
+  /**
+   * Inspects the running container's /containers/:id/json metadata to extract real
+   * State.StartedAt and Created timestamps, computing live uptimeSeconds, podSpinUpLagSec, and replica count.
+   */
+  public async getContainerLifecycleState(serviceId: string): Promise<ContainerLifecycleState | null> {
+    const containers = await this.getRunningContainers();
+    if (containers.length === 0) return null;
+
+    const matched = this.matchContainer(containers, serviceId);
+    if (!matched) return null;
+
+    const replicaCount = containers.filter(
+      (c) => c.serviceName.toLowerCase() === matched.serviceName.toLowerCase()
+    ).length || 1;
+
+    return new Promise((resolve) => {
+      const req = http.request(
+        {
+          socketPath: this.socketPath,
+          path: `/containers/${matched.id}/json`,
+          method: 'GET',
+          timeout: 1500,
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => {
+            try {
+              const info = JSON.parse(body);
+              const startedAtRaw: string | undefined = info?.State?.StartedAt;
+              const createdRaw: string | undefined = info?.Created;
+              const restartCount = Number(info?.RestartCount ?? 0);
+
+              let uptimeSeconds = 0;
+              let podSpinUpLagSec = 0;
+
+              if (startedAtRaw && !startedAtRaw.startsWith('0001-')) {
+                const startedMs = Date.parse(startedAtRaw);
+                if (Number.isFinite(startedMs) && startedMs > 0) {
+                  uptimeSeconds = Math.max(0, Math.round((Date.now() - startedMs) / 1000));
+                }
+                if (createdRaw) {
+                  const createdMs = Date.parse(createdRaw);
+                  if (Number.isFinite(createdMs) && Number.isFinite(startedMs) && startedMs >= createdMs) {
+                    podSpinUpLagSec = parseFloat(Math.min(60, (startedMs - createdMs) / 1000).toFixed(2));
+                  }
+                }
+              }
+
+              resolve({
+                podReplicaCount: replicaCount,
+                hpaTriggerEvents: Math.max(0, restartCount),
+                podSpinUpLagSec,
+                uptimeSeconds,
+              });
+            } catch {
+              resolve(null);
+            }
+          });
+        }
+      );
+
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(null);
+      });
+      req.end();
+    });
   }
 }

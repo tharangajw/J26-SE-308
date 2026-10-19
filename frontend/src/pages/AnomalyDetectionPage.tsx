@@ -52,12 +52,12 @@ export const AnomalyDetectionPage: React.FC = () => {
       const healthData = await AnomalyService.checkHealth();
       setHealth(healthData);
 
-      // 2. Discover cluster services from Prometheus & Jaeger
+      // 2. Discover cluster services from Prometheus, Jaeger & Docker
       const discovery = await TelemetryService.discoverServices();
       const baseServices =
-        discovery.allServices.length > 0
-          ? discovery.allServices
-          : ['order-service', 'payment-service', 'api-gateway', 'inventory-service'];
+        discovery.applicationServices && discovery.applicationServices.length > 0
+          ? discovery.applicationServices
+          : discovery.allServices;
       const allDiscovered = Array.from(new Set([...customServices, ...baseServices]));
       setDiscoveredServices(allDiscovered);
 
@@ -133,7 +133,8 @@ export const AnomalyDetectionPage: React.FC = () => {
       rawMetrics: { cpuMillicores: number; memoryMB: number; p95LatencyMs: number; errorCount: number },
       uptimeSec: number
     ) => {
-      const targetService = selectedServiceId || 'order-service';
+      const targetService = selectedServiceId || discoveredServices[0];
+      if (!targetService) return;
       setIsRefreshing(true);
       try {
         const cpuNorm = parseFloat(Math.min(1.0, Math.max(0.0, rawMetrics.cpuMillicores / 1000.0)).toFixed(3));
@@ -173,7 +174,7 @@ export const AnomalyDetectionPage: React.FC = () => {
         setIsRefreshing(false);
       }
     },
-    [selectedServiceId]
+    [selectedServiceId, discoveredServices]
   );
 
   // Initial load
