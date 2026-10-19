@@ -1,4 +1,42 @@
 services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pscore-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      PROMETHEUS_PROXY_TARGET: http://prometheus:9090
+      LOKI_PROXY_TARGET: http://loki:3100
+      JAEGER_PROXY_TARGET: http://jaeger:16686
+    depends_on:
+      - resilience-api
+      - telemetry-collector
+    networks:
+      - pscore-net
+
+  resilience-api:
+    build:
+      context: ./backend/resiliance
+      dockerfile: Dockerfile
+    container_name: pscore-resilience-api
+    ports:
+      - "3010:3010"
+    environment:
+      PORT: 3010
+      PROMETHEUS_URL: http://prometheus:9090
+      KUBERNETES_URL: http://host.docker.internal:8001
+      FRONTEND_HEALTH_URL: http://frontend:5173
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - resilience-data:/app/data
+    networks:
+      - pscore-net
+
   prometheus:
     image: prom/prometheus:v2.45.0
     container_name: pscore-prometheus
@@ -16,6 +54,15 @@ services:
       - "16686:16686"
       - "4317:4317"
       - "4318:4318"
+    networks:
+      - pscore-net
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: pscore-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
     networks:
       - pscore-net
 
@@ -51,3 +98,6 @@ services:
 networks:
   pscore-net:
     driver: bridge
+
+volumes:
+  resilience-data:

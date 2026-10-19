@@ -34,3 +34,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Persisted local resilience history
+backend/resiliance/data/

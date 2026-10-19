@@ -1,12 +1,12 @@
 import type { FaultMetrics, MaturityLevel, RScoreRuleResult } from './types.ts';
 
 export const THRESHOLDS = {
-  availabilityPercent: { min: 99.0, label: '> 99.0%' },
+  availabilityPercent: { min: 99.0, label: '>= 99.0%' },
   cpuPercent: { max: 70.0, label: '< 70%' },
   memoryPercent: { max: 75.0, label: '< 75%' },
   errorRate: { max: 1.0, label: '< 1.0%' },
   totalRestarts: { max: 2, label: '< 2 restarts' },
-  mttrSeconds: { max: 15.0, label: '< 15s' },
+  mttrSeconds: { max: 15.0, label: '<= 15s' },
   avgLatencyMs: { max: 50.0, label: '< 50ms' },
   failoverSuccessRate: { min: 100.0, label: '>= 100%' },
 } as const;

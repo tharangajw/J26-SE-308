@@ -3,11 +3,11 @@ export type MaturityLevel = 'Initial' | 'Developing' | 'Mature' | 'Optimized';
 export interface FaultMetrics {
   cpu: number;             // % utilization (Target < 70%)
   memory: number;          // % utilization (Target < 75%)
-  availability: number;    // % uptime (Target > 99.0%)
+  availability: number;    // % uptime (Target >= 99.0%)
   latency: number;         // ms average API latency (Target < 50ms)
   errorRate: number;       // % 5xx errors (Target < 1.0%)
   restarts: number;        // total pod restarts (Target < 2)
-  mttr: number;            // seconds Mean Time to Repair (Target < 15s)
+  mttr: number;            // seconds Mean Time to Repair (Target <= 15s)
   failoverSuccess: number; // % redirection rate (Target = 100%)
   score: number;           // Composite R-Score (0 - 100)
   maturity: MaturityLevel; // Qualitative tier

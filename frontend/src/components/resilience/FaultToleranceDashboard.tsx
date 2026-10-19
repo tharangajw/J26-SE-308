@@ -66,6 +66,8 @@ export const FaultToleranceDashboard: React.FC = () => {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<AiRecommendation[]>([]);
+  const [aiError, setAiError] = useState('');
+  const [aiGeneratedAt, setAiGeneratedAt] = useState<string | null>(null);
 
   const simulationRef = useRef(isSimulation);
   simulationRef.current = isSimulation;
@@ -617,21 +619,31 @@ export const FaultToleranceDashboard: React.FC = () => {
     }];
   };
 
-  const handleOpenAiPanel = () => {
+  const handleOpenAiPanel = async () => {
     setAiPanelOpen(true);
     setAiLoading(true);
+    setAiError('');
     setAiRecommendations([]);
-    setTimeout(() => {
-      const recs = generateAiRecommendations(metrics, activeFaults);
-      setAiRecommendations(recs);
+    try {
+      const response = await fetch('http://localhost:3010/api/resilience/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Insight request failed (${response.status}).`);
+      setAiRecommendations(data.recommendations);
+      setAiGeneratedAt(data.generatedAt || new Date().toISOString());
+      logActivity('AI_RECOMMEND', 'Gemini AI Insights', `Analysed the live engine snapshot and generated ${data.recommendations.length} recommendations.`, 'info');
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'Unable to generate Gemini insights.');
+    } finally {
       setAiLoading(false);
-      logActivity('AI_RECOMMEND', 'AI Insights Engine', `Evaluated system health and generated ${recs.length} actionable insights.`, 'info');
-    }, 1000);
+    }
   };
 
   const getScoreColor = (score: number) => {
-    if (score >= 90) return 'color-success';
-    if (score >= 70) return 'color-warning';
+    if (score >= 87.5) return 'color-success';
+    if (score >= 50) return 'color-warning';
     return 'color-danger';
   };
 
@@ -794,7 +806,7 @@ export const FaultToleranceDashboard: React.FC = () => {
                 <Brain size={20} className="ai-brain-icon" />
                 <div>
                   <h2>AI Resilience Advisor</h2>
-                  <p>Smart recommendations based on active chaos telemetry</p>
+                  <p>Gemini analysis of the latest resilience engine telemetry</p>
                 </div>
               </div>
               <button className="ai-close-btn" onClick={() => setAiPanelOpen(false)}>
@@ -808,6 +820,11 @@ export const FaultToleranceDashboard: React.FC = () => {
                   <div className="ai-loading-orb"></div>
                   <p>Analysing system metrics &amp; chaos patterns...</p>
                   <span>Evaluating fault tolerance playbooks</span>
+                </div>
+              ) : aiError ? (
+                <div className="ai-loading">
+                  <p>{aiError}</p>
+                  <span>Check that the resilience backend is running and its Gemini settings are configured.</span>
                 </div>
               ) : (
                 <div className="ai-recs-list">
@@ -837,7 +854,7 @@ export const FaultToleranceDashboard: React.FC = () => {
               <button className="btn-ai-refresh" onClick={handleOpenAiPanel}>
                 <RefreshCw size={13} /> Refresh Analysis
               </button>
-              <span>Based on {new Date().toLocaleTimeString()} snapshot</span>
+              <span>{aiGeneratedAt ? `Gemini snapshot ${new Date(aiGeneratedAt).toLocaleTimeString()}` : 'Uses a fresh engine snapshot'}</span>
             </div>
           </div>
         </div>

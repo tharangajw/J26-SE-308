@@ -40,8 +40,8 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
   healService
 }) => {
   const getScoreColor = (score: number) => {
-    if (score >= 90) return 'color-success';
-    if (score >= 70) return 'color-warning';
+    if (score >= 87.5) return 'color-success';
+    if (score >= 50) return 'color-warning';
     return 'color-danger';
   };
 

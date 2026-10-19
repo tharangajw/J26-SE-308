@@ -40,7 +40,7 @@ interface ProbeResult {
 // Both running locally → availability reflects the health of the full stack.
 const PROBE_ENDPOINTS = [
   { url: 'http://localhost:3010/health', label: 'ResilienceAPI' },
-  { url: 'http://localhost:5173',        label: 'Frontend'      },
+  { url: process.env.FRONTEND_HEALTH_URL ?? 'http://localhost:5173', label: 'Frontend' },
 ];
 
 const MAX_PROBES           = 90;       // 90 records × 2s = 3-min rolling window
