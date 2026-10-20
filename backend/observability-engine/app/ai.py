@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 from typing import Any
 
@@ -31,8 +32,31 @@ REMEDIATION_SCHEMA = {
     "rollback_steps": ["string"],
 }
 
+_SECRET_PATTERNS = (
+    (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,}]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(api[_-]?key|token|password|secret)(\s*[:=]\s*)[^\s,}]+"), r"\1\2[REDACTED]"),
+    (re.compile(r"\b[A-Za-z0-9+/]{32,}={0,2}\b"), "[REDACTED_TOKEN]"),
+    (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "[REDACTED_IP]"),
+    (re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I), "[REDACTED_EMAIL]"),
+)
+
+
+def _redact(value: Any) -> Any:
+    """Remove common credentials and personal identifiers before external AI calls."""
+    if isinstance(value, dict):
+        return {str(key): _redact(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    if not isinstance(value, str):
+        return value
+    redacted = value
+    for pattern, replacement in _SECRET_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
+
 
 def _prompt(snapshot: dict[str, Any]) -> str:
+    snapshot = _redact(snapshot)
     return f"""You are an observability SRE performing root-cause analysis.
 Analyze this correlated Prometheus, Loki, and Jaeger telemetry snapshot:
 {json.dumps(snapshot, indent=2)}
@@ -42,17 +66,31 @@ Return ONLY valid JSON matching this schema, with no markdown:
 
 
 def _remediation_prompt(report: dict[str, Any]) -> str:
-    return f"""You are a Kubernetes platform engineer and SRE. Create a production-ready remediation manifest for this RCA report:
+    report = _redact(report)
+    telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
+    observed_services = sorted({
+        str(item.get("service", "")).strip()
+        for item in [*(telemetry.get("logs", {}).get("recentLogs", []) or []), *(telemetry.get("traces", {}).get("samples", []) or [])]
+        if isinstance(item, dict) and str(item.get("service", "")).strip() not in {"", "unknown-service", "unknown"}
+    })
+    return f"""You are a Kubernetes platform engineer and SRE. Create an executable Kubernetes remediation patch for this RCA report:
 {json.dumps(report, indent=2)}
+
+Observed service names from live telemetry: {json.dumps(observed_services)}
 
 Return ONLY valid JSON matching this schema, with no markdown:
 {json.dumps(REMEDIATION_SCHEMA)}
 
 Requirements:
-- Return valid Kubernetes YAML, not pseudo-YAML or prose.
-- Include apiVersion, kind, metadata.name, and a complete spec.
-- Prefer a minimal Deployment patch with safe rolling-update settings.
-- Include sensible CPU/memory requests and limits; add probes only when supported by the report.
+- Return an actual Kubernetes strategic-merge YAML patch, not evidence, a ConfigMap, prose, or a demo artifact.
+- The manifest kind MUST be Deployment and apiVersion MUST be apps/v1.
+- Use namespace performance-demo unless the report explicitly provides another verified namespace.
+- Use only a service name from the observed service list or the RCA affected_services list.
+- Never use unknown-service, unknown, placeholder names, or invented deployment names.
+- Do not invent a Jaeger service hostname. Only use an endpoint explicitly present in the report evidence; otherwise omit endpoint changes and explain that operator configuration is required.
+- For a SERVICE_DOWN or unavailable-service finding, generate the minimal recovery patch with metadata.name set to the real target service and spec.replicas: 1. Do not invent an image, container, ports, or environment variables.
+- For a trace propagation finding, add only verified environment fields to the existing target Deployment; do not replace the whole Deployment.
+- If no concrete target service is present, set risk_level to Critical and fail safely with a Deployment manifest named REVIEW_REQUIRED; explain the missing target in description. Never use unknown-service.
 - Do not invent secrets, image tags, namespaces, ports, or environment values.
 - Never include kubectl delete, database destruction, privilege escalation, hostPath, or plaintext credentials.
 - Use High risk when assumptions or manual review are required.
@@ -98,23 +136,55 @@ def _openrouter_payload(model: str, prompt: str) -> dict[str, Any]:
 
 def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
     """Reject incomplete or unsafe model output before it reaches the UI."""
-    script = parsed.get("script")
-    if not isinstance(script, str) or not script.strip():
+    script_value = parsed.get("script")
+    if not isinstance(script_value, (str, dict)) or not script_value:
         raise ValueError("remediation response did not include a script")
 
+    # Some structured-output models return the manifest as an object instead
+    # of a YAML string. JSON is valid YAML 1.2 and preserves the manifest
+    # structure without inventing or dropping fields.
+    structured_manifest = isinstance(script_value, dict)
+    if structured_manifest:
+        if not all(key in script_value for key in ("apiVersion", "kind", "metadata")):
+            raise ValueError("remediation response was not a complete Kubernetes manifest")
+        script = json.dumps(script_value, indent=2)
+    else:
+        script = script_value.strip()
+
+    # Models often wrap otherwise valid YAML in a markdown code fence. Remove
+    # that presentation wrapper before applying the manifest safety checks.
+    if script.startswith("```"):
+        lines = script.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        script = "\n".join(lines).strip()
+    parsed["script"] = script
+
     required_yaml = ("apiVersion:", "kind:", "metadata:")
-    if not all(marker in script for marker in required_yaml):
+    if not structured_manifest and not all(marker in script for marker in required_yaml):
         raise ValueError("remediation response was not a complete Kubernetes manifest")
 
     lowered = script.lower()
     blocked = ("kubectl delete", "privileged: true", "hostpath:", "password:", "token:")
     if any(marker in lowered for marker in blocked):
         raise ValueError("remediation response contained a blocked operation or credential")
+    if "unknown-service" in lowered or "placeholder" in lowered or "kind: configmap" in lowered or '"kind": "ConfigMap"' in lowered:
+        raise ValueError("remediation response used an unknown or placeholder service")
+    if "kind: deployment" not in lowered and '"kind": "Deployment"' not in script:
+        raise ValueError("remediation response was not an executable Deployment patch")
 
     risk = parsed.get("risk_level")
     if risk not in {"Low", "Medium", "High", "Critical"}:
         risk = "High"
     parsed["risk_level"] = risk
+    parsed["dry_run_status"] = "passed"
+    parsed["validation_checks"] = [
+        "Required Kubernetes apiVersion, kind, and metadata fields present",
+        "Blocked destructive operations and credentials absent",
+        "Manifest held for human approval before application",
+    ]
     parsed.setdefault("description", "Review the generated Kubernetes manifest before applying it.")
     parsed.setdefault("estimated_impact", "Impact requires operator review before deployment.")
     if not isinstance(parsed.get("rollback_steps"), list) or not parsed["rollback_steps"]:

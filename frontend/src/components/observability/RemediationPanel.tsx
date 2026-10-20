@@ -20,7 +20,7 @@ export default function RemediationPanel({ rcaReport }: any) {
   const [error, setError]           = useState<string | null>(null);
   const [remediation, setRemediation] = useState<any>(null);
   const [copied, setCopied]         = useState(false);
-  const [aiProvider, setAiProvider] = useState<'claude' | 'gemini' | 'openrouter'>('claude');
+  const [aiProvider, setAiProvider] = useState<'claude' | 'gemini' | 'openrouter'>('gemini');
 
   const handleGenerate = async () => {
     if (!rcaReport) return;
@@ -125,8 +125,8 @@ spec:
             <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
               <Wrench className="h-4 w-4 text-brand-obs" /> Automated Remediation Guardrails
             </h3>
-            <p className="mt-1 text-xs text-text-muted">
-              AI-generated fix script for: {rcaReport.summary?.substring(0, 55)}…
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-text-muted" title={rcaReport.summary || undefined}>
+              AI-generated fix script for: {rcaReport.summary || 'the latest observability finding'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
