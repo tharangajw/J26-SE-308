@@ -16,23 +16,29 @@ services:
     networks:
       - pscore-net
 
+  # R-Score API for resilience telemetry, chaos experiments, and Gemini insights.
   resilience-api:
     build:
       context: ./backend/resiliance
       dockerfile: Dockerfile
     container_name: pscore-resilience-api
     ports:
+      # Expose the API at http://localhost:3010.
       - "3010:3010"
     environment:
       PORT: 3010
       PROMETHEUS_URL: http://prometheus:9090
+      # Requires kubectl proxy on the host at port 8001 to reach Kubernetes.
       KUBERNETES_URL: http://host.docker.internal:8001
       FRONTEND_HEALTH_URL: http://frontend:3000
+      # Compose reads these variables from the project-root .env file.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
     extra_hosts:
+      # Resolve host.docker.internal from this container.
       - "host.docker.internal:host-gateway"
     volumes:
+      # Keep resilience history when the container is recreated.
       - resilience-data:/app/data
     networks:
       - pscore-net
