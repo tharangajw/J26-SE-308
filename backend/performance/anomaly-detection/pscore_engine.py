@@ -373,6 +373,9 @@ class PScoreAndRecommendationEngine:
             drift_info = drift_map.get(svc_id) or {}
             fanout_info = fanout_map.get(svc_id) or {}
 
+            raw_k8s_uptime = k8s.get("uptimeSeconds")
+            k8s_source_ok = bool((snap.get("sources") or {}).get("kubernetes"))
+
             override = (latest_overrides or {}).get(svc_id)
             if (
                 override
@@ -380,7 +383,13 @@ class PScoreAndRecommendationEngine:
                 and len(override["feature_vector"]) == 4
             ):
                 vec = override["feature_vector"]
-                uptime_sec = float(override.get("pod_uptime_sec") or 120.0)
+                ov_uptime = override.get("pod_uptime_sec")
+                if ov_uptime is not None:
+                    uptime_sec = float(ov_uptime)
+                elif raw_k8s_uptime is not None and (k8s_source_ok or float(raw_k8s_uptime) > 0):
+                    uptime_sec = float(raw_k8s_uptime)
+                else:
+                    uptime_sec = 120.0
                 anom_res = self.detector.predict(vec, uptime_sec)
             else:
                 cpu_norm = min(
@@ -392,12 +401,19 @@ class PScoreAndRecommendationEngine:
                 lat_norm = min(
                     1.0, max(0.0, float(prom.get("p95LatencyMs") or 0.0) / 200.0)
                 )
+                loki_err = float(loki.get("errorCount") or 0.0)
+                loki_tot = float(loki.get("totalCount") or 0.0)
                 err_norm = min(
-                    1.0, max(0.0, float(loki.get("errorCount") or 0.0) / 10.0)
+                    1.0,
+                    max(
+                        0.0,
+                        (loki_err / loki_tot) if loki_tot > 0 else (loki_err / 10.0),
+                    ),
                 )
-                uptime_sec = float(k8s.get("uptimeSeconds") or 180.0)
-                if uptime_sec <= 0:
-                    uptime_sec = 180.0
+                if raw_k8s_uptime is not None and (k8s_source_ok or float(raw_k8s_uptime) > 0):
+                    uptime_sec = float(raw_k8s_uptime)
+                else:
+                    uptime_sec = 120.0
                 vec = [
                     round(cpu_norm, 3),
                     round(mem_norm, 3),

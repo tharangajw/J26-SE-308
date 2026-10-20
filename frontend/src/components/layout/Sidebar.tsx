@@ -49,8 +49,8 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, badge, end = false }
         )
       }
     >
-      {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4' })}
-      <span className="flex-1">{label}</span>
+      {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })}
+      <span className="flex-1 truncate">{label}</span>
       {badge && (
         <span className="rounded-full border border-brand-obs/40 bg-brand-obs/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-brand-obs">
           {badge}
@@ -81,10 +81,10 @@ const NavGroup: React.FC<NavGroupProps> = ({ icon, label, children, defaultOpen 
         )}
       >
         <div className="flex min-w-0 items-center gap-3 whitespace-nowrap">
-          {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4' })}
-          {label}
+          {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })}
+          <span className="truncate">{label}</span>
         </div>
-        <ChevronDown className={clsx('w-4 h-4 transition-transform', { '-rotate-90': !isOpen })} />
+        <ChevronDown className={clsx('w-4 h-4 shrink-0 transition-transform', { '-rotate-90': !isOpen })} />
       </button>
       {isOpen && (
         <div className={clsx(
@@ -114,7 +114,7 @@ export const Sidebar: React.FC = () => {
         <div>
           <div className="px-3 mb-2 text-[10px] uppercase tracking-wider font-semibold text-text-muted">General</div>
           <nav className="space-y-1">
-            <NavItem to="/" icon={<LayoutDashboard />} label="Overview" />
+            <NavItem to="/" icon={<LayoutDashboard />} label="Overview" end />
             <NavItem to="/assessment" icon={<Activity />} label="Assessment" />
             <NavGroup icon={<Eye />} label="Observability">
               <NavItem to="/dimensions/observability/overview" icon={<LayoutDashboard />} label="Overview" />
@@ -128,7 +128,7 @@ export const Sidebar: React.FC = () => {
               </NavGroup>
             </NavGroup>
             <NavGroup icon={<Zap />} label="Performance">
-              <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" />
+              <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" end />
               <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Telemetry Collection Data" />
               <NavItem to="/dimensions/performance/pipeline" icon={<Activity />} label="Data Pipeline Outputs" />
               <NavItem to="/dimensions/performance/drift" icon={<TrendingUp />} label="Historical Drift Analyzer" />
