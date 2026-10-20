@@ -44,14 +44,21 @@ OBS_AHP = run_ahp(PILLAR_MATRIX, PILLAR_LABELS)
 def _timestamp_ms(value: Any) -> float | None:
     try:
         number = float(value)
-        # Loki timestamps are nanoseconds; Jaeger samples are milliseconds.
-        return number / 1_000_000 if number > 10**14 else number
+        # Normalize the timestamp formats used by Loki (ns), Jaeger (µs),
+        # Prometheus (s), and the frontend payloads (ms) to milliseconds.
+        if number > 10**17:
+            return number / 1_000_000
+        if number > 10**14:
+            return number / 1_000
+        if number < 10**11:
+            return number * 1_000
+        return number
     except (TypeError, ValueError):
         return None
 
 
 def _service_name(value: Any) -> str:
-    return str(value or "").strip().lower()
+    return str(value or "").strip().lower().replace("_", "-")
 
 
 def _within_window(left: dict[str, Any], right: dict[str, Any], window_ms: int = 2_000) -> bool:
@@ -87,6 +94,8 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
     matched_trace_indexes: set[int] = set()
     for log_index, log in enumerate(error_logs):
         for trace_index, trace in enumerate(error_traces):
+            if trace_index in matched_trace_indexes:
+                continue
             same_id = log.get("traceId") not in {None, "", "-"} and log.get("traceId") == trace.get("id")
             if same_id or _within_window(log, trace):
                 matched_pairs += 1

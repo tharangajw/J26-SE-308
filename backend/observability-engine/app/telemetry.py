@@ -1,6 +1,7 @@
 """Collect and normalise telemetry before handing it to the scoring engine."""
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -59,19 +60,28 @@ def collect_telemetry() -> dict:
         "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
         "100 * sum(rate(http_requests_total{status=~'5..'}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1)",
     )
-    prom = [_get_json(f"{PROMETHEUS_URL}/api/v1/query", {"query": query}) for query in prom_queries]
-    cpu_series = _query_range(prom_queries[0], start, now)
-    memory_series = _query_range(prom_queries[1], start, now)
-    request_series = _query_range(prom_queries[2], start, now)
-    latency_series = _query_range(prom_queries[3], start, now)
-    loki = _get_json(f"{LOKI_URL}/loki/api/v1/query_range", {
+    loki_params = {
         "query": '{level="error"}',
         "start": (now - timedelta(minutes=15)).isoformat(),
         "end": now.isoformat(),
         "limit": "100",
         "direction": "backward",
-    })
-    jaeger = _get_json(f"{JAEGER_URL}/api/services")
+    }
+    # Query all pillars at once. A refresh should take roughly one source
+    # timeout, not one timeout for every Prometheus/Loki/Jaeger request.
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        prom_futures = [executor.submit(_get_json, f"{PROMETHEUS_URL}/api/v1/query", {"query": query}) for query in prom_queries]
+        series_futures = [executor.submit(_query_range, query, start, now) for query in prom_queries[:4]]
+        loki_future = executor.submit(_get_json, f"{LOKI_URL}/loki/api/v1/query_range", loki_params)
+        jaeger_future = executor.submit(_get_json, f"{JAEGER_URL}/api/services")
+        traces_future = executor.submit(_get_json, f"{JAEGER_URL}/api/traces", {"lookback": "1h", "limit": "100"})
+        prom = [future.result() for future in prom_futures]
+        series = [future.result() for future in series_futures]
+        loki = loki_future.result()
+        jaeger = jaeger_future.result()
+        traces_payload = traces_future.result()
+
+    cpu_series, memory_series, request_series, latency_series = series
     streams = (loki or {}).get("data", {}).get("result", [])
     services = (jaeger or {}).get("data", [])
     error_count = sum(len(stream.get("values", [])) for stream in streams)
@@ -97,10 +107,6 @@ def collect_telemetry() -> dict:
         counts = log_buckets.setdefault(bucket, {"time": bucket, "info": 0, "error": 0})
         counts["error" if item["level"] in {"ERROR", "CRITICAL"} else "info"] += 1
 
-    trace_params = {"lookback": "1h", "limit": "100"}
-    if services:
-        trace_params["service"] = services[0]
-    traces_payload = _get_json(f"{JAEGER_URL}/api/traces", trace_params)
     trace_samples = []
     for trace in (traces_payload or {}).get("data", []):
         spans = trace.get("spans", [])
@@ -126,6 +132,8 @@ def collect_telemetry() -> dict:
         "series": {"cpu": _prometheus_series(cpu_series, "value"), "memory": _prometheus_series(memory_series, "value"), "requests": _prometheus_series(request_series, "value"), "latency": _prometheus_series(latency_series, "value")},
         "logs": {"errorCount": error_count, "recentErrors": [item["message"] for item in recent_logs[-20:]], "recentLogs": recent_logs[-100:], "series": list(log_buckets.values())},
         "traces": {"latency": average_trace_latency or _prometheus_value(prom[3]), "errorRate": error_rate, "serviceCount": len(services) if isinstance(services, list) else 0, "samples": trace_samples[-100:]},
-        "sources": {"prometheus": any(item is not None for item in prom), "loki": loki is not None, "jaeger": jaeger is not None and traces_payload is not None},
+        # A reachable Jaeger API is a healthy telemetry pillar even when its
+        # current trace query is empty or requires a service filter.
+        "sources": {"prometheus": any(item is not None for item in prom), "loki": loki is not None, "jaeger": jaeger is not None},
         "lastUpdated": now.isoformat(),
     }
