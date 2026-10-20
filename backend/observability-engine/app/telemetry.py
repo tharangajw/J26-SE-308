@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from app.integration import telemetry_experiment
+
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
 LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100")
@@ -127,13 +129,47 @@ def collect_telemetry() -> dict:
     error_trace_count = sum(1 for trace in trace_samples if trace["isError"])
     average_trace_latency = sum(trace["duration"] for trace in trace_samples) / len(trace_samples) if trace_samples else 0.0
     error_rate = (error_trace_count / len(trace_samples) * 100) if trace_samples else _prometheus_value(prom[4])
+    experiment = telemetry_experiment()
+    active_gap = experiment["fault_type"] if experiment else None
+    service_fault = experiment.get("service_id") if active_gap == "SERVICE_DOWN" else None
+    if active_gap == "TRACE_GAP":
+        traces_payload = None
+        trace_samples = []
+        services = []
+    if active_gap == "LOG_GAP":
+        loki = None
+        recent_logs = []
+        error_count = 0
+    if active_gap == "METRIC_GAP":
+        prom = [None] * len(prom)
+    if active_gap == "ERROR_SPIKE":
+        recent_logs.append({
+            "timestamp": str(int(now.timestamp() * 1_000_000_000)),
+            "level": "ERROR",
+            "service": "payment-service",
+            "message": "Synthetic chaos error spike: upstream request failures",
+            "traceId": "-",
+        })
+        error_count += 1
+        error_rate = max(error_rate, 25.0)
+
+    metrics_payload = {
+        "cpuUsage": _prometheus_value(prom[0]),
+        "memoryUsage": _prometheus_value(prom[1]),
+        "requestCount": _prometheus_value(prom[2]),
+        "p95Latency": _prometheus_value(prom[3]),
+    }
+    if active_gap == "LATENCY_SPIKE":
+        metrics_payload["p95Latency"] = max(metrics_payload["p95Latency"], 1500.0)
+        average_trace_latency = max(average_trace_latency, 1500.0)
     return {
-        "metrics": {"cpuUsage": _prometheus_value(prom[0]), "memoryUsage": _prometheus_value(prom[1]), "requestCount": _prometheus_value(prom[2]), "p95Latency": _prometheus_value(prom[3])},
+        "metrics": metrics_payload,
         "series": {"cpu": _prometheus_series(cpu_series, "value"), "memory": _prometheus_series(memory_series, "value"), "requests": _prometheus_series(request_series, "value"), "latency": _prometheus_series(latency_series, "value")},
         "logs": {"errorCount": error_count, "recentErrors": [item["message"] for item in recent_logs[-20:]], "recentLogs": recent_logs[-100:], "series": list(log_buckets.values())},
         "traces": {"latency": average_trace_latency or _prometheus_value(prom[3]), "errorRate": error_rate, "serviceCount": len(services) if isinstance(services, list) else 0, "samples": trace_samples[-100:]},
+        "serviceFault": {"type": "SERVICE_DOWN", "service": service_fault} if service_fault else None,
         # A reachable Jaeger API is a healthy telemetry pillar even when its
         # current trace query is empty or requires a service filter.
-        "sources": {"prometheus": any(item is not None for item in prom), "loki": loki is not None, "jaeger": jaeger is not None},
+        "sources": {"prometheus": any(item is not None for item in prom), "loki": loki is not None, "jaeger": jaeger is not None and active_gap != "TRACE_GAP"},
         "lastUpdated": now.isoformat(),
     }

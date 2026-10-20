@@ -84,6 +84,7 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
     available = 3 - len(missing)
     logs = snapshot["logs"].get("recentLogs", [])
     traces = snapshot["traces"].get("samples", [])
+    service_fault = snapshot.get("serviceFault") or {}
     error_logs = [item for item in logs if str(item.get("level", "")).upper() in {"ERROR", "CRITICAL"}]
     error_traces = [item for item in traces if item.get("isError")]
     trace_ids = {item.get("id") for item in traces if item.get("id")}
@@ -104,7 +105,7 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
                 break
     # Normal traces are not incidents. Only error logs/traces and a non-zero
     # error-rate signal should become correlation events.
-    observed_events = max(len(error_logs), len(error_traces), 1 if error_rate > 0 else 0)
+    observed_events = max(len(error_logs), len(error_traces), 1 if error_rate > 0 else 0, 1 if service_fault.get("type") == "SERVICE_DOWN" else 0)
     if observed_events == 0:
         matched_events = 0
         correlation_confidence = 100.0 if not missing else 0.0
@@ -112,6 +113,15 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
         matched_events = min(matched_pairs, observed_events)
         correlation_confidence = round((matched_events / observed_events) * 100, 2)
     blind_spots = []
+    if service_fault.get("type") == "SERVICE_DOWN":
+        blind_spots.append({
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "has_metric": sources.get("prometheus", False),
+            "has_trace": sources.get("jaeger", False),
+            "has_log": sources.get("loki", False),
+            "missing_pillars": ["Service telemetry: " + str(service_fault.get("service") or "selected service")],
+            "reason": "The selected service is down while the observability backends remain reachable.",
+        })
     if missing:
         blind_spots.append({
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),

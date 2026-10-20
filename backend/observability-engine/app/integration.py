@@ -19,6 +19,7 @@ TELEMETRY_COLLECTOR_URL = __import__("os").getenv(
 ).rstrip("/")
 _lock = threading.Lock()
 _chaos_events: list[dict[str, Any]] = []
+_telemetry_gap: dict[str, Any] | None = None
 
 
 def _get_json(path: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -56,6 +57,7 @@ def inject_chaos(
     latency_ms: int = 0,
     error_rate: int = 0,
 ) -> dict[str, Any]:
+    global _telemetry_gap
     now = int(time.time() * 1000)
     event = {
         "experiment_id": f"exp-{uuid.uuid4().hex[:10]}",
@@ -73,10 +75,17 @@ def inject_chaos(
     with _lock:
         _chaos_events.append(event)
         del _chaos_events[:-100]
+        if fault_type in {"TRACE_GAP", "LOG_GAP", "METRIC_GAP", "SERVICE_DOWN", "LATENCY_SPIKE", "ERROR_SPIKE"}:
+            _telemetry_gap = {
+                "fault_type": fault_type,
+                "service_id": target_service,
+                "ends_at": event["ends_at"],
+            }
     return event
 
 
 def clear_chaos(target_service: str | None = None) -> list[dict[str, Any]]:
+    global _telemetry_gap
     now = int(time.time() * 1000)
     recovered: list[dict[str, Any]] = []
     with _lock:
@@ -89,7 +98,27 @@ def clear_chaos(target_service: str | None = None) -> list[dict[str, Any]]:
                 event["ended_at"] = now
                 event["mttr_seconds"] = round((now - event["started_at"]) / 1000, 1)
                 recovered.append(dict(event))
+        if _telemetry_gap and (target_service is None or _telemetry_gap["service_id"] in {target_service, "all"}):
+            _telemetry_gap = None
     return recovered
+
+
+def telemetry_gap() -> str | None:
+    """Return the active research/demo telemetry gap, if any."""
+    global _telemetry_gap
+    with _lock:
+        if _telemetry_gap and time.time() >= _telemetry_gap["ends_at"]:
+            _telemetry_gap = None
+        return _telemetry_gap["fault_type"] if _telemetry_gap else None
+
+
+def telemetry_experiment() -> dict[str, Any] | None:
+    """Return the active experiment context without exposing internal state."""
+    global _telemetry_gap
+    with _lock:
+        if _telemetry_gap and time.time() >= _telemetry_gap["ends_at"]:
+            _telemetry_gap = None
+        return dict(_telemetry_gap) if _telemetry_gap else None
 
 
 def chaos_history() -> list[dict[str, Any]]:
