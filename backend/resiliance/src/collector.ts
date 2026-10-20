@@ -1,7 +1,7 @@
 import { spawn, ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { FaultMetrics, Service, ActiveChaosEvent, SelfHealingMetrics, DeviceHardwareInfo, AiFailurePrediction, KubernetesChaosLog } from './types.ts';
+import type { FaultMetrics, Service, ActiveChaosEvent, SelfHealingMetrics, DeviceHardwareInfo, AiFailurePrediction, KubernetesChaosLog, KubernetesValidationSnapshot } from './types.ts';
 import { evaluateRScoreRules } from './rScore.ts';
 import { DeviceMonitor } from './deviceMonitor.ts';
 
@@ -64,6 +64,62 @@ export class ResilienceCollector {
     } catch {
       return null;
     }
+  }
+
+  private async queryKubernetes(pathname: string): Promise<any | null> {
+    try {
+      const response = await fetch(`${this.k8sUrl}${pathname}`, {
+        signal: AbortSignal.timeout(1200)
+      });
+      if (!response.ok) return null;
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  private async collectKubernetesValidation(): Promise<KubernetesValidationSnapshot | null> {
+    const [podsResponse, deploymentsResponse, hpasResponse] = await Promise.all([
+      this.queryKubernetes('/api/v1/pods?limit=500'),
+      this.queryKubernetes('/apis/apps/v1/deployments?limit=500'),
+      this.queryKubernetes('/apis/autoscaling/v2/horizontalpodautoscalers?limit=500')
+    ]);
+    if (!podsResponse && !deploymentsResponse && !hpasResponse) return null;
+
+    const pods = Array.isArray(podsResponse?.items) ? podsResponse.items : [];
+    const deployments = Array.isArray(deploymentsResponse?.items) ? deploymentsResponse.items : [];
+    const hpaItems = Array.isArray(hpasResponse?.items) ? hpasResponse.items : [];
+    const hpas = hpaItems.map((hpa: any) => {
+      const cpuMetric = hpa.status?.currentMetrics?.find((metric: any) => metric.resource?.name === 'cpu');
+      const cpuTarget = hpa.spec?.metrics?.find((metric: any) => metric.resource?.name === 'cpu');
+      return {
+        name: String(hpa.metadata?.name ?? 'unnamed'),
+        namespace: String(hpa.metadata?.namespace ?? 'default'),
+        currentReplicas: Number(hpa.status?.currentReplicas ?? 0),
+        desiredReplicas: Number(hpa.status?.desiredReplicas ?? hpa.spec?.minReplicas ?? 0),
+        currentCpuPercent: Number.isFinite(Number(cpuMetric?.resource?.current?.averageUtilization))
+          ? Number(cpuMetric.resource.current.averageUtilization) : null,
+        targetCpuPercent: Number.isFinite(Number(cpuTarget?.resource?.target?.averageUtilization))
+          ? Number(cpuTarget.resource.target.averageUtilization) : null
+      };
+    });
+
+    return {
+      podCount: pods.length,
+      podRestartCount: pods.reduce((total: number, pod: any) => total +
+        (Array.isArray(pod.status?.containerStatuses)
+          ? pod.status.containerStatuses.reduce((sum: number, container: any) => sum + Number(container.restartCount ?? 0), 0)
+          : 0), 0),
+      deploymentCount: deployments.length,
+      desiredReplicas: deployments.reduce((total: number, deployment: any) => total + Number(deployment.spec?.replicas ?? 0), 0),
+      readyReplicas: deployments.reduce((total: number, deployment: any) => total + Number(deployment.status?.readyReplicas ?? 0), 0),
+      hpas,
+      circuitBreaker: {
+        configured: false,
+        status: 'NOT_MEASURED',
+        reason: 'Connect a service-mesh or application circuit-breaker metrics source to measure this result.'
+      }
+    };
   }
 
   // Inject a chaos fault via Chaos Mesh
@@ -336,6 +392,7 @@ export class ResilienceCollector {
     activeChaos: ActiveChaosEvent | null;
     deviceHardware: DeviceHardwareInfo;
     aiPrediction: AiFailurePrediction;
+    kubernetesValidation: KubernetesValidationSnapshot | null;
     sources: {
       prometheus: boolean;
       kubernetes: boolean;
@@ -354,11 +411,15 @@ export class ResilienceCollector {
     const isPrometheusUp = promCpu !== null || promAvail !== null;
 
     let isK8sUp = false;
+    let kubernetesValidation: KubernetesValidationSnapshot | null = null;
     try {
       const k8sRes = await fetch(`${this.k8sUrl}/api/v1/namespaces/default/pods?limit=1`, {
         signal: AbortSignal.timeout(300)
       });
-      if (k8sRes.ok) isK8sUp = true;
+      if (k8sRes.ok) {
+        isK8sUp = true;
+        kubernetesValidation = await this.collectKubernetesValidation();
+      }
     } catch {
       isK8sUp = false;
     }
@@ -455,38 +516,13 @@ export class ResilienceCollector {
       maturity
     };
 
-    // 7. Self-healing assessment based on real-time metrics & Kubernetes validation
-    let podRestartSuccess = restarts === 0 ? 100 : (restarts < 3 ? 98.5 : 85.0);
-    let replicaReplacement = failoverSuccess;
-    let hpaEffectiveness = cpu < 70 ? 96.0 : (cpu < 85 ? 88.0 : 72.0);
-    let cbEffectiveness = errorRate < 1.0 ? 98.2 : (errorRate < 10.0 ? 84.0 : 68.0);
-
-    // If chaos is actively validating, reflect real-time Kubernetes stress
-    if (this.activeChaos) {
-      const fType = this.activeChaos.faultType;
-      if (fType === 'SERVICE_DOWN') {
-        podRestartSuccess = 92.0; // In-progress pod respawn
-        replicaReplacement = 80.0;
-      } else if (fType === 'HIGH_CPU' || fType === 'HIGH_MEMORY') {
-        hpaEffectiveness = 76.0; // HPA scaling threshold under load
-      } else if (fType === 'API_ERROR' || fType === 'LATENCY') {
-        cbEffectiveness = 74.0; // Circuit breaker open/half-open
-      }
-    }
-
-    const selfHealingScore = parseFloat((
-      podRestartSuccess * 0.3 +
-      replicaReplacement * 0.3 +
-      hpaEffectiveness * 0.2 +
-      cbEffectiveness * 0.2
-    ).toFixed(1));
-
+    // Self-healing percentages need observed recovery events; host health is not evidence of recovery.
     const selfHealing: SelfHealingMetrics = {
-      podRestartSuccessRate: podRestartSuccess,
-      replicaReplacementSuccessRate: replicaReplacement,
-      hpaEffectiveness: hpaEffectiveness,
-      circuitBreakerEffectiveness: cbEffectiveness,
-      selfHealingScore
+      podRestartSuccessRate: null,
+      replicaReplacementSuccessRate: null,
+      hpaEffectiveness: null,
+      circuitBreakerEffectiveness: null,
+      selfHealingScore: null
     };
 
     // 8. AI Failure Prediction derived from real host device metrics
@@ -516,6 +552,7 @@ export class ResilienceCollector {
       metrics,
       services: this.services,
       selfHealing,
+      kubernetesValidation,
       activeChaos: this.activeChaos,
       deviceHardware: hardware,
       aiPrediction,

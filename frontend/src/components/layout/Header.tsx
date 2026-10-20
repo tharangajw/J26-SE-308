@@ -22,6 +22,7 @@ const getPageTitle = (pathname: string): string => {
   if (pathname.includes('/dimensions/observability')) return 'Observability Maturity';
 
   // --- Fault Tolerance sub-routes ---
+  if (pathname.includes('/dimensions/fault-tolerance/chaos')) return 'Fault Tolerance - Chaos Engineering Suite';
   if (pathname.includes('/dimensions/fault-tolerance/calculation')) return 'Fault Tolerance Maturity - Calculation Logic';
   if (pathname.includes('/dimensions/fault-tolerance/history')) return 'Fault Tolerance Maturity - R-Score History';
   if (pathname.includes('/dimensions/FaultToleranceDashboard')) return 'Fault Tolerance Maturity';
