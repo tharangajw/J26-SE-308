@@ -33,11 +33,15 @@ export const TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [calculation, setCalculation] = useState<TelemetryData['calculation'] | null>(null);
 
   useEffect(() => {
+    let disposed = false;
+    let requestInFlight = false;
     const fetchData = async () => {
-      const data = await TelemetryService.getCombinedTelemetry();
-      setTelemetry(data);
-      
-      if (data) {
+      if (disposed || requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const data = await TelemetryService.getCombinedTelemetry();
+        if (disposed) return;
+        setTelemetry(data);
         setOScore(data.calculation.oScore);
         setCciIndex(data.calculation.cciIndex);
         setCalculation(data.calculation);
@@ -53,12 +57,19 @@ export const TelemetryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           latency: data.traces.latency,
           status: data.calculation.status,
         })));
+      } catch (error) {
+        console.warn('Live observability refresh failed; retaining the last snapshot.', error);
+      } finally {
+        requestInFlight = false;
       }
     };
     
     fetchData();
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchData, 2000);
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+    };
   }, []);
 
   return (

@@ -236,7 +236,7 @@ export const Observability: React.FC = () => {
           {activeTab === 'logs' && <LogsDashboard data={mockData} />}
           {activeTab === 'traces' && <TracesDashboard data={mockData} />}
           {activeTab === 'cci' && <CCIPanel cciData={{ ...mockCci, cci_index: cciIndex }} />}
-          {activeTab === 'rca' && <RCAPanel cciData={{ ...mockCci, cci_index: cciIndex }} onRcaComplete={(report: any) => { setRcaReport(report); navigate('/dimensions/observability/remediation'); }} />}
+          {activeTab === 'rca' && <RCAPanel cciData={{ ...mockCci, cci_index: cciIndex, telemetry }} onRcaComplete={(report: any) => { setRcaReport(report); navigate('/dimensions/observability/remediation'); }} />}
           {activeTab === 'remediation' && <RemediationPanel rcaReport={rcaReport} />}
           {activeTab === 'chaos' && <ChaosPanel onExperimentRun={handleChaosExperiment} />}
         </>
