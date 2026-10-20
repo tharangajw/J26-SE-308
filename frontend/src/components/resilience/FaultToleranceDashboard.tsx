@@ -28,6 +28,7 @@ import {
 import { ChaosEngineeringSuite, type KubernetesValidationSnapshot } from './ChaosEngineeringSuite';
 import { TelemetryTrends } from './TelemetryTrends';
 import { ResilienceOverview } from './ResilienceOverview';
+import { calculateResilienceScore } from './rScore';
 import './FaultToleranceDashboard.css';
 
 interface FaultToleranceDashboardProps {
@@ -247,9 +248,13 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
         ? parseFloat((99.9 - (offlineCount * 4.5) - (Math.random() * 0.5)).toFixed(2))
         : parseFloat(Math.max(0, 99.9 - (avgErrorRate * 0.2)).toFixed(2));
 
-      let score = 0;
       const failoverSuccess = (offlineCount > 0 || degradedCount > 0) ? (offlineCount > 1 ? 65 : 80) : 100;
       const simulatedMttr = (offlineCount > 0 || degradedCount > 0) ? 18 : 12;
+
+      const score = calculateResilienceScore({
+        availability, cpu: avgCpu, memory: avgMem, errorRate: avgErrorRate,
+        restarts: totalRestarts, mttr: simulatedMttr, latency: avgLatency, failoverSuccess,
+      });
 
       const rules = {
         availability: availability >= 99.0,
@@ -261,15 +266,6 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
         mttr: simulatedMttr <= 15,
         failover: failoverSuccess >= 100
       };
-
-      if (rules.availability) score += 12.5;
-      if (rules.cpu) score += 12.5;
-      if (rules.memory) score += 12.5;
-      if (rules.latency) score += 12.5;
-      if (rules.errorRate) score += 12.5;
-      if (rules.restarts) score += 12.5;
-      if (rules.mttr) score += 12.5;
-      if (rules.failover) score += 12.5;
 
       let maturity: FaultMetrics['maturity'] = 'Initial';
       if (score >= 87.5) maturity = 'Optimized';

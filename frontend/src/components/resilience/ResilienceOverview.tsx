@@ -114,47 +114,47 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
 
         {/* Rule Engine Breakdown */}
         <div className="glass-card rules-card">
-          <h2><CheckCircle size={16} className="card-title-icon" /> Scoring Engine Rules (Rule-Based)</h2>
+          <h2><CheckCircle size={16} className="card-title-icon" /> AHP Metric Weights</h2>
           <div className="rules-list">
             <div className={`rule-item ${metrics.availability >= 99.0 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Availability &gt;= 99.0%</span>
-              <span className="rule-points">+12.5 pts</span>
+              <span className="rule-points">+26.63 pts</span>
             </div>
             <div className={`rule-item ${metrics.cpu < 70 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">CPU Avg Load &lt; 70%</span>
-              <span className="rule-points">+12.5 pts</span>
+              <span className="rule-points">+3.26 pts</span>
             </div>
             <div className={`rule-item ${metrics.memory < 75 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Memory Avg Load &lt; 75%</span>
-              <span className="rule-points">+12.5 pts</span>
+              <span className="rule-points">+3.26 pts</span>
             </div>
             <div className={`rule-item ${metrics.latency < 50 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Response Time &lt; 50ms</span>
-              <span className="rule-points">+12.5 pts</span>
+              <span className="rule-points">+8.42 pts</span>
             </div>
             <div className={`rule-item ${metrics.errorRate < 1.0 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Request Error Rate &lt; 1.0%</span>
-              <span className="rule-points">+12.5 pts</span>
+              <span className="rule-points">+14.86 pts</span>
             </div>
             <div className={`rule-item ${metrics.restarts < 2 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Pod Restart Count &lt; 2</span>
-              <span className="rule-points">+12.5 pts</span>
+              <span className="rule-points">+5.41 pts</span>
             </div>
             <div className={`rule-item ${metrics.mttr <= 15 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">MTTR &lt;= 15s</span>
-              <span className="rule-points">+12.5 pts</span>
+              <span className="rule-points">+14.05 pts</span>
             </div>
             <div className={`rule-item ${metrics.failoverSuccess >= 100 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Failover Success &gt;= 100%</span>
-              <span className="rule-points">+12.5 pts</span>
+              <span className="rule-points">+24.11 pts</span>
             </div>
           </div>
         </div>
