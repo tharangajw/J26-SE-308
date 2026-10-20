@@ -10,6 +10,7 @@ import {
 
 import { HistoricalDriftAnalyzer } from './drift.js';
 import { FanOutEngine } from './fanout.js';
+import { telemetryMongo } from './mongodb.js';
 
 const port = Number(process.env.PORT ?? 8787);
 const engine = new TelemetryCollectorEngine({
@@ -24,6 +25,10 @@ const fanOutEngine = new FanOutEngine({
   jaeger: process.env.JAEGER_URL ?? 'http://localhost:16686',
 });
 
+// Remembers the services most recently collected via /api/telemetry/snapshot so all downstream modules stay in sync
+let lastCollectedServices: string[] = [];
+let cachedSnapshotResult: { snapshots: any[]; timestamp: number } | null = null;
+
 const sendJson = (response: import('node:http').ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
   response.end(JSON.stringify(body));
@@ -35,7 +40,7 @@ createServer(async (request, response) => {
   if (request.method !== 'GET') return sendJson(response, 405, { error: 'Only GET is supported' });
 
   if (url.pathname === '/health') {
-    return sendJson(response, 200, { status: 'ok', service: 'telemetry-collector' });
+    return sendJson(response, 200, { status: 'ok', service: 'telemetry-collector', lastCollectedServices });
   }
 
   if (url.pathname === '/api/telemetry/snapshot') {
@@ -43,13 +48,20 @@ createServer(async (request, response) => {
     let services: string[] = [];
     if (servicesParam) {
       services = servicesParam.split(',').map((s) => s.trim()).filter(Boolean);
+      if (services.length > 0) {
+        lastCollectedServices = Array.from(new Set(services));
+      }
+    } else if (lastCollectedServices.length > 0) {
+      services = [...lastCollectedServices];
     } else {
       const discovery = await engine.discoverServices();
       services = discovery.applicationServices.length > 0 ? discovery.applicationServices : discovery.allServices;
     }
     if (services.length === 0) return sendJson(response, 200, { requestedServices: [], collectedAt: Date.now(), snapshots: [], errors: [] });
     const snapshotResult = await engine.collectServiceSnapshots([...new Set(services)]);
+    cachedSnapshotResult = { snapshots: snapshotResult.snapshots, timestamp: Date.now() };
     recordRealSnapshotsToPipeline(snapshotResult.snapshots);
+    snapshotResult.snapshots.forEach((s) => telemetryMongo.saveRawSnapshot(s).catch(() => {}));
     return sendJson(response, 200, snapshotResult);
   }
 
@@ -58,6 +70,8 @@ createServer(async (request, response) => {
     let services: string[] = [];
     if (servicesParam) {
       services = servicesParam.split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (lastCollectedServices.length > 0) {
+      services = [...lastCollectedServices];
     } else {
       const discovery = await engine.discoverServices();
       services = discovery.applicationServices.length > 0 ? discovery.applicationServices : discovery.allServices;
@@ -87,7 +101,18 @@ createServer(async (request, response) => {
 
   if (url.pathname === '/api/telemetry/discovered-services') {
     const discovery = await engine.discoverServices();
-    return sendJson(response, 200, discovery);
+    const mergedAppServices = Array.from(
+      new Set([...lastCollectedServices, ...discovery.applicationServices])
+    );
+    const mergedAllServices = Array.from(
+      new Set([...lastCollectedServices, ...discovery.allServices])
+    );
+    return sendJson(response, 200, {
+      ...discovery,
+      lastCollectedServices,
+      applicationServices: mergedAppServices,
+      allServices: mergedAllServices,
+    });
   }
 
   if (url.pathname === '/api/telemetry/phase3') {
@@ -96,6 +121,8 @@ createServer(async (request, response) => {
 
     if (requested) {
       services = requested.split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (lastCollectedServices.length > 0) {
+      services = [...lastCollectedServices];
     } else {
       const discovery = await engine.discoverServices();
       services = discovery.applicationServices.length > 0 ? discovery.applicationServices : discovery.allServices;
@@ -111,18 +138,33 @@ createServer(async (request, response) => {
       });
     }
 
-    const snapshotData = await engine.collectServiceSnapshots(services);
-    recordRealSnapshotsToPipeline(snapshotData.snapshots);
+    let snapshots =
+      cachedSnapshotResult && Date.now() - cachedSnapshotResult.timestamp < 6000
+        ? cachedSnapshotResult.snapshots
+        : null;
 
-    const driftResults = services.map((serviceId) => {
-      const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
-      const liveP95 = snap ? (snap.prometheus.p95LatencyMs || snap.prometheus.avgResponseTimeMs || 0) : 0;
-      return driftAnalyzer.analyzeDrift(serviceId, liveP95);
-    });
+    if (!snapshots) {
+      const snapshotData = await engine.collectServiceSnapshots(services);
+      snapshots = snapshotData.snapshots;
+      cachedSnapshotResult = { snapshots, timestamp: Date.now() };
+      recordRealSnapshotsToPipeline(snapshots);
+      snapshots.forEach((s) => telemetryMongo.saveRawSnapshot(s).catch(() => {}));
+    }
+
+    const runningContainers = await (engine as any).dockerCollector?.getRunningContainers().catch(() => []) ?? [];
+
+    const driftResults = await Promise.all(
+      services.map(async (serviceId) => {
+        const snap = snapshots.find((s: any) => s.serviceId === serviceId);
+        const liveP95 = snap ? (snap.prometheus.p95LatencyMs || snap.prometheus.avgResponseTimeMs || 0) : 0;
+        const matched = (engine as any).dockerCollector?.matchContainer(runningContainers, serviceId) || null;
+        return driftAnalyzer.analyzeDrift(serviceId, liveP95, matched);
+      })
+    );
 
     const fanOutResults = await Promise.all(
       services.map((serviceId) => {
-        const snap = snapshotData.snapshots.find((s) => s.serviceId === serviceId);
+        const snap = snapshots.find((s: any) => s.serviceId === serviceId);
         const liveLatency = snap ? (snap.prometheus.avgResponseTimeMs || 0) : 0;
         return fanOutEngine.analyzeTopology(serviceId, liveLatency);
       })

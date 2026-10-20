@@ -1,0 +1,490 @@
+{
+  "book-service-1": [
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 171.46,
+      "evaluatedAt": "2026-10-20 17:57:31",
+      "timestampMs": 1792519051171
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 100.57,
+      "evaluatedAt": "2026-10-20 17:57:46",
+      "timestampMs": 1792519066881
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 629.41,
+      "evaluatedAt": "2026-10-20 17:58:03",
+      "timestampMs": 1792519083173
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 85.48,
+      "evaluatedAt": "2026-10-20 17:58:24",
+      "timestampMs": 1792519104715
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 35.21,
+      "evaluatedAt": "2026-10-20 17:58:40",
+      "timestampMs": 1792519120000
+    },
+    {
+      "version": "Snapshot #29",
+      "p95LatencyMs": 101.12,
+      "evaluatedAt": "2026-10-20 17:59:16",
+      "timestampMs": 1792519156921
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 130.44,
+      "evaluatedAt": "2026-10-20 17:59:41",
+      "timestampMs": 1792519181980
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 70.19,
+      "evaluatedAt": "2026-10-20 18:00:02",
+      "timestampMs": 1792519202128
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 80.43,
+      "evaluatedAt": "2026-10-20 18:00:26",
+      "timestampMs": 1792519226992
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 74.28,
+      "evaluatedAt": "2026-10-20 18:00:43",
+      "timestampMs": 1792519243320
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 109.61,
+      "evaluatedAt": "2026-10-20 18:01:00",
+      "timestampMs": 1792519260856
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 71.94,
+      "evaluatedAt": "2026-10-20 18:01:19",
+      "timestampMs": 1792519279054
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 78.68,
+      "evaluatedAt": "2026-10-20 18:01:37",
+      "timestampMs": 1792519297089
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 132.5,
+      "evaluatedAt": "2026-10-20 18:01:55",
+      "timestampMs": 1792519315297
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 136.59,
+      "evaluatedAt": "2026-10-20 18:02:12",
+      "timestampMs": 1792519332061
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 137.44,
+      "evaluatedAt": "2026-10-20 18:02:31",
+      "timestampMs": 1792519351131
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 134.63,
+      "evaluatedAt": "2026-10-20 18:02:49",
+      "timestampMs": 1792519369323
+    },
+    {
+      "version": "Snapshot #41",
+      "evaluatedAt": "2026-10-20 18:03:32",
+      "p95LatencyMs": 158.4,
+      "timestampMs": 1792519412277
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:03:48",
+      "p95LatencyMs": 15.65,
+      "timestampMs": 1792519428496
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:04:13",
+      "p95LatencyMs": 173.41,
+      "timestampMs": 1792519453524
+    }
+  ],
+  "order-service-1": [
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 48.79,
+      "evaluatedAt": "2026-10-20 17:57:31",
+      "timestampMs": 1792519051048
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 37.71,
+      "evaluatedAt": "2026-10-20 17:57:46",
+      "timestampMs": 1792519066817
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 351.46,
+      "evaluatedAt": "2026-10-20 17:58:02",
+      "timestampMs": 1792519082891
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 17.75,
+      "evaluatedAt": "2026-10-20 17:58:24",
+      "timestampMs": 1792519104645
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 150.64,
+      "evaluatedAt": "2026-10-20 17:58:40",
+      "timestampMs": 1792519120114
+    },
+    {
+      "version": "Snapshot #29",
+      "p95LatencyMs": 42.18,
+      "evaluatedAt": "2026-10-20 17:59:16",
+      "timestampMs": 1792519156858
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 58.42,
+      "evaluatedAt": "2026-10-20 17:59:41",
+      "timestampMs": 1792519181907
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 8.03,
+      "evaluatedAt": "2026-10-20 18:00:02",
+      "timestampMs": 1792519202063
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 115.76,
+      "evaluatedAt": "2026-10-20 18:00:27",
+      "timestampMs": 1792519227027
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 149.88,
+      "evaluatedAt": "2026-10-20 18:00:43",
+      "timestampMs": 1792519243394
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 12.26,
+      "evaluatedAt": "2026-10-20 18:01:00",
+      "timestampMs": 1792519260756
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 161.28,
+      "evaluatedAt": "2026-10-20 18:01:19",
+      "timestampMs": 1792519279143
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 6.61,
+      "evaluatedAt": "2026-10-20 18:01:37",
+      "timestampMs": 1792519297015
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 97.86,
+      "evaluatedAt": "2026-10-20 18:01:55",
+      "timestampMs": 1792519315261
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 11.23,
+      "evaluatedAt": "2026-10-20 18:02:11",
+      "timestampMs": 1792519331933
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 13.98,
+      "evaluatedAt": "2026-10-20 18:02:31",
+      "timestampMs": 1792519351006
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 10.65,
+      "evaluatedAt": "2026-10-20 18:02:49",
+      "timestampMs": 1792519369197
+    },
+    {
+      "version": "Snapshot #41",
+      "evaluatedAt": "2026-10-20 18:03:32",
+      "p95LatencyMs": 127.11,
+      "timestampMs": 1792519412244
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:03:48",
+      "p95LatencyMs": 217.6,
+      "timestampMs": 1792519428701
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:04:13",
+      "p95LatencyMs": 124.72,
+      "timestampMs": 1792519453474
+    }
+  ],
+  "gateway-1": [
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 87.32,
+      "evaluatedAt": "2026-10-20 17:57:31",
+      "timestampMs": 1792519051087
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 66.12,
+      "evaluatedAt": "2026-10-20 17:57:46",
+      "timestampMs": 1792519066846
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 255.02,
+      "evaluatedAt": "2026-10-20 17:58:02",
+      "timestampMs": 1792519082795
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 219.21,
+      "evaluatedAt": "2026-10-20 17:58:24",
+      "timestampMs": 1792519104847
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 128.08,
+      "evaluatedAt": "2026-10-20 17:58:40",
+      "timestampMs": 1792519120092
+    },
+    {
+      "version": "Snapshot #29",
+      "p95LatencyMs": 69.72,
+      "evaluatedAt": "2026-10-20 17:59:16",
+      "timestampMs": 1792519156889
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 91.69,
+      "evaluatedAt": "2026-10-20 17:59:41",
+      "timestampMs": 1792519181942
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 101.22,
+      "evaluatedAt": "2026-10-20 18:00:02",
+      "timestampMs": 1792519202157
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 12.53,
+      "evaluatedAt": "2026-10-20 18:00:26",
+      "timestampMs": 1792519226924
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 125.9,
+      "evaluatedAt": "2026-10-20 18:00:43",
+      "timestampMs": 1792519243371
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 160.33,
+      "evaluatedAt": "2026-10-20 18:01:00",
+      "timestampMs": 1792519260906
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 119.94,
+      "evaluatedAt": "2026-10-20 18:01:19",
+      "timestampMs": 1792519279102
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 107.11,
+      "evaluatedAt": "2026-10-20 18:01:37",
+      "timestampMs": 1792519297117
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 15.72,
+      "evaluatedAt": "2026-10-20 18:01:55",
+      "timestampMs": 1792519315180
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 111.54,
+      "evaluatedAt": "2026-10-20 18:02:12",
+      "timestampMs": 1792519332035
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 179.87,
+      "evaluatedAt": "2026-10-20 18:02:31",
+      "timestampMs": 1792519351173
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 91.39,
+      "evaluatedAt": "2026-10-20 18:02:49",
+      "timestampMs": 1792519369279
+    },
+    {
+      "version": "Snapshot #41",
+      "evaluatedAt": "2026-10-20 18:03:32",
+      "p95LatencyMs": 76.95,
+      "timestampMs": 1792519412195
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:03:48",
+      "p95LatencyMs": 146.13,
+      "timestampMs": 1792519428630
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:04:13",
+      "p95LatencyMs": 13.25,
+      "timestampMs": 1792519453363
+    }
+  ],
+  "user-service-1": [
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 135.39,
+      "evaluatedAt": "2026-10-20 17:57:31",
+      "timestampMs": 1792519051131
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 9,
+      "evaluatedAt": "2026-10-20 17:57:46",
+      "timestampMs": 1792519066785
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 20.04,
+      "evaluatedAt": "2026-10-20 17:58:02",
+      "timestampMs": 1792519082559
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 148.79,
+      "evaluatedAt": "2026-10-20 17:58:24",
+      "timestampMs": 1792519104777
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 175.53,
+      "evaluatedAt": "2026-10-20 17:58:40",
+      "timestampMs": 1792519120139
+    },
+    {
+      "version": "Snapshot #28",
+      "p95LatencyMs": 7.3,
+      "evaluatedAt": "2026-10-20 17:59:16",
+      "timestampMs": 1792519156822
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 12.08,
+      "evaluatedAt": "2026-10-20 17:59:41",
+      "timestampMs": 1792519181859
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 46.64,
+      "evaluatedAt": "2026-10-20 18:00:02",
+      "timestampMs": 1792519202100
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 53.42,
+      "evaluatedAt": "2026-10-20 18:00:26",
+      "timestampMs": 1792519226963
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 11.94,
+      "evaluatedAt": "2026-10-20 18:00:43",
+      "timestampMs": 1792519243255
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 59.26,
+      "evaluatedAt": "2026-10-20 18:01:00",
+      "timestampMs": 1792519260803
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 10.79,
+      "evaluatedAt": "2026-10-20 18:01:18",
+      "timestampMs": 1792519278992
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 40.9,
+      "evaluatedAt": "2026-10-20 18:01:37",
+      "timestampMs": 1792519297049
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 61.16,
+      "evaluatedAt": "2026-10-20 18:01:55",
+      "timestampMs": 1792519315223
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 75.9,
+      "evaluatedAt": "2026-10-20 18:02:11",
+      "timestampMs": 1792519331996
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 70,
+      "evaluatedAt": "2026-10-20 18:02:31",
+      "timestampMs": 1792519351060
+    },
+    {
+      "version": "Snapshot #21",
+      "p95LatencyMs": 47.93,
+      "evaluatedAt": "2026-10-20 18:02:49",
+      "timestampMs": 1792519369234
+    },
+    {
+      "version": "Snapshot #40",
+      "evaluatedAt": "2026-10-20 18:03:32",
+      "p95LatencyMs": 23.43,
+      "timestampMs": 1792519412139
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:03:48",
+      "p95LatencyMs": 83.68,
+      "timestampMs": 1792519428566
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:04:13",
+      "p95LatencyMs": 72.91,
+      "timestampMs": 1792519453421
+    }
+  ]
+}

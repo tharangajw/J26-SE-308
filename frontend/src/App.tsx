@@ -1,4 +1,4 @@
-import { Routes, Route, BrowserRouter } from 'react-router-dom';
+import { Routes, Route, BrowserRouter, Navigate } from 'react-router-dom';
 import { ChaosProvider } from './context/ChaosContext';
 import { TelemetryProvider } from './context/TelemetryContext';
 import { Layout } from './components/layout/Layout';
@@ -11,7 +11,7 @@ import { Observability } from './pages/Observability';
 import { ObservabilityDashboard } from './pages/ObservabilityDashboard';
 import { ObservabilityHistory } from './pages/ObservabilityHistory';
 import { PerformanceDataCollection } from './pages/PerformanceDataCollection';
-import { DataPipelineOutputs } from './pages/DataPipelineOutputs';
+// Data pipeline outputs merged directly into drift/collection flow
 import { DriftAnalysisPage } from './pages/DriftAnalysisPage';
 import { AnomalyDetectionPage } from './pages/AnomalyDetectionPage';
 import { FanOutAnalysisPage } from './pages/FanOutAnalysisPage';
@@ -41,7 +41,7 @@ function App() {
             <Route path="dimensions/observability/history" element={<ObservabilityHistory />} />
             <Route path="dimensions/performance" element={<PerformanceDimensionPage />} />
             <Route path="dimensions/performance/collection" element={<PerformanceDataCollection />} />
-            <Route path="dimensions/performance/pipeline" element={<DataPipelineOutputs />} />
+            <Route path="dimensions/performance/pipeline" element={<Navigate to="/dimensions/performance/drift" replace />} />
             <Route path="dimensions/performance/drift" element={<DriftAnalysisPage />} />
             <Route path="dimensions/performance/fanout" element={<FanOutAnalysisPage />} />
             <Route path="dimensions/performance/anomaly" element={<AnomalyDetectionPage />} />

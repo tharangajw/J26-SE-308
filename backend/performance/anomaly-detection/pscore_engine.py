@@ -3,6 +3,7 @@ import time
 import urllib.request
 import urllib.parse
 import json
+import concurrent.futures
 from typing import Dict, List, Any, Optional
 import numpy as np
 from isolation_forest import AnomalyDetectionService
@@ -124,10 +125,11 @@ class PScoreAndRecommendationEngine:
 
         return self.pscore_history
 
-    def _fetch_json(self, path: str, timeout: float = 4.0) -> Optional[Dict[str, Any]]:
+    def _fetch_json(self, path: str, timeout: float = 8.0) -> Optional[Dict[str, Any]]:
         urls = [
-            f"{self.collector_url}{path}",
             f"http://localhost:8787{path}",
+            f"{self.collector_url}{path}",
+            f"http://127.0.0.1:8787{path}",
         ]
         for url in urls:
             try:
@@ -515,8 +517,11 @@ class PScoreAndRecommendationEngine:
             }
 
         query_str = urllib.parse.quote(",".join(services))
-        snap_resp = self._fetch_json(f"/api/telemetry/snapshot?services={query_str}") or {}
-        phase3_resp = self._fetch_json(f"/api/telemetry/phase3?services={query_str}") or {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            fut_snap = executor.submit(self._fetch_json, f"/api/telemetry/snapshot?services={query_str}")
+            fut_phase3 = executor.submit(self._fetch_json, f"/api/telemetry/phase3?services={query_str}")
+            snap_resp = fut_snap.result() or {}
+            phase3_resp = fut_phase3.result() or {}
 
         snapshots_map = {
             s.get("serviceId"): s
@@ -636,10 +641,14 @@ class PScoreAndRecommendationEngine:
             all_recommendations.extend(recs)
 
             has_telemetry = bool(
-                prom.get("cpuUsageMillicores", 0) > 0
+                drift_info.get("hasTelemetry")
+                or fanout_info.get("hasTelemetry")
+                or prom.get("cpuUsageMillicores", 0) > 0
                 or prom.get("memoryUsageMB", 0) > 0
                 or prom.get("avgResponseTimeMs", 0) > 0
-                or fanout_info.get("hasTelemetry")
+                or k8s.get("podReplicaCount", 0) > 0
+                or k8s.get("uptimeSeconds", 0) > 0
+                or svc_id in snapshots_map
             )
 
             service_evaluations.append(

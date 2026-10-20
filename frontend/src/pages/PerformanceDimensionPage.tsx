@@ -28,6 +28,11 @@ import {
 } from 'lucide-react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
+import { TelemetryService } from '../services/telemetry';
+import {
+  PerformanceFlowHeader,
+  PerformanceStepFooter
+} from '../components/performace/PerformanceFlowNav';
 
 interface MaturityTierInfo {
   level: number;
@@ -291,7 +296,15 @@ export const PerformanceDimensionPage: React.FC = () => {
   const fetchCompositePScore = useCallback(async () => {
     setIsRefreshing(true);
     try {
+      const collected = TelemetryService.getCollectedServices();
+      const activeFromStore = TelemetryService.getActiveService();
+      if (activeFromStore && !collected.includes(activeFromStore)) {
+        collected.push(activeFromStore);
+      }
       let qs = `?w_drift=${activePreset.drift}&w_fanout=${activePreset.fanout}&w_anomaly=${activePreset.anomaly}`;
+      if (collected.length > 0) {
+        qs += `&services=${encodeURIComponent(collected.join(','))}`;
+      }
       if (useCustomPairwise) {
         qs += `&a12=${pairwiseJudgments.a12}&a13=${pairwiseJudgments.a13}&a23=${pairwiseJudgments.a23}`;
       }
@@ -512,9 +525,34 @@ export const PerformanceDimensionPage: React.FC = () => {
 
   return (
     <PageContainer className="space-y-6">
+      {/* Unified Pipeline Flow Header */}
+      <PerformanceFlowHeader
+        currentStep="pscore"
+        services={(data?.serviceEvaluations || []).map((s) => s.serviceId)}
+        selectedService={selectedServiceFilter === 'ALL' ? TelemetryService.getActiveService() : selectedServiceFilter}
+        onSelectService={(svcId) => {
+          setSelectedServiceFilter(svcId);
+          TelemetryService.setActiveService(svcId);
+        }}
+        onAddService={(svcId) => {
+          const trimmed = svcId.trim();
+          if (!trimmed) return;
+          const existing = TelemetryService.getCollectedServices();
+          TelemetryService.setCollectedServices(
+            existing.includes(trimmed) ? existing : [...existing, trimmed],
+            trimmed
+          );
+          setSelectedServiceFilter(trimmed);
+          fetchCompositePScore();
+        }}
+      />
+
       {/* Page Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-perf mb-1">
+            Step 4 of 4 — Composite Maturity Aggregation, AHP Validation &amp; Closed-Loop Simulator
+          </p>
           <div className="flex items-center gap-2.5">
             <h2 className="text-2xl font-semibold tracking-tight text-brand-perf flex items-center gap-2">
               <Zap className="h-6 w-6 text-brand-perf" /> Performance Efficiency Maturity (P-Score)
@@ -1449,6 +1487,9 @@ export const PerformanceDimensionPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Bottom Step Navigation Footer */}
+      <PerformanceStepFooter currentStep="pscore" />
     </PageContainer>
   );
 };

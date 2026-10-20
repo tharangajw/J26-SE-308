@@ -1,5 +1,6 @@
 import { DockerCollector, DockerContainerInfo } from './docker.js';
 import { JaegerCollector } from './jaeger.js';
+import { telemetryMongo } from './mongodb.js';
 
 export interface DAGNode {
   id: string;
@@ -84,6 +85,19 @@ export class FanOutEngine {
     livePrometheusLatencyMs: number = 0
   ): Promise<FanOutAnalysisResult> {
     const cleanId = serviceId.trim();
+
+    // 0. Check fast MongoDB cache first (< 45s TTL) for instantaneous UX
+    try {
+      const cached = await telemetryMongo.getLatestTopology(cleanId);
+      if (cached && cached.hasTelemetry && cached.callTreeTopology?.length > 0) {
+        const age = Date.now() - ((cached as any).evaluatedAt || 0);
+        if (age < 45000) {
+          return cached;
+        }
+      }
+    } catch {
+      // Continue to live discovery
+    }
 
     // 1. Check live Jaeger Distributed Traces first
     const jaegerDag = await this.jaegerCollector.fetchTraceDAG(cleanId);
@@ -333,7 +347,7 @@ export class FanOutEngine {
       ? `[${sourceLabel}] API Gateway legitimate fan-out attenuation applied (${attenuationFactor}x multiplier). Raw penalty ${rawPenalty.toFixed(3)} attenuated to ${attenuatedFanOutScore.toFixed(3)}.${patternNote}`
       : `[${sourceLabel}] Live call-tree (${directFanOutCount} direct downstream calls, depth ${maxDependencyDepth}).${patternNote} Penalty score: ${attenuatedFanOutScore.toFixed(3)}.`;
 
-    return {
+    const result: FanOutAnalysisResult = {
       serviceId: requestedServiceId,
       hasTelemetry: true,
       telemetrySource,
@@ -354,5 +368,10 @@ export class FanOutEngine {
       amplificationMultiplier,
       summary,
     };
+
+    // Asynchronously persist topology to MongoDB without blocking HTTP response
+    telemetryMongo.saveTopology(result).catch(() => {});
+
+    return result;
   }
 }
