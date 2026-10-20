@@ -6,8 +6,9 @@ import {
 } from 'lucide-react';
 import type {
   FaultMetrics, AiFailurePrediction, ActiveFault, ActiveChaosEvent,
-  SelfHealingMetrics, RecentActivity
+  RecentActivity
 } from '../../data/mockData';
+import type { KubernetesValidationSnapshot } from './ChaosEngineeringSuite';
 import './ResilienceOverview.css';
 
 interface ResilienceOverviewProps {
@@ -15,7 +16,8 @@ interface ResilienceOverviewProps {
   aiPrediction: AiFailurePrediction;
   activeFaults: ActiveFault[];
   activeChaosEvent: ActiveChaosEvent | null;
-  selfHealing: SelfHealingMetrics;
+  kubernetesConnected: boolean;
+  kubernetesValidation: KubernetesValidationSnapshot | null;
   activities: RecentActivity[];
   activityFilter: 'ALL' | 'INJECT' | 'HEAL' | 'ALERT';
   filteredActivities: RecentActivity[];
@@ -30,7 +32,8 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
   aiPrediction,
   activeFaults,
   activeChaosEvent,
-  selfHealing,
+  kubernetesConnected,
+  kubernetesValidation,
   activities,
   activityFilter,
   filteredActivities,
@@ -301,26 +304,30 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
           <h3>
             <Activity size={18} /> Self-Healing Assessment Engine (Kubernetes Validation)
           </h3>
-          <span className="mode-badge live" style={{ margin: 0, fontSize: '10px' }}>
-            KUBERNETES AUTONOMOUS RECOVERY ACTIVE
+          <span className={`mode-badge ${kubernetesConnected ? 'live' : ''}`} style={{ margin: 0, fontSize: '10px' }}>
+            {kubernetesConnected ? 'KUBERNETES API CONNECTED' : 'KUBERNETES API UNAVAILABLE'}
           </span>
         </div>
         <div className="self-healing-grid">
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{selfHealing.podRestartSuccessRate}%</div>
-            <div className="sh-metric-lbl">Pod Auto-Restart Success</div>
+            <div className="sh-metric-val">{kubernetesValidation ? kubernetesValidation.podRestartCount : '—'}</div>
+            <div className="sh-metric-lbl">Pod restarts (cumulative)</div>
+            <small>Across {kubernetesValidation?.podCount ?? 0} pods</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{selfHealing.replicaReplacementSuccessRate}%</div>
-            <div className="sh-metric-lbl">Replica Replacement Success</div>
+            <div className="sh-metric-val">{kubernetesValidation ? `${kubernetesValidation.readyReplicas} / ${kubernetesValidation.desiredReplicas}` : '—'}</div>
+            <div className="sh-metric-lbl">Deployment replicas ready</div>
+            <small>Across {kubernetesValidation?.deploymentCount ?? 0} deployments</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{selfHealing.hpaEffectiveness}%</div>
-            <div className="sh-metric-lbl">HPA Auto-Scaling Effectiveness</div>
+            <div className="sh-metric-val">{kubernetesValidation ? kubernetesValidation.hpas.length : '—'}</div>
+            <div className="sh-metric-lbl">Horizontal pod autoscalers</div>
+            <small>{kubernetesValidation?.hpas.length ? kubernetesValidation.hpas.map(hpa => `${hpa.name}: ${hpa.currentReplicas}/${hpa.desiredReplicas}`).join(' · ') : 'No HPA resources found'}</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{selfHealing.circuitBreakerEffectiveness}%</div>
-            <div className="sh-metric-lbl">Circuit Breaker Effectiveness</div>
+            <div className="sh-metric-val">Not measured</div>
+            <div className="sh-metric-lbl">Circuit breaker</div>
+            <small>{kubernetesValidation?.circuitBreaker.reason ?? 'Requires service-mesh or application telemetry'}</small>
           </div>
         </div>
       </section>

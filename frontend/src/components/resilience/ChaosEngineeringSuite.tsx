@@ -27,6 +27,7 @@ interface ChaosEngineeringSuiteProps {
   activeFaults: ActiveFault[];
   activeChaosEvent: ActiveChaosEvent | null;
   kubernetesConnected: boolean;
+  kubernetesValidation: KubernetesValidationSnapshot | null;
   cardSettings: Record<string, CardSetting>;
   onInjectFault: (
     faultType: string,
@@ -39,6 +40,27 @@ interface ChaosEngineeringSuiteProps {
   onHealService: (serviceId: string) => void;
   onClearAllChaos: () => void;
   onUpdateCardSetting: (faultId: string, key: keyof CardSetting, value: string | number) => void;
+}
+
+export interface KubernetesValidationSnapshot {
+  podCount: number;
+  podRestartCount: number;
+  deploymentCount: number;
+  desiredReplicas: number;
+  readyReplicas: number;
+  hpas: Array<{
+    name: string;
+    namespace: string;
+    currentReplicas: number;
+    desiredReplicas: number;
+    currentCpuPercent: number | null;
+    targetCpuPercent: number | null;
+  }>;
+  circuitBreaker: {
+    configured: false;
+    status: 'NOT_MEASURED';
+    reason: string;
+  };
 }
 
 interface ChaosExperimentRecord {
@@ -68,6 +90,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
   activeFaults,
   activeChaosEvent,
   kubernetesConnected,
+  kubernetesValidation,
   cardSettings,
   onInjectFault,
   onHealService,
@@ -497,7 +520,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
 
             <p style={{ margin: '0 0 16px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>
               {kubernetesConnected
-                ? 'The Kubernetes API is reachable. Pod recovery, replica replacement, HPA, and circuit-breaker outcomes are shown as unmeasured until live cluster event metrics are connected.'
+                ? 'Live pod restart totals, deployment replica readiness, and HPA status are read from the Kubernetes API. Restart totals are cumulative; create a fault and compare the live values. Circuit-breaker results need a mesh or application metrics source.'
                 : 'No Kubernetes API connection is available. The current Docker stack reports host and application telemetry; Kubernetes recovery checks cannot be validated.'}
             </p>
 
@@ -509,10 +532,10 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                   <Activity size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {kubernetesConnected ? 'Not measured' : 'Unavailable'}
+                  {kubernetesValidation ? `${kubernetesValidation.podRestartCount} restarts` : kubernetesConnected ? 'Loading…' : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Requires observed pod restart events
+                  Cumulative across {kubernetesValidation?.podCount ?? 0} cluster pods
                 </div>
               </div>
 
@@ -522,10 +545,10 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                   <Activity size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {kubernetesConnected ? 'Not measured' : 'Unavailable'}
+                  {kubernetesValidation ? `${kubernetesValidation.readyReplicas} / ${kubernetesValidation.desiredReplicas} ready` : kubernetesConnected ? 'Loading…' : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Requires before/after pod identity and replica counts
+                  Across {kubernetesValidation?.deploymentCount ?? 0} deployments; delete a managed pod to observe replacement
                 </div>
               </div>
 
@@ -534,11 +557,13 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                   <span style={{ fontSize: '12px', color: '#cbd5e1' }}>HPA Auto-Scaling</span>
                   <Activity size={16} className="text-text-muted" />
                 </div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {kubernetesConnected ? 'Not measured' : 'Unavailable'}
+                <div style={{ fontSize: '15px', fontWeight: 700, color: '#f8fafc' }}>
+                  {!kubernetesConnected ? 'Unavailable' : !kubernetesValidation ? 'Loading…' : kubernetesValidation.hpas.length ? `${kubernetesValidation.hpas.length} HPA(s)` : 'No HPAs found'}
                 </div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Requires HPA status and scaling event metrics
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', lineHeight: 1.5 }}>
+                  {kubernetesValidation?.hpas.length
+                    ? kubernetesValidation.hpas.map(hpa => `${hpa.namespace}/${hpa.name}: ${hpa.currentReplicas} current / ${hpa.desiredReplicas} desired${hpa.currentCpuPercent != null && hpa.targetCpuPercent != null ? ` · CPU ${hpa.currentCpuPercent}% / ${hpa.targetCpuPercent}%` : ''}`).join(' | ')
+                    : 'Requires an HPA resource and metrics-server to report scaling activity.'}
                 </div>
               </div>
 
@@ -548,10 +573,10 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                   <ShieldCheck size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {kubernetesConnected ? 'Not measured' : 'Unavailable'}
+                  {kubernetesConnected ? 'Not configured' : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Requires service-mesh or application circuit-breaker telemetry
+                  {kubernetesValidation?.circuitBreaker.reason ?? 'Requires service-mesh or application circuit-breaker telemetry'}
                 </div>
               </div>
             </div>
