@@ -92,7 +92,8 @@ export class AnomalyService {
     let memoryMB = 0;
     let p95LatencyMs = 0;
     let errorCount = 0;
-    let uptimeSeconds = 120.0;
+    let uptimeSeconds = 0.0;
+    let hasUptimeFromSource = false;
 
     // 1. Check latest live telemetry pushed to FastAPI (e.g. from load test runner)
     try {
@@ -100,22 +101,32 @@ export class AnomalyService {
         service_id: string;
         feature_vector: [number, number, number, number] | null;
         pod_uptime_sec?: number;
+        prediction?: {
+          raw_metrics?: {
+            cpuUsageMillicores?: number;
+            memoryUsageMB?: number;
+            p95LatencyMs?: number;
+            errorRate?: number;
+          };
+        };
       }>(`/latest/${encodeURIComponent(serviceId)}`);
       if (latest && Array.isArray(latest.feature_vector) && latest.feature_vector.length === 4) {
-        cpuMillicores = Math.round(latest.feature_vector[0] * 1000);
-        memoryMB = Math.round(latest.feature_vector[1] * 512);
-        p95LatencyMs = parseFloat((latest.feature_vector[2] * 200).toFixed(1));
+        const rawMet = latest.prediction?.raw_metrics;
+        cpuMillicores = rawMet?.cpuUsageMillicores ?? Math.round(latest.feature_vector[0] * 1000);
+        memoryMB = rawMet?.memoryUsageMB ?? Math.round(latest.feature_vector[1] * 512);
+        p95LatencyMs = rawMet?.p95LatencyMs ?? parseFloat((latest.feature_vector[2] * 200).toFixed(1));
         errorCount = Math.round(latest.feature_vector[3] * 10);
-        if (latest.pod_uptime_sec !== undefined) {
+        if (latest.pod_uptime_sec !== undefined && latest.pod_uptime_sec !== null) {
           uptimeSeconds = latest.pod_uptime_sec;
+          hasUptimeFromSource = true;
         }
       }
     } catch {
       // ignore if /latest not available
     }
 
-    // 2. Otherwise fetch live telemetry snapshot from Telemetry Collector (:8787)
-    if (cpuMillicores === 0 && memoryMB === 0 && p95LatencyMs === 0) {
+    // 2. Fetch live telemetry snapshot from Telemetry Collector (:8787) for real metrics & container uptime
+    if ((cpuMillicores === 0 && memoryMB === 0 && p95LatencyMs === 0) || !hasUptimeFromSource) {
       let snapshotRes: Response | null = null;
       try {
         const res = await fetch(`/api/telemetry/snapshot?services=${encodeURIComponent(serviceId)}`);
@@ -138,11 +149,16 @@ export class AnomalyService {
           const snapJson = await snapshotRes.json();
           const s = snapJson?.snapshots?.find((item: any) => item.serviceId === serviceId);
           if (s) {
-            cpuMillicores = s.prometheus?.cpuUsageMillicores || 0;
-            memoryMB = s.prometheus?.memoryUsageMB || 0;
-            p95LatencyMs = s.prometheus?.p95LatencyMs || s.prometheus?.avgResponseTimeMs || 0;
-            errorCount = s.loki?.errorCount || 0;
-            uptimeSeconds = s.k8s?.uptimeSeconds || 120.0;
+            if (cpuMillicores === 0 && memoryMB === 0 && p95LatencyMs === 0) {
+              cpuMillicores = s.prometheus?.cpuUsageMillicores || 0;
+              memoryMB = s.prometheus?.memoryUsageMB || 0;
+              p95LatencyMs = s.prometheus?.p95LatencyMs || s.prometheus?.avgResponseTimeMs || 0;
+              errorCount = s.loki?.errorCount || 0;
+            }
+            if (typeof s.k8s?.uptimeSeconds === 'number' && (s.sources?.kubernetes || s.k8s.uptimeSeconds > 0)) {
+              uptimeSeconds = s.k8s.uptimeSeconds;
+              hasUptimeFromSource = true;
+            }
           }
         } catch {
           // ignore parse errors

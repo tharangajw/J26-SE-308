@@ -19,17 +19,17 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/proxy/prometheus': {
-        target: 'http://localhost:9090',
+        target: process.env.PROMETHEUS_PROXY_TARGET || 'http://localhost:9090',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/prometheus/, '')
       },
       '/proxy/loki': {
-        target: 'http://localhost:3100',
+        target: process.env.LOKI_PROXY_TARGET || 'http://localhost:3100',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/loki/, '')
       },
       '/proxy/jaeger': {
-        target: 'http://localhost:16686',
+        target: process.env.JAEGER_PROXY_TARGET || 'http://localhost:16686',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/jaeger/, '')
       },

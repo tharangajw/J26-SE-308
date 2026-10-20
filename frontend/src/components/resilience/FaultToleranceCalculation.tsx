@@ -19,9 +19,9 @@ import {
 const runtimeRules = [
   { 
     title: 'Availability', 
-    description: '12.5 points when availability remains above 99.0%.',
+    description: '12.5 points when availability is at least 99.0%.',
     icon: 'Activity',
-    threshold: '> 99.0%',
+    threshold: '>= 99.0%',
     points: 12.5
   },
   { 
@@ -46,17 +46,17 @@ const runtimeRules = [
     points: 12.5
   },
   { 
-    title: 'Service restarts', 
-    description: '12.5 points when total service restarts remain below 2.',
+    title: 'Pod restarts',
+    description: '12.5 points when total pod restarts remain below 2.',
     icon: 'RefreshCw',
     threshold: '< 2',
     points: 12.5
   },
   { 
     title: 'MTTR', 
-    description: '12.5 points when Mean Time To Repair stays below 15 seconds.',
+    description: '12.5 points when Mean Time To Repair is at most 15 seconds.',
     icon: 'Clock',
-    threshold: '< 15s',
+    threshold: '<= 15s',
     points: 12.5
   },
   { 
@@ -127,7 +127,7 @@ export const FaultToleranceCalculation: React.FC = () => {
               <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted mb-2 flex items-center gap-2">
                 <Server className="w-4 h-4" /> Data Source
               </h3>
-              <p className="text-sm">Real-time telemetry from active microservices including CPU, memory, latency, error rates, availability, restart counts, MTTR, and failover success rate.</p>
+              <p className="text-sm">Real-time telemetry from active microservices including CPU, memory, latency, error rates, availability, pod restart counts, MTTR, and failover success rate.</p>
               <div className="mt-3 p-2 bg-blue-400/10 rounded border border-blue-400/30">
                 <p className="text-xs text-blue-400"><strong>Note:</strong> All 8 displayed metrics are used in the R-Score calculation for comprehensive resilience assessment.</p>
               </div>
@@ -151,7 +151,7 @@ export const FaultToleranceCalculation: React.FC = () => {
               R-Score = 12.5A + 12.5C + 12.5M + 12.5E + 12.5R + 12.5T + 12.5L + 12.5F
             </div>
             <div className="text-sm border-l-2 border-brand-fault pl-3 py-1">
-              <strong className="text-text-primary">Variables:</strong> A=Availability, C=CPU, M=Memory, E=Error Rate, R=Restarts, T=MTTR, L=Latency, F=Failover. Each is 1 (pass) or 0 (fail). Maximum score: 100 points.
+              <strong className="text-text-primary">Variables:</strong> A=Availability, C=CPU, M=Memory, E=Error Rate, R=Pod Restarts, T=MTTR, L=Latency, F=Failover. Each is 1 (pass) or 0 (fail). Maximum score: 100 points.
             </div>
           </div>
 
@@ -198,14 +198,14 @@ export const FaultToleranceCalculation: React.FC = () => {
                   <div className="w-6 h-6 rounded-full bg-brand-fault/20 text-brand-fault flex items-center justify-center text-xs font-bold">1</div>
                   <h3 className="font-bold text-sm">Collect Metrics</h3>
                 </div>
-                <p className="text-sm text-text-muted ml-9">Read CPU, memory, latency, errors, availability, restarts, MTTR, and failover data from all active services.</p>
+                <p className="text-sm text-text-muted ml-9">Read CPU, memory, latency, errors, availability, pod restarts, MTTR, and failover data from all active services.</p>
               </div>
               <div className="bg-surface-secondary/50 p-4 rounded-lg border border-border/50">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="w-6 h-6 rounded-full bg-brand-fault/20 text-brand-fault flex items-center justify-center text-xs font-bold">2</div>
                   <h3 className="font-bold text-sm">Aggregate Data</h3>
                 </div>
-                <p className="text-sm text-text-muted ml-9">Calculate averages for CPU, memory, latency, error rate, MTTR, and failover success. Count offline services and total restarts.</p>
+                <p className="text-sm text-text-muted ml-9">Calculate averages for CPU, memory, latency, error rate, MTTR, and failover success. Count offline services(Pods) and total restarts.</p>
               </div>
             </div>
 
@@ -215,7 +215,7 @@ export const FaultToleranceCalculation: React.FC = () => {
                   <div className="w-6 h-6 rounded-full bg-brand-fault/20 text-brand-fault flex items-center justify-center text-xs font-bold">3</div>
                   <h3 className="font-bold text-sm">Evaluate Rules</h3>
                 </div>
-                <p className="text-sm text-text-muted ml-9">Compare aggregate values against the eight thresholds (Availability {'>'}99%, CPU {'<'}70%, MTTR {'<'}15s, etc.).</p>
+                <p className="text-sm text-text-muted ml-9">Compare aggregate values against the eight thresholds (Availability {'>='}99%, CPU {'<'}70%, MTTR {'<='}15s, etc.).</p>
               </div>
               <div className="bg-surface-secondary/50 p-4 rounded-lg border border-border/50">
                 <div className="flex items-center gap-3 mb-2">
@@ -267,7 +267,7 @@ export const FaultToleranceCalculation: React.FC = () => {
                 <div className="text-xs text-green-400 mt-1">✓ Pass</div>
               </div>
               <div className="bg-surface-secondary p-3 rounded-lg border border-border/50 text-center">
-                <div className="text-xs text-text-muted mb-1">Restarts</div>
+                <div className="text-xs text-text-muted mb-1">Pod Restarts</div>
                 <div className="font-mono font-bold text-green-400">0</div>
                 <div className="text-xs text-green-400 mt-1">✓ Pass</div>
               </div>
@@ -308,7 +308,7 @@ export const FaultToleranceCalculation: React.FC = () => {
                   <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">12.5 × 1 = 12.5</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">
-                  <span>Restarts (R) passes: <span className="text-green-400 font-bold">+12.5 points</span></span>
+                  <span>Pod Restarts (R) passes: <span className="text-green-400 font-bold">+12.5 points</span></span>
                   <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">12.5 × 1 = 12.5</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">

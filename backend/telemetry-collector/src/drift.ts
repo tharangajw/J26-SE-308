@@ -1,7 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 export interface HistoricalDeploymentRecord {
   version: string;
   evaluatedAt: string;
   p95LatencyMs: number;
+  timestampMs?: number;
 }
 
 export interface PredictedDeploymentRecord {
@@ -37,39 +41,90 @@ export interface DriftAnalysisResult {
 
 export class HistoricalDriftAnalyzer {
   private baselineHistory: Map<string, HistoricalDeploymentRecord[]> = new Map();
+  private storageFilePath: string;
+  private static readonly MIN_SNAPSHOT_INTERVAL_MS = 30 * 1000; // Record new baseline checkpoint every 30s
+  private static readonly MAX_HISTORY_PER_SERVICE = 15;
 
-  constructor() {
-    this.seedDefaultHistories();
+  constructor(storageFilePath?: string) {
+    this.storageFilePath =
+      storageFilePath || path.resolve(process.cwd(), 'data', 'drift-baselines.json');
+    this.loadPersistedBaselines();
   }
 
-  private seedDefaultHistories() {
+  private loadPersistedBaselines(): void {
+    try {
+      if (fs.existsSync(this.storageFilePath)) {
+        const raw = fs.readFileSync(this.storageFilePath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          for (const [serviceId, records] of Object.entries(parsed)) {
+            if (Array.isArray(records)) {
+              const valid = records.filter(
+                (r: any) =>
+                  r &&
+                  typeof r.p95LatencyMs === 'number' &&
+                  Number.isFinite(r.p95LatencyMs) &&
+                  r.p95LatencyMs > 0
+              );
+              if (valid.length > 0) {
+                this.baselineHistory.set(serviceId.toLowerCase(), valid);
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore read errors on cold start
+    }
+  }
+
+  private persistBaselines(): void {
+    try {
+      const dir = path.dirname(this.storageFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const serializable: Record<string, HistoricalDeploymentRecord[]> = {};
+      for (const [key, records] of this.baselineHistory.entries()) {
+        serializable[key] = records;
+      }
+      fs.writeFileSync(this.storageFilePath, JSON.stringify(serializable, null, 2), 'utf-8');
+    } catch {
+      // Ignore write errors in read-only environments
+    }
+  }
+
+  private recordSnapshotIfNeeded(sId: string, liveP95LatencyMs: number): HistoricalDeploymentRecord[] {
+    const existing = this.baselineHistory.get(sId) || [];
+    if (liveP95LatencyMs <= 0) {
+      return existing;
+    }
+
     const now = Date.now();
-    const dayMs = 24 * 60 * 60 * 1000;
+    const lastRecord = existing[existing.length - 1];
+    const lastTs = lastRecord?.timestampMs ?? 0;
 
-    // Default baseline records for standard services
-    this.baselineHistory.set('gateway-1', [
-      { version: 'v1.0.0', evaluatedAt: new Date(now - 7 * dayMs).toISOString().split('T')[0], p95LatencyMs: 18.0 },
-      { version: 'v1.1.0', evaluatedAt: new Date(now - 4 * dayMs).toISOString().split('T')[0], p95LatencyMs: 19.5 },
-      { version: 'v1.2.0', evaluatedAt: new Date(now - 2 * dayMs).toISOString().split('T')[0], p95LatencyMs: 20.0 },
-    ]);
+    // Prior snapshots used as historical baseline before recording the current observation
+    const priorHistory = [...existing];
 
-    this.baselineHistory.set('book-service-1', [
-      { version: 'v1.0.0', evaluatedAt: new Date(now - 7 * dayMs).toISOString().split('T')[0], p95LatencyMs: 22.0 },
-      { version: 'v1.1.0', evaluatedAt: new Date(now - 4 * dayMs).toISOString().split('T')[0], p95LatencyMs: 24.0 },
-      { version: 'v1.2.0', evaluatedAt: new Date(now - 2 * dayMs).toISOString().split('T')[0], p95LatencyMs: 25.0 },
-    ]);
+    if (!lastRecord || now - lastTs >= HistoricalDriftAnalyzer.MIN_SNAPSHOT_INTERVAL_MS) {
+      const nextIdx = existing.length + 1;
+      const isoTime = new Date(now).toISOString().replace('T', ' ').slice(0, 19);
+      const newEntry: HistoricalDeploymentRecord = {
+        version: `Snapshot #${nextIdx}`,
+        evaluatedAt: isoTime,
+        p95LatencyMs: parseFloat(liveP95LatencyMs.toFixed(2)),
+        timestampMs: now,
+      };
+      const updated = [...existing, newEntry];
+      if (updated.length > HistoricalDriftAnalyzer.MAX_HISTORY_PER_SERVICE) {
+        updated.splice(0, updated.length - HistoricalDriftAnalyzer.MAX_HISTORY_PER_SERVICE);
+      }
+      this.baselineHistory.set(sId, updated);
+      this.persistBaselines();
+    }
 
-    this.baselineHistory.set('user-service-1', [
-      { version: 'v1.0.0', evaluatedAt: new Date(now - 7 * dayMs).toISOString().split('T')[0], p95LatencyMs: 18.0 },
-      { version: 'v1.1.0', evaluatedAt: new Date(now - 4 * dayMs).toISOString().split('T')[0], p95LatencyMs: 20.0 },
-      { version: 'v1.2.0', evaluatedAt: new Date(now - 2 * dayMs).toISOString().split('T')[0], p95LatencyMs: 21.0 },
-    ]);
-
-    this.baselineHistory.set('order-service-1', [
-      { version: 'v1.0.0', evaluatedAt: new Date(now - 7 * dayMs).toISOString().split('T')[0], p95LatencyMs: 15.0 },
-      { version: 'v1.1.0', evaluatedAt: new Date(now - 4 * dayMs).toISOString().split('T')[0], p95LatencyMs: 17.0 },
-      { version: 'v1.2.0', evaluatedAt: new Date(now - 2 * dayMs).toISOString().split('T')[0], p95LatencyMs: 18.0 },
-    ]);
+    return priorHistory.length > 0 ? priorHistory : this.baselineHistory.get(sId) || [];
   }
 
   /**
@@ -95,7 +150,7 @@ export class HistoricalDriftAnalyzer {
         predictedDeployments: [],
         estimatedDeploymentsToSLABreach: null,
         predictedNextDriftScore: 0,
-        proactiveWarning: 'Insufficient data points for trend forecasting.',
+        proactiveWarning: 'Collecting initial telemetry snapshots for trend forecasting.',
       };
     }
 
@@ -122,19 +177,19 @@ export class HistoricalDriftAnalyzer {
       const pred = slope * i + intercept;
       ssResiduals += Math.pow(points[i] - pred, 2);
     }
-    const standardError = n > 2 ? Math.sqrt(ssResiduals / (n - 2)) : 2.5;
+    const standardError = n > 2 ? Math.sqrt(ssResiduals / (n - 2)) : 0.0;
 
     const predictedDeployments: PredictedDeploymentRecord[] = [];
     for (let step = 1; step <= forecastSteps; step++) {
       const futureX = n - 1 + step;
-      const predictedVal = Math.max(5.0, slope * futureX + intercept);
+      const predictedVal = Math.max(0.5, slope * futureX + intercept);
       const margin = 1.96 * standardError * Math.sqrt(1 + 1 / n + Math.pow(futureX - meanX, 2) / (denominator || 1));
 
       predictedDeployments.push({
-        version: `v2.${step}.0 (Forecast)`,
-        evaluatedAt: `+${step} Release`,
+        version: `Forecast +${step}`,
+        evaluatedAt: `+${step} Window`,
         predictedP95Ms: parseFloat(predictedVal.toFixed(2)),
-        lowerBoundMs: parseFloat(Math.max(5.0, predictedVal - margin).toFixed(2)),
+        lowerBoundMs: parseFloat(Math.max(0.5, predictedVal - margin).toFixed(2)),
         upperBoundMs: parseFloat((predictedVal + margin).toFixed(2)),
       });
     }
@@ -166,9 +221,9 @@ export class HistoricalDriftAnalyzer {
     if (liveP95LatencyMs >= slaThresholdMs) {
       proactiveWarning = `CRITICAL: Active P95 latency (${liveP95LatencyMs}ms) exceeds SLA (${slaThresholdMs}ms).`;
     } else if (estimatedDeploymentsToSLABreach !== null && estimatedDeploymentsToSLABreach <= 3) {
-      proactiveWarning = `PROACTIVE ALERT: Upward trajectory (+${slope.toFixed(2)}ms/release) will breach SLA (${slaThresholdMs}ms) in ~${estimatedDeploymentsToSLABreach} release(s).`;
+      proactiveWarning = `PROACTIVE ALERT: Upward trajectory (+${slope.toFixed(2)}ms/window) will breach SLA (${slaThresholdMs}ms) in ~${estimatedDeploymentsToSLABreach} window(s).`;
     } else if (trendDirection === 'DEGRADING_STEADY' || trendDirection === 'DEGRADING_RAPIDLY') {
-      proactiveWarning = `CAUTION: Progressive latency drift detected (+${slope.toFixed(2)}ms per release). Investigate resource saturation.`;
+      proactiveWarning = `CAUTION: Progressive latency drift detected (+${slope.toFixed(2)}ms per window). Investigate resource saturation.`;
     }
 
     return {
@@ -182,14 +237,15 @@ export class HistoricalDriftAnalyzer {
   }
 
   /**
-   * Calculates moving average P95 latency baseline and compares live P95 latency to compute DriftScore.
+   * Calculates moving average P95 latency baseline from persisted real historical snapshots
+   * and compares live P95 latency to compute DriftScore.
    */
   public analyzeDrift(serviceId: string, liveP95LatencyMs: number): DriftAnalysisResult {
     const sId = serviceId.trim().toLowerCase();
-    const history = this.baselineHistory.get(sId);
+    const persistedHistory = this.recordSnapshotIfNeeded(sId, liveP95LatencyMs);
 
-    // If the service has no baseline history and no live telemetry, it has NO DATA!
-    if (!history && liveP95LatencyMs <= 0) {
+    // If the service has no persisted baseline history and no live telemetry, it has NO DATA!
+    if (persistedHistory.length === 0 && liveP95LatencyMs <= 0) {
       return {
         serviceId,
         hasTelemetry: false,
@@ -204,17 +260,13 @@ export class HistoricalDriftAnalyzer {
       };
     }
 
-    const effectiveHistory = history || [
-      { version: 'v1.0.0', evaluatedAt: '7d ago', p95LatencyMs: liveP95LatencyMs },
-      { version: 'v1.1.0', evaluatedAt: '3d ago', p95LatencyMs: liveP95LatencyMs },
-    ];
+    // Compute moving average of real persisted historical P95 baseline latencies
+    const sumHistorical = persistedHistory.reduce((acc, r) => acc + r.p95LatencyMs, 0);
+    const historicalBaselineMs = parseFloat((sumHistorical / persistedHistory.length).toFixed(2));
 
-    // Compute moving average of historical P95 baseline latencies
-    const sumHistorical = effectiveHistory.reduce((acc, r) => acc + r.p95LatencyMs, 0);
-    const historicalBaselineMs = parseFloat((sumHistorical / effectiveHistory.length).toFixed(2));
-
-    const latencyDeltaMs = parseFloat((liveP95LatencyMs - historicalBaselineMs).toFixed(2));
-    const rawRatio = historicalBaselineMs > 0 ? liveP95LatencyMs / historicalBaselineMs : 1.0;
+    const effectiveLiveMs = liveP95LatencyMs > 0 ? liveP95LatencyMs : historicalBaselineMs;
+    const latencyDeltaMs = parseFloat((effectiveLiveMs - historicalBaselineMs).toFixed(2));
+    const rawRatio = historicalBaselineMs > 0 ? effectiveLiveMs / historicalBaselineMs : 1.0;
     const driftRatio = parseFloat(rawRatio.toFixed(3));
 
     // Calculate DriftScore (0.000 to 1.000)
@@ -237,19 +289,24 @@ export class HistoricalDriftAnalyzer {
       recommendation = `Slight latency increase (+${(driftScore * 100).toFixed(1)}% above baseline). Within acceptable variance threshold.`;
     }
 
-    const forecast = this.forecastFutureDrift(historicalBaselineMs, liveP95LatencyMs, effectiveHistory, 3, 50.0);
+    const forecast = this.forecastFutureDrift(historicalBaselineMs, effectiveLiveMs, persistedHistory, 3, 50.0);
 
     return {
       serviceId,
-      liveP95LatencyMs: parseFloat(liveP95LatencyMs.toFixed(2)),
+      hasTelemetry: true,
+      liveP95LatencyMs: parseFloat(effectiveLiveMs.toFixed(2)),
       historicalBaselineMs,
       latencyDeltaMs,
       driftRatio,
       driftScore,
       driftLevel,
       historicalDeployments: [
-        ...effectiveHistory,
-        { version: 'Live (v2.1.0)', evaluatedAt: 'Current', p95LatencyMs: liveP95LatencyMs }
+        ...persistedHistory,
+        {
+          version: 'Live (Current)',
+          evaluatedAt: new Date().toISOString().replace('T', ' ').slice(11, 19),
+          p95LatencyMs: parseFloat(effectiveLiveMs.toFixed(2)),
+        },
       ],
       recommendation,
       forecast,

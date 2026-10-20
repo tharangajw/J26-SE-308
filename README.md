@@ -119,6 +119,16 @@ flowchart LR
 
 ## ⚙️ Getting Started
 
+### Run the app with Docker Compose
+
+From the repository root, start the frontend, backend APIs, and telemetry services with:
+
+```bash
+docker compose up --build
+```
+
+Open the frontend at `http://localhost:5173`. Stop the services with `Ctrl+C`, or run `docker compose down` in another terminal. The resilience API is available at `http://localhost:3010` and the telemetry collector at `http://localhost:8787`. Docker Compose reads optional `GEMINI_API_KEY` and `GEMINI_MODEL` values from the root `.env` file for resilience insights.
+
 ### Prerequisites
 - Docker + Kubernetes (minikube / kind / cloud sandbox)
 - Prometheus · Jaeger · Grafana Loki · Grafana
