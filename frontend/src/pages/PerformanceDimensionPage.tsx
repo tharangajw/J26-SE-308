@@ -22,7 +22,9 @@ import {
   Gauge,
   Play,
   RotateCcw,
-  Sliders
+  Sliders,
+  Camera,
+  AlertTriangle
 } from 'lucide-react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -64,6 +66,8 @@ interface ServiceEvaluation {
     fanOutLevel: string;
     directFanOutCount: number;
     maxDependencyDepth: number;
+    executionPattern?: 'SINGLE' | 'PARALLEL_CONCURRENT' | 'HYBRID_WATERFALL' | 'SEQUENTIAL_N_PLUS_1';
+    sequentialRatio?: number;
     isApiGateway: boolean;
     attenuationFactor: number;
     anomalyScore: number;
@@ -108,13 +112,38 @@ interface AHPValidationInfo {
     fanout: number;
     anomaly: number;
   };
+  normalizedWeights?: {
+    drift: number;
+    fanout: number;
+    anomaly: number;
+  };
   pairwiseMatrix: number[][];
   labels: string[];
   lambdaMax: number;
   consistencyIndex: number;
+  consistencyIndexCI?: number;
   randomIndex: number;
+  randomIndexRI?: number;
   consistencyRatio: number;
+  consistencyRatioCR?: number;
   isConsistent: boolean;
+}
+
+interface PScoreHistoryPoint {
+  timestamp: number;
+  overallPScore: number;
+  driftHealthScore: number;
+  fanOutHealthScore: number;
+  anomalyHealthScore: number;
+  tierLevel: number;
+}
+
+interface BaselineSnapshot {
+  capturedAt: string;
+  overallPScore: number;
+  tierLabel: string;
+  projectedScore?: number;
+  serviceScores: Record<string, number>;
 }
 
 interface PythonPScoreResponse {
@@ -139,6 +168,7 @@ interface PythonPScoreResponse {
     avgApdexScore?: number;
     avgTailLatencyRatio?: number;
   };
+  pScoreHistory?: PScoreHistoryPoint[];
   serviceEvaluations: ServiceEvaluation[];
   recommendations: RecommendationItem[];
 }
@@ -149,8 +179,23 @@ interface WeightPreset {
   drift: number;
   fanout: number;
   anomaly: number;
+  a12: number;
+  a13: number;
+  a23: number;
   description: string;
 }
+
+const SAATY_SCALE_OPTIONS: { value: number; label: string }[] = [
+  { value: 0.2, label: '1/5 (0.20) — Strongly Inferior' },
+  { value: 0.3333, label: '1/3 (0.33) — Moderately Inferior' },
+  { value: 0.5, label: '1/2 (0.50) — Slightly Inferior' },
+  { value: 1, label: '1 (1.00) — Equal Importance' },
+  { value: 2, label: '2 (2.00) — Slightly Preferred' },
+  { value: 3, label: '3 (3.00) — Moderately Preferred' },
+  { value: 5, label: '5 (5.00) — Strongly Preferred' },
+  { value: 7, label: '7 (7.00) — Very Strongly Preferred' },
+  { value: 9, label: '9 (9.00) — Extremely Preferred' }
+];
 
 const WEIGHT_PRESETS: WeightPreset[] = [
   {
@@ -159,6 +204,9 @@ const WEIGHT_PRESETS: WeightPreset[] = [
     drift: 0.4,
     fanout: 0.4,
     anomaly: 0.2,
+    a12: 1,
+    a13: 2,
+    a23: 2,
     description: 'Default AHP weight distribution balancing temporal latency stability and topological fan-out.'
   },
   {
@@ -167,6 +215,9 @@ const WEIGHT_PRESETS: WeightPreset[] = [
     drift: 0.55,
     fanout: 0.25,
     anomaly: 0.2,
+    a12: 2,
+    a13: 3,
+    a23: 1,
     description: 'Prioritizes OLS regression latency drift for strict P95/P99 SLA-bound payment & checkout pipelines.'
   },
   {
@@ -175,6 +226,9 @@ const WEIGHT_PRESETS: WeightPreset[] = [
     drift: 0.25,
     fanout: 0.55,
     anomaly: 0.2,
+    a12: 0.5,
+    a13: 1,
+    a23: 3,
     description: 'Prioritizes synchronous call-tree amplification and deep microservice dependency chains.'
   }
 ];
@@ -216,7 +270,14 @@ export const PerformanceDimensionPage: React.FC = () => {
   const [data, setData] = useState<PythonPScoreResponse | null>(null);
   const [selectedServiceFilter, setSelectedServiceFilter] = useState<string>('ALL');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('BALANCED');
+  const [useCustomPairwise, setUseCustomPairwise] = useState<boolean>(false);
+  const [pairwiseJudgments, setPairwiseJudgments] = useState<{ a12: number; a13: number; a23: number }>({
+    a12: 1,
+    a13: 2,
+    a23: 2
+  });
   const [simulatedRecIds, setSimulatedRecIds] = useState<string[]>([]);
+  const [capturedBaseline, setCapturedBaseline] = useState<BaselineSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -230,7 +291,10 @@ export const PerformanceDimensionPage: React.FC = () => {
   const fetchCompositePScore = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const qs = `?w_drift=${activePreset.drift}&w_fanout=${activePreset.fanout}&w_anomaly=${activePreset.anomaly}`;
+      let qs = `?w_drift=${activePreset.drift}&w_fanout=${activePreset.fanout}&w_anomaly=${activePreset.anomaly}`;
+      if (useCustomPairwise) {
+        qs += `&a12=${pairwiseJudgments.a12}&a13=${pairwiseJudgments.a13}&a23=${pairwiseJudgments.a23}`;
+      }
       const urls = [
         `/api/anomaly/pscore/evaluate${qs}`,
         `http://localhost:8000/pscore/evaluate${qs}`
@@ -264,7 +328,7 @@ export const PerformanceDimensionPage: React.FC = () => {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [activePreset]);
+  }, [activePreset, useCustomPairwise, pairwiseJudgments]);
 
   useEffect(() => {
     fetchCompositePScore();
@@ -307,14 +371,12 @@ export const PerformanceDimensionPage: React.FC = () => {
       simulatedRecIds.includes(r.id || `${r.serviceId}-${r.ruleId}`)
     );
 
-    // Per-service projected gain
     const serviceDeltaMap: Record<string, number> = {};
     for (const r of activeSimulatedRecs) {
       const delta = r.projectedServiceDeltaPts ?? 4.0;
       serviceDeltaMap[r.serviceId] = (serviceDeltaMap[r.serviceId] || 0) + delta;
     }
 
-    // Recompute projected service scores (capped at 100)
     const evals = data?.serviceEvaluations || [];
     let totalProjectedScore = 0;
     for (const ev of evals) {
@@ -338,6 +400,21 @@ export const PerformanceDimensionPage: React.FC = () => {
       serviceDeltaMap
     };
   }, [data, simulatedRecIds]);
+
+  const handleCaptureBaseline = () => {
+    if (!data) return;
+    const svcMap: Record<string, number> = {};
+    for (const s of data.serviceEvaluations) {
+      svcMap[s.serviceId] = s.pScore;
+    }
+    setCapturedBaseline({
+      capturedAt: new Date().toLocaleTimeString(),
+      overallPScore: data.overallPScore,
+      tierLabel: data.maturityTier.shortLabel,
+      projectedScore: simulationSummary.isSimulating ? simulationSummary.projectedOverallScore : undefined,
+      serviceScores: svcMap
+    });
+  };
 
   const avgLatency =
     activeEvals.length > 0
@@ -363,6 +440,14 @@ export const PerformanceDimensionPage: React.FC = () => {
       ? activeEvals.reduce((sum, s) => sum + s.rawMetrics.memoryUsageMB, 0) / activeEvals.length
       : 0;
 
+  const crValue =
+    data?.ahpValidation?.consistencyRatio ?? data?.ahpValidation?.consistencyRatioCR ?? 0;
+  const ciValue =
+    data?.ahpValidation?.consistencyIndex ?? data?.ahpValidation?.consistencyIndexCI ?? 0;
+  const riValue =
+    data?.ahpValidation?.randomIndex ?? data?.ahpValidation?.randomIndexRI ?? 0.58;
+  const isAhpConsistent = data?.ahpValidation?.isConsistent ?? crValue < 0.1;
+
   const getTierBadgeColor = (level?: number) => {
     switch (level) {
       case 4:
@@ -374,6 +459,32 @@ export const PerformanceDimensionPage: React.FC = () => {
       default:
         return 'border-rose-500/40 bg-rose-500/15 text-rose-400';
     }
+  };
+
+  const getExecutionPatternBadge = (
+    pattern?: ServiceEvaluation['signals']['executionPattern'],
+    seqRatio?: number
+  ) => {
+    if (!pattern || pattern === 'SINGLE') return null;
+    if (pattern === 'SEQUENTIAL_N_PLUS_1') {
+      return (
+        <span className="rounded bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 font-mono text-[10px] text-rose-400">
+          Sequential N+1 ({Math.round((seqRatio ?? 1) * 100)}%)
+        </span>
+      );
+    }
+    if (pattern === 'HYBRID_WATERFALL') {
+      return (
+        <span className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 font-mono text-[10px] text-amber-400">
+          Hybrid Waterfall ({Math.round((seqRatio ?? 0.5) * 100)}% Seq)
+        </span>
+      );
+    }
+    return (
+      <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">
+        Parallel (Promise.all)
+      </span>
+    );
   };
 
   const getCategoryBadge = (cat: RecommendationItem['category']) => {
@@ -495,7 +606,9 @@ export const PerformanceDimensionPage: React.FC = () => {
             <span>
               <strong>{data?.engine}</strong> — Monitoring {activeEvals.length} live microservices (Eval latency:{' '}
               {data?.evaluationLatencyMs ?? 0}ms) | AHP Consistency Ratio:{' '}
-              <strong>CR = {data?.ahpValidation?.consistencyRatio?.toFixed(4) ?? '0.0000'} (&lt; 0.10 Valid)</strong>
+              <strong className={isAhpConsistent ? 'text-emerald-300' : 'text-amber-300'}>
+                CR = {crValue.toFixed(4)} ({isAhpConsistent ? '< 0.10 Valid' : '>= 0.10 Inconsistent'})
+              </strong>
             </span>
           </div>
           {lastUpdated && (
@@ -588,7 +701,7 @@ export const PerformanceDimensionPage: React.FC = () => {
 
       {/* Main Content: Weighted Research Sub-Modules & Live Service P-Score Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column: Weighted Sub-Modules + Saaty AHP Consistency Validator */}
+        {/* Left Column: Weighted Sub-Modules + Saaty AHP Consistency Validator + Historical Trend */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -655,7 +768,7 @@ export const PerformanceDimensionPage: React.FC = () => {
                   />
                 </div>
                 <p className="text-[11px] text-text-muted font-mono">
-                  Avg Attenuated Fan-Out Penalty: {data?.clusterSubScores?.avgFanOutPenalty?.toFixed(3) ?? '0.000'} (0.3x API Gateway factor)
+                  Avg Attenuated Fan-Out Penalty: {data?.clusterSubScores?.avgFanOutPenalty?.toFixed(3) ?? '0.000'} (0.3x API Gateway factor + N+1 Sequential check)
                 </p>
               </div>
 
@@ -707,29 +820,57 @@ export const PerformanceDimensionPage: React.FC = () => {
                 <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
                   <Scale className="h-4 w-4 text-sky-400" /> Saaty&apos;s AHP Weight Justification &amp; CR Validator
                 </CardTitle>
-                <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-400">
-                  <CheckCircle2 className="h-3 w-3" /> CR ={' '}
-                  {data?.ahpValidation?.consistencyRatio?.toFixed(4) ?? '0.0000'} &lt; 0.10
+                <span
+                  className={`inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[10px] font-semibold border ${
+                    isAhpConsistent
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                      : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                  }`}
+                >
+                  {isAhpConsistent ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : (
+                    <AlertTriangle className="h-3 w-3" />
+                  )}
+                  CR = {crValue.toFixed(4)} {isAhpConsistent ? '< 0.10' : '>= 0.10 (Revise)'}
                 </span>
               </div>
               <p className="mt-1 text-xs text-text-muted">
-                Mathematical verification of P-Score penalty weights using Analytic Hierarchy Process pairwise comparison matrix.
+                Mathematical verification of P-Score penalty weights using Saaty&apos;s 1–9 Analytic Hierarchy Process pairwise comparison matrix.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Weight Profile Selector */}
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5 text-[11px] font-mono uppercase text-text-secondary">
-                  <Sliders className="h-3 w-3 text-brand-perf" /> Select Architectural Weight Profile:
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono uppercase text-text-secondary">
+                    <Sliders className="h-3 w-3 text-brand-perf" /> Select Architectural Weight Profile:
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUseCustomPairwise((prev) => !prev)}
+                    className={`rounded border px-2 py-0.5 font-mono text-[10px] transition-colors ${
+                      useCustomPairwise
+                        ? 'border-sky-400 bg-sky-500/15 text-sky-300 font-semibold'
+                        : 'border-border bg-surface-secondary/30 text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    {useCustomPairwise ? 'Custom Saaty 1–9 Judgments Active' : 'Customize Pairwise (a12, a13, a23)'}
+                  </button>
                 </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {WEIGHT_PRESETS.map((preset) => (
                     <button
                       key={preset.id}
                       type="button"
-                      onClick={() => setSelectedPresetId(preset.id)}
+                      onClick={() => {
+                        setSelectedPresetId(preset.id);
+                        setUseCustomPairwise(false);
+                        setPairwiseJudgments({ a12: preset.a12, a13: preset.a13, a23: preset.a23 });
+                      }}
                       className={`rounded-md border p-2 text-left transition-colors ${
-                        selectedPresetId === preset.id
+                        !useCustomPairwise && selectedPresetId === preset.id
                           ? 'border-brand-perf bg-brand-perf/15 text-text-primary'
                           : 'border-border bg-surface-secondary/20 text-text-secondary hover:text-text-primary'
                       }`}
@@ -744,12 +885,77 @@ export const PerformanceDimensionPage: React.FC = () => {
                 <p className="text-[11px] text-text-muted">{activePreset.description}</p>
               </div>
 
+              {/* Interactive Saaty 1-9 Pairwise Judgment Controls */}
+              {useCustomPairwise && (
+                <div className="rounded border border-sky-500/30 bg-sky-500/5 p-3 space-y-2.5">
+                  <div className="text-[11px] font-mono uppercase text-sky-400 font-semibold">
+                    Saaty 1–9 Pairwise Comparisons (Test Transitivity &amp; Consistency Ratio CR)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <label className="block font-mono text-[10px] text-text-secondary mb-1">
+                        a₁₂ (Drift vs. Fan-Out)
+                      </label>
+                      <select
+                        value={pairwiseJudgments.a12}
+                        onChange={(e) =>
+                          setPairwiseJudgments((p) => ({ ...p, a12: parseFloat(e.target.value) }))
+                        }
+                        className="w-full rounded border border-border bg-surface px-2 py-1 font-mono text-[11px] text-text-primary"
+                      >
+                        {SAATY_SCALE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-mono text-[10px] text-text-secondary mb-1">
+                        a₁₃ (Drift vs. ML Anomaly)
+                      </label>
+                      <select
+                        value={pairwiseJudgments.a13}
+                        onChange={(e) =>
+                          setPairwiseJudgments((p) => ({ ...p, a13: parseFloat(e.target.value) }))
+                        }
+                        className="w-full rounded border border-border bg-surface px-2 py-1 font-mono text-[11px] text-text-primary"
+                      >
+                        {SAATY_SCALE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-mono text-[10px] text-text-secondary mb-1">
+                        a₂₃ (Fan-Out vs. ML Anomaly)
+                      </label>
+                      <select
+                        value={pairwiseJudgments.a23}
+                        onChange={(e) =>
+                          setPairwiseJudgments((p) => ({ ...p, a23: parseFloat(e.target.value) }))
+                        }
+                        className="w-full rounded border border-border bg-surface px-2 py-1 font-mono text-[11px] text-text-primary"
+                      >
+                        {SAATY_SCALE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 3x3 Pairwise Matrix & Eigenvalue Metrics */}
               {data?.ahpValidation && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div className="rounded border border-border/70 bg-surface-secondary/20 p-2.5">
                     <div className="text-[10px] font-mono uppercase text-text-muted mb-1.5">
-                      Pairwise Matrix A = [w_i / w_j]
+                      Saaty Pairwise Matrix A = [a_ij]
                     </div>
                     <table className="w-full text-right font-mono text-[11px]">
                       <thead>
@@ -786,18 +992,16 @@ export const PerformanceDimensionPage: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-text-muted">Consistency Index (CI):</span>
-                      <span className="text-text-primary">
-                        {data.ahpValidation.consistencyIndex.toFixed(4)}
-                      </span>
+                      <span className="text-text-primary">{ciValue.toFixed(4)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-text-muted">Saaty Random Index (RI, n=3):</span>
-                      <span className="text-text-primary">{data.ahpValidation.randomIndex}</span>
+                      <span className="text-text-primary">{riValue}</span>
                     </div>
                     <div className="flex justify-between border-t border-border/50 pt-1">
                       <span className="text-text-secondary font-semibold">Consistency Ratio (CR):</span>
-                      <span className="text-emerald-400 font-bold">
-                        {data.ahpValidation.consistencyRatio.toFixed(4)} (Consistent)
+                      <span className={isAhpConsistent ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                        {crValue.toFixed(4)} ({isAhpConsistent ? 'Consistent' : 'Inconsistent'})
                       </span>
                     </div>
                   </div>
@@ -805,6 +1009,64 @@ export const PerformanceDimensionPage: React.FC = () => {
               )}
             </CardContent>
           </Card>
+
+          {/* Historical P-Score Trend Timeline */}
+          {data?.pScoreHistory && data.pScoreHistory.length > 0 && (
+            <Card className="border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center justify-between text-sm uppercase tracking-wider text-text-secondary">
+                  <span className="flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-emerald-400" /> Persistent P-Score Historical Trend
+                  </span>
+                  <span className="font-mono text-[11px] text-text-muted">
+                    Last {Math.min(20, data.pScoreHistory.length)} Evaluations
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2.5">
+                <div className="h-24 flex items-end gap-1.5 pt-2 px-1 border-b border-border/60">
+                  {data.pScoreHistory.slice(-20).map((pt, idx) => {
+                    const heightPct = Math.max(12, Math.min(100, pt.overallPScore));
+                    const barColor =
+                      pt.overallPScore >= 85
+                        ? 'bg-emerald-400/80'
+                        : pt.overallPScore >= 70
+                        ? 'bg-sky-400/80'
+                        : pt.overallPScore >= 50
+                        ? 'bg-amber-400/80'
+                        : 'bg-rose-400/80';
+                    const timeStr = new Date(pt.timestamp * 1000).toLocaleTimeString();
+                    return (
+                      <div
+                        key={`${pt.timestamp}-${idx}`}
+                        className="flex-1 flex flex-col items-center group relative"
+                        title={`${timeStr} — P-Score: ${pt.overallPScore.toFixed(1)} (Tier L${pt.tierLevel})`}
+                      >
+                        <div
+                          className={`w-full rounded-t transition-all ${barColor} group-hover:opacity-100 opacity-85`}
+                          style={{ height: `${(heightPct / 100) * 80}px` }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between font-mono text-[10px] text-text-muted">
+                  <span>
+                    Earliest:{' '}
+                    {data.pScoreHistory[0]
+                      ? `${data.pScoreHistory[0].overallPScore.toFixed(1)} pts`
+                      : '--'}
+                  </span>
+                  <span>
+                    Latest:{' '}
+                    {data.pScoreHistory[data.pScoreHistory.length - 1]
+                      ? `${data.pScoreHistory[data.pScoreHistory.length - 1].overallPScore.toFixed(1)} pts`
+                      : '--'}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Right Column: Per-Service Live P-Score, Apdex, Tail Ratio & XAI Feature Attribution */}
@@ -814,7 +1076,7 @@ export const PerformanceDimensionPage: React.FC = () => {
               <Server className="h-4 w-4 text-emerald-400" /> Per-Service Live P-Score, Apdex &amp; XAI Breakdown
             </CardTitle>
             <p className="mt-1 text-xs text-text-muted">
-              Individual microservice P-Scores, Tail-Latency Amplification (P99/P95), Apdex SLA, and Explainable AI attribution.
+              Individual microservice P-Scores, Execution Pattern (Sequential N+1 vs Parallel), Apdex SLA, and XAI attribution.
             </p>
           </CardHeader>
           <CardContent className="space-y-3.5">
@@ -829,7 +1091,7 @@ export const PerformanceDimensionPage: React.FC = () => {
                   className="rounded-lg border border-border/80 bg-surface-secondary/30 p-3.5 space-y-2.5"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-sm font-bold text-text-primary">
                         {svc.serviceId}
                       </span>
@@ -837,6 +1099,10 @@ export const PerformanceDimensionPage: React.FC = () => {
                         <span className="rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 font-mono text-[10px] text-sky-400">
                           Gateway (0.3x)
                         </span>
+                      )}
+                      {getExecutionPatternBadge(
+                        svc.signals.executionPattern,
+                        svc.signals.sequentialRatio
                       )}
                       {svc.hasTelemetry ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
@@ -973,11 +1239,18 @@ export const PerformanceDimensionPage: React.FC = () => {
                 <Sparkles className="h-4 w-4 text-brand-perf" /> Context-Aware Architectural Recommendations &amp; Closed-Loop Simulator
               </CardTitle>
               <p className="mt-1 text-xs text-text-secondary">
-                Toggle <strong>Simulate Fix</strong> on any recommendation to project the closed-loop Before vs. After P-Score and Maturity Tier jump.
+                Toggle <strong>Simulate Fix</strong> or click <strong>Capture Baseline Snapshot</strong> to verify Before vs. After optimization gains.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCaptureBaseline}
+                className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/15 px-2.5 py-1 font-mono text-xs font-semibold text-sky-400 hover:bg-sky-500/25 transition-colors"
+              >
+                <Camera className="h-3 w-3" /> Capture Baseline Snapshot
+              </button>
               <button
                 type="button"
                 onClick={simulateAllFixes}
@@ -996,6 +1269,46 @@ export const PerformanceDimensionPage: React.FC = () => {
               )}
             </div>
           </div>
+
+          {/* Captured Baseline vs. Live Actual Benchmark Comparison */}
+          {capturedBaseline && data && (
+            <div className="mt-4 rounded-lg border border-sky-500/40 bg-sky-500/10 p-3.5 flex flex-wrap items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <div className="text-xs font-mono uppercase tracking-wider text-sky-400 font-bold">
+                  Empirical Before vs. After Optimization Benchmark (Captured at {capturedBaseline.capturedAt})
+                </div>
+                <div className="text-xs text-text-secondary">
+                  Compares captured pre-optimization baseline against live telemetry after applying Redis caching, DB indexing, or JMeter load changes.
+                </div>
+              </div>
+              <div className="flex items-center gap-4 font-mono">
+                <div className="text-right">
+                  <div className="text-[10px] uppercase text-text-muted">Baseline P-Score</div>
+                  <div className="text-lg font-bold text-text-primary">
+                    {capturedBaseline.overallPScore.toFixed(1)}
+                  </div>
+                </div>
+                <div className="text-sky-400 font-bold text-lg">→</div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase text-sky-400">Live Actual P-Score</div>
+                  <div className="text-xl font-bold text-sky-400">
+                    {data.overallPScore.toFixed(1)}{' '}
+                    <span className="text-xs">
+                      ({data.overallPScore - capturedBaseline.overallPScore >= 0 ? '+' : ''}
+                      {(data.overallPScore - capturedBaseline.overallPScore).toFixed(1)} pts)
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCapturedBaseline(null)}
+                  className="rounded border border-border bg-surface px-2 py-1 text-[10px] text-text-muted hover:text-text-primary"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Interactive Closed-Loop Simulation Banner */}
           {simulationSummary.isSimulating && (

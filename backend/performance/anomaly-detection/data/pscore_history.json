@@ -1,0 +1,362 @@
+[
+  {
+    "timestampMs": 1792491553698,
+    "timeSlot": "10:19:13",
+    "overallPScore": 88.3,
+    "driftHealthScore": 94.7,
+    "fanOutHealthScore": 79.8,
+    "anomalyHealthScore": 92.5,
+    "apdexScore": 19.2
+  },
+  {
+    "timestampMs": 1792491554020,
+    "timeSlot": "10:19:14",
+    "overallPScore": 87.5,
+    "driftHealthScore": 95.6,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 87.9,
+    "apdexScore": 15.3
+  },
+  {
+    "timestampMs": 1792491559845,
+    "timeSlot": "10:19:19",
+    "overallPScore": 87.9,
+    "driftHealthScore": 95.4,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 90.0,
+    "apdexScore": 20.2
+  },
+  {
+    "timestampMs": 1792491560818,
+    "timeSlot": "10:19:20",
+    "overallPScore": 88.7,
+    "driftHealthScore": 95.5,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 93.7,
+    "apdexScore": 21.5
+  },
+  {
+    "timestampMs": 1792491570591,
+    "timeSlot": "10:19:30",
+    "overallPScore": 99.1,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 95.5,
+    "apdexScore": 24.9
+  },
+  {
+    "timestampMs": 1792491580067,
+    "timeSlot": "10:19:40",
+    "overallPScore": 81.3,
+    "driftHealthScore": 76.6,
+    "fanOutHealthScore": 81.4,
+    "anomalyHealthScore": 90.7,
+    "apdexScore": 22.7
+  },
+  {
+    "timestampMs": 1792491586539,
+    "timeSlot": "10:19:46",
+    "overallPScore": 99.3,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 96.5,
+    "apdexScore": 27.0
+  },
+  {
+    "timestampMs": 1792491598038,
+    "timeSlot": "10:19:58",
+    "overallPScore": 99.1,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 95.4,
+    "apdexScore": 22.3
+  },
+  {
+    "timestampMs": 1792491634864,
+    "timeSlot": "10:20:34",
+    "overallPScore": 70.7,
+    "driftHealthScore": 69.4,
+    "fanOutHealthScore": 80.4,
+    "anomalyHealthScore": 53.8,
+    "apdexScore": 0.0
+  },
+  {
+    "timestampMs": 1792491666768,
+    "timeSlot": "10:21:06",
+    "overallPScore": 98.2,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 90.8,
+    "apdexScore": 12.4
+  },
+  {
+    "timestampMs": 1792491672991,
+    "timeSlot": "10:21:12",
+    "overallPScore": 80.0,
+    "driftHealthScore": 75.4,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 90.5,
+    "apdexScore": 11.1
+  },
+  {
+    "timestampMs": 1792491675801,
+    "timeSlot": "10:21:15",
+    "overallPScore": 99.6,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 97.9,
+    "apdexScore": 12.7
+  },
+  {
+    "timestampMs": 1792491728421,
+    "timeSlot": "10:22:08",
+    "overallPScore": 99.0,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 95.1,
+    "apdexScore": 12.0
+  },
+  {
+    "timestampMs": 1792491733312,
+    "timeSlot": "10:22:13",
+    "overallPScore": 99.6,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 98.1,
+    "apdexScore": 12.1
+  },
+  {
+    "timestampMs": 1792491740212,
+    "timeSlot": "10:22:20",
+    "overallPScore": 98.2,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 90.9,
+    "apdexScore": 11.5
+  },
+  {
+    "timestampMs": 1792491760933,
+    "timeSlot": "10:22:40",
+    "overallPScore": 76.6,
+    "driftHealthScore": 86.5,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 51.1,
+    "apdexScore": 0.0
+  },
+  {
+    "timestampMs": 1792492150251,
+    "timeSlot": "10:29:10",
+    "overallPScore": 87.3,
+    "driftHealthScore": 93.6,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 90.8,
+    "apdexScore": 8.8
+  },
+  {
+    "timestampMs": 1792492153964,
+    "timeSlot": "10:29:13",
+    "overallPScore": 98.8,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 94.1,
+    "apdexScore": 10.1
+  },
+  {
+    "timestampMs": 1792492157297,
+    "timeSlot": "10:29:17",
+    "overallPScore": 86.0,
+    "driftHealthScore": 93.5,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 84.6,
+    "apdexScore": 8.9
+  },
+  {
+    "timestampMs": 1792492162646,
+    "timeSlot": "10:29:22",
+    "overallPScore": 80.2,
+    "driftHealthScore": 94.7,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 52.8,
+    "apdexScore": 0.0
+  },
+  {
+    "timestampMs": 1792492162997,
+    "timeSlot": "10:29:22",
+    "overallPScore": 79.7,
+    "driftHealthScore": 93.5,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 52.8,
+    "apdexScore": 0.0
+  },
+  {
+    "timestampMs": 1792492163976,
+    "timeSlot": "10:29:23",
+    "overallPScore": 97.6,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 88.2,
+    "apdexScore": 10.1
+  },
+  {
+    "timestampMs": 1792492165832,
+    "timeSlot": "10:29:25",
+    "overallPScore": 85.3,
+    "driftHealthScore": 93.6,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 80.9,
+    "apdexScore": 7.7
+  },
+  {
+    "timestampMs": 1792492174859,
+    "timeSlot": "10:29:34",
+    "overallPScore": 97.5,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 87.4,
+    "apdexScore": 10.7
+  },
+  {
+    "timestampMs": 1792492176372,
+    "timeSlot": "10:29:36",
+    "overallPScore": 88.6,
+    "driftHealthScore": 93.8,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 96.7,
+    "apdexScore": 9.6
+  },
+  {
+    "timestampMs": 1792492177225,
+    "timeSlot": "10:29:37",
+    "overallPScore": 87.2,
+    "driftHealthScore": 92.5,
+    "fanOutHealthScore": 80.4,
+    "anomalyHealthScore": 90.3,
+    "apdexScore": 9.6
+  },
+  {
+    "timestampMs": 1792492178626,
+    "timeSlot": "10:29:38",
+    "overallPScore": 99.3,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 96.7,
+    "apdexScore": 11.0
+  },
+  {
+    "timestampMs": 1792492184255,
+    "timeSlot": "10:29:44",
+    "overallPScore": 87.6,
+    "driftHealthScore": 92.8,
+    "fanOutHealthScore": 81.4,
+    "anomalyHealthScore": 89.7,
+    "apdexScore": 8.2
+  },
+  {
+    "timestampMs": 1792492184262,
+    "timeSlot": "10:29:44",
+    "overallPScore": 85.9,
+    "driftHealthScore": 92.8,
+    "fanOutHealthScore": 79.8,
+    "anomalyHealthScore": 83.9,
+    "apdexScore": 8.2
+  },
+  {
+    "timestampMs": 1792492185926,
+    "timeSlot": "10:29:45",
+    "overallPScore": 87.0,
+    "driftHealthScore": 92.8,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 90.6,
+    "apdexScore": 9.8
+  },
+  {
+    "timestampMs": 1792492215040,
+    "timeSlot": "10:30:15",
+    "overallPScore": 99.0,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 95.2,
+    "apdexScore": 11.5
+  },
+  {
+    "timestampMs": 1792492265463,
+    "timeSlot": "10:31:05",
+    "overallPScore": 98.0,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 89.9,
+    "apdexScore": 11.7
+  },
+  {
+    "timestampMs": 1792492272028,
+    "timeSlot": "10:31:12",
+    "overallPScore": 87.9,
+    "driftHealthScore": 97.3,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 86.3,
+    "apdexScore": 10.3
+  },
+  {
+    "timestampMs": 1792492393872,
+    "timeSlot": "10:33:13",
+    "overallPScore": 80.8,
+    "driftHealthScore": 94.1,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 57.0,
+    "apdexScore": 0.0
+  },
+  {
+    "timestampMs": 1792492394500,
+    "timeSlot": "10:33:14",
+    "overallPScore": 87.0,
+    "driftHealthScore": 94.1,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 88.0,
+    "apdexScore": 10.5
+  },
+  {
+    "timestampMs": 1792492419854,
+    "timeSlot": "10:33:39",
+    "overallPScore": 99.3,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 96.4,
+    "apdexScore": 11.1
+  },
+  {
+    "timestampMs": 1792492492418,
+    "timeSlot": "10:34:52",
+    "overallPScore": 98.0,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 89.8,
+    "apdexScore": 10.4
+  },
+  {
+    "timestampMs": 1792492498146,
+    "timeSlot": "10:34:58",
+    "overallPScore": 79.6,
+    "driftHealthScore": 96.5,
+    "fanOutHealthScore": 79.3,
+    "anomalyHealthScore": 46.6,
+    "apdexScore": 0.0
+  },
+  {
+    "timestampMs": 1792492544622,
+    "timeSlot": "10:35:44",
+    "overallPScore": 96.5,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 82.7,
+    "apdexScore": 0.0
+  },
+  {
+    "timestampMs": 1792492549545,
+    "timeSlot": "10:35:49",
+    "overallPScore": 94.9,
+    "driftHealthScore": 100.0,
+    "fanOutHealthScore": 100.0,
+    "anomalyHealthScore": 74.4,
+    "apdexScore": 0.0
+  }
+]

@@ -1,3 +1,4 @@
+import os
 import time
 import urllib.request
 import urllib.parse
@@ -7,17 +8,47 @@ import numpy as np
 from isolation_forest import AnomalyDetectionService
 
 
+SAATY_SCALE_VALUES = np.array(
+    [
+        1.0 / 9.0,
+        1.0 / 8.0,
+        1.0 / 7.0,
+        1.0 / 6.0,
+        1.0 / 5.0,
+        1.0 / 4.0,
+        1.0 / 3.0,
+        1.0 / 2.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+    ],
+    dtype=float,
+)
+
+
+def _snap_to_saaty_scale(ratio: float) -> float:
+    idx = int(np.argmin(np.abs(SAATY_SCALE_VALUES - ratio)))
+    return float(SAATY_SCALE_VALUES[idx])
+
+
 class PScoreAndRecommendationEngine:
     """
     Phase 4 & 5: Composite Performance Efficiency Scoring Engine (P-Score),
     Saaty AHP Consistency Validator, Tail-Latency & Apdex Analyzer,
-    4-Tier Maturity Mapper, and Closed-Loop Recommendation Simulator in Python.
+    4-Tier Maturity Mapper, Historical P-Score Trend Tracker, and Closed-Loop Recommendation Simulator in Python.
     """
 
     def __init__(
         self,
         detector: AnomalyDetectionService,
         collector_url: str = "http://telemetry-collector:8787",
+        history_path: Optional[str] = None,
     ):
         self.detector = detector
         self.collector_url = collector_url
@@ -26,6 +57,72 @@ class PScoreAndRecommendationEngine:
             "fanout": 0.40,
             "anomaly": 0.20,
         }
+        self.history_path = history_path or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "data",
+            "pscore_history.json",
+        )
+        self.pscore_history: List[Dict[str, Any]] = []
+        self.max_history_points = 40
+        self._last_recorded_ts = 0.0
+        self._load_pscore_history()
+
+    def _load_pscore_history(self) -> None:
+        try:
+            if os.path.exists(self.history_path):
+                with open(self.history_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, list):
+                    self.pscore_history = loaded[-self.max_history_points :]
+        except Exception:
+            self.pscore_history = []
+
+    def _persist_pscore_history(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self.history_path), exist_ok=True)
+            with open(self.history_path, "w", encoding="utf-8") as f:
+                json.dump(self.pscore_history, f, indent=2)
+        except Exception:
+            pass
+
+    def _record_pscore_snapshot(
+        self,
+        overall_pscore: float,
+        drift_health: float,
+        fanout_health: float,
+        anomaly_health: float,
+        cluster_apdex: float,
+    ) -> List[Dict[str, Any]]:
+        if overall_pscore <= 0:
+            return self.pscore_history
+
+        now = time.time()
+        last_score = (
+            float(self.pscore_history[-1].get("overallPScore", -1.0))
+            if self.pscore_history
+            else -1.0
+        )
+        score_changed = abs(overall_pscore - last_score) >= 0.2
+
+        if not self.pscore_history or (now - self._last_recorded_ts) >= 15.0 or score_changed:
+            entry = {
+                "timestampMs": int(now * 1000),
+                "timeSlot": time.strftime("%H:%M:%S", time.localtime(now)),
+                "overallPScore": round(overall_pscore, 1),
+                "driftHealthScore": round(drift_health, 1),
+                "fanOutHealthScore": round(fanout_health, 1),
+                "anomalyHealthScore": round(anomaly_health, 1),
+                "apdexScore": round(cluster_apdex * 100.0, 1),
+            }
+            self.pscore_history.append(entry)
+            if len(self.pscore_history) > self.max_history_points:
+                del self.pscore_history[
+                    0 : len(self.pscore_history) - self.max_history_points
+                ]
+            self._last_recorded_ts = now
+            self._persist_pscore_history()
+
+        return self.pscore_history
 
     def _fetch_json(self, path: str, timeout: float = 4.0) -> Optional[Dict[str, Any]]:
         urls = [
@@ -44,45 +141,96 @@ class PScoreAndRecommendationEngine:
 
     @staticmethod
     def compute_ahp_validation(
-        w_drift: float = 0.40, w_fanout: float = 0.40, w_anomaly: float = 0.20
+        w_drift: float = 0.40,
+        w_fanout: float = 0.40,
+        w_anomaly: float = 0.20,
+        a12: Optional[float] = None,
+        a13: Optional[float] = None,
+        a23: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Computes Saaty's Analytic Hierarchy Process (AHP) 3x3 Pairwise Comparison Matrix,
-        Principal Eigenvalue (lambda_max), Consistency Index (CI), and Consistency Ratio (CR < 0.10).
+        Principal Eigenvector priority weights, Principal Eigenvalue (lambda_max),
+        Consistency Index (CI), and Consistency Ratio (CR < 0.10).
+        Supports explicit Saaty 1-9 pairwise judgments (a12, a13, a23) or quantizes target weight ratios
+        onto Saaty's discrete fundamental scale.
         """
         total = max(1e-6, w_drift + w_fanout + w_anomaly)
-        w = np.array([w_drift / total, w_fanout / total, w_anomaly / total], dtype=float)
+        target_w = np.array(
+            [w_drift / total, w_fanout / total, w_anomaly / total], dtype=float
+        )
 
-        # Construct pairwise comparison matrix A_ij = w_i / w_j (with slight empirical Saaty rounding check)
-        matrix = np.zeros((3, 3), dtype=float)
-        for i in range(3):
-            for j in range(3):
-                ratio = w[i] / max(1e-4, w[j])
-                matrix[i, j] = round(float(ratio), 3)
+        val_12 = (
+            float(np.clip(a12, 1.0 / 9.0, 9.0))
+            if a12 is not None
+            else _snap_to_saaty_scale(target_w[0] / max(1e-4, target_w[1]))
+        )
+        val_13 = (
+            float(np.clip(a13, 1.0 / 9.0, 9.0))
+            if a13 is not None
+            else _snap_to_saaty_scale(target_w[0] / max(1e-4, target_w[2]))
+        )
+        val_23 = (
+            float(np.clip(a23, 1.0 / 9.0, 9.0))
+            if a23 is not None
+            else _snap_to_saaty_scale(target_w[1] / max(1e-4, target_w[2]))
+        )
 
-        eigvals = np.linalg.eigvals(matrix)
-        lambda_max = float(np.max(np.real(eigvals)))
+        matrix = np.array(
+            [
+                [1.0, round(val_12, 3), round(val_13, 3)],
+                [round(1.0 / val_12, 3), 1.0, round(val_23, 3)],
+                [round(1.0 / val_13, 3), round(1.0 / val_23, 3), 1.0],
+            ],
+            dtype=float,
+        )
+
+        eigvals, eigvecs = np.linalg.eig(matrix)
+        max_idx = int(np.argmax(np.real(eigvals)))
+        lambda_max = float(np.real(eigvals[max_idx]))
+
+        # If explicit pairwise judgments were provided, derive priority weights from the principal eigenvector
+        if a12 is not None or a13 is not None or a23 is not None:
+            principal_vec = np.abs(np.real(eigvecs[:, max_idx]))
+            vec_sum = float(np.sum(principal_vec))
+            w = principal_vec / vec_sum if vec_sum > 0 else target_w
+        else:
+            w = target_w
+
         n = 3
         ci = max(0.0, (lambda_max - n) / (n - 1))
         ri_3 = 0.58  # Saaty Random Index for n=3
         cr = ci / ri_3
 
+        norm_weights = {
+            "drift": round(float(w[0]), 3),
+            "fanout": round(float(w[1]), 3),
+            "anomaly": round(float(w[2]), 3),
+        }
+        criteria_labels = [
+            "Historical Latency Drift (C1)",
+            "Call-Tree Fan-Out Amplification (C2)",
+            "Isolation Forest ML Anomaly (C3)",
+        ]
+
         return {
-            "criteria": [
-                "Historical Latency Drift (C1)",
-                "Call-Tree Fan-Out Amplification (C2)",
-                "Isolation Forest ML Anomaly (C3)",
-            ],
-            "normalizedWeights": {
-                "drift": round(float(w[0]), 3),
-                "fanout": round(float(w[1]), 3),
-                "anomaly": round(float(w[2]), 3),
+            "criteria": criteria_labels,
+            "labels": criteria_labels,
+            "normalizedWeights": norm_weights,
+            "weights": norm_weights,
+            "pairwiseJudgments": {
+                "a12": round(val_12, 3),
+                "a13": round(val_13, 3),
+                "a23": round(val_23, 3),
             },
             "pairwiseMatrix": matrix.tolist(),
             "lambdaMax": round(lambda_max, 4),
             "consistencyIndexCI": round(ci, 4),
+            "consistencyIndex": round(ci, 4),
             "randomIndexRI": ri_3,
+            "randomIndex": ri_3,
             "consistencyRatioCR": round(cr, 4),
+            "consistencyRatio": round(cr, 4),
             "isConsistent": bool(cr < 0.10),
             "threshold": 0.10,
         }
@@ -94,16 +242,19 @@ class PScoreAndRecommendationEngine:
         """
         Computes Tail-Latency Amplification Ratio (P99 / P95) and Apdex Score (T = 50ms, 4T = 200ms).
         """
-        effective_p95 = max(0.5, p95_lat_ms if p95_lat_ms > 0 else avg_lat_ms * 1.25)
-        effective_p99 = max(effective_p95, p99_lat_ms if p99_lat_ms > 0 else effective_p95 * 1.2)
-        tail_ratio = round(effective_p99 / effective_p95, 2) if p95_lat_ms > 0 or avg_lat_ms > 0 else 1.0
+        effective_p95 = max(0.5, p95_lat_ms if p95_lat_ms > 0 else avg_lat_ms)
+        effective_p99 = max(effective_p95, p99_lat_ms if p99_lat_ms > 0 else effective_p95)
+        tail_ratio = (
+            round(effective_p99 / effective_p95, 2)
+            if p95_lat_ms > 0 or avg_lat_ms > 0
+            else 1.0
+        )
 
         # Apdex calculation with Target T = 50ms, Frustration 4T = 200ms
         T = 50.0
         if avg_lat_ms <= 0 and p95_lat_ms <= 0:
             apdex = 0.0
         else:
-            # Estimate satisfied & tolerating request proportions from latency percentiles
             if effective_p99 <= T:
                 satisfied_ratio = 0.99
                 tolerating_ratio = 0.01
@@ -118,7 +269,9 @@ class PScoreAndRecommendationEngine:
                 tolerating_ratio = max(0.10, 0.45 * (4 * T / max(4 * T, effective_p95)))
 
             error_penalty = min(0.5, error_count * 0.05)
-            apdex = max(0.0, min(1.0, satisfied_ratio + 0.5 * tolerating_ratio - error_penalty))
+            apdex = max(
+                0.0, min(1.0, satisfied_ratio + 0.5 * tolerating_ratio - error_penalty)
+            )
 
         apdex = round(apdex, 3)
         if apdex >= 0.94:
@@ -188,6 +341,8 @@ class PScoreAndRecommendationEngine:
         fanout_score = float(fanout_data.get("attenuatedFanOutScore") or 0.0)
         direct_fanout = int(fanout_data.get("directFanOutCount") or 0)
         max_depth = int(fanout_data.get("maxDependencyDepth") or 1)
+        exec_pattern = str(fanout_data.get("executionPattern") or "SINGLE")
+        seq_ratio = float(fanout_data.get("sequentialRatio") or 0.0)
         downstream = fanout_data.get("downstreamServices") or []
         topology = fanout_data.get("callTreeTopology") or []
 
@@ -215,7 +370,6 @@ class PScoreAndRecommendationEngine:
 
         # Rule 1: Database Indexing & Query Optimization
         if drift_score >= 0.15 or db_latency_ms >= 20.0 or live_p95 >= 30.0:
-            # Projected improvement: reduces drift penalty by 65% and DB latency overhead
             eff_drift = max(drift_score, min(0.35, db_latency_ms / 400.0))
             svc_gain = round(eff_drift * 0.65 * weights["drift"] * 100.0, 2)
             svc_gain = max(1.5, svc_gain)
@@ -245,31 +399,41 @@ class PScoreAndRecommendationEngine:
                 }
             )
 
-        # Rule 2: Redis / In-Memory Tiered Caching & Async Decoupling
-        if direct_fanout >= 1 and (fanout_score >= 0.18 or max_depth >= 2):
+        # Rule 2: Redis / In-Memory Tiered Caching & Parallel Promise.all Decoupling
+        if direct_fanout >= 1 and (fanout_score >= 0.15 or max_depth >= 2 or exec_pattern == "SEQUENTIAL_N_PLUS_1"):
             ds_list = ", ".join(downstream) if downstream else "downstream nodes"
-            # Caching eliminates ~55% of synchronous fan-out penalty
-            svc_gain = round(fanout_score * 0.55 * weights["fanout"] * 100.0, 2)
+            reduction_factor = 0.65 if exec_pattern == "SEQUENTIAL_N_PLUS_1" else 0.55
+            svc_gain = round(fanout_score * reduction_factor * weights["fanout"] * 100.0, 2)
             svc_gain = max(2.0, svc_gain)
             cluster_gain = round(svc_gain / n_svcs, 2)
+            pattern_desc = (
+                f"Detected sequential N+1 waterfall execution ({seq_ratio * 100:.0f}% non-overlapping spans); "
+                "parallelizing independent downstream calls with Promise.all and Redis read-through caching eliminates serial blocking."
+                if exec_pattern == "SEQUENTIAL_N_PLUS_1"
+                else "Caching frequent read payloads in Redis eliminates redundant synchronous hops."
+            )
             recommendations.append(
                 {
                     "id": f"{service_id}-REC-CACHE-02",
                     "ruleId": "REC-CACHE-02",
                     "serviceId": service_id,
                     "category": "REDIS_CACHING",
-                    "title": f"Introduce Redis Read-Through Cache for {service_id} Fan-Out",
-                    "impact": "HIGH" if fanout_score >= 0.35 else "MEDIUM",
+                    "title": (
+                        f"Parallelize Sequential N+1 Fan-Out & Add Redis Cache on {service_id}"
+                        if exec_pattern == "SEQUENTIAL_N_PLUS_1"
+                        else f"Introduce Redis Read-Through Cache for {service_id} Fan-Out"
+                    ),
+                    "impact": "HIGH" if (fanout_score >= 0.35 or exec_pattern == "SEQUENTIAL_N_PLUS_1") else "MEDIUM",
                     "effort": "LOW",
                     "description": (
                         f"'{service_id}' makes {direct_fanout} direct synchronous calls ({ds_list}) across "
-                        f"call-tree depth {max_depth}. Caching frequent read payloads in Redis eliminates redundant synchronous hops."
+                        f"call-tree depth {max_depth}. {pattern_desc}"
                     ),
                     "expectedPScoreImprovement": f"+{svc_gain:.1f} pts on {service_id}",
                     "projectedServiceDeltaPts": svc_gain,
                     "projectedClusterDeltaPts": cluster_gain,
                     "triggerEvidence": (
-                        f"Direct Fan-Out: {direct_fanout} ({ds_list}) | Max Depth: {max_depth} | FanOutScore: {fanout_score:.3f}"
+                        f"Direct Fan-Out: {direct_fanout} ({ds_list}) | Mode: {exec_pattern} | Depth: {max_depth} | FanOutScore: {fanout_score:.3f}"
                     ),
                 }
             )
@@ -309,13 +473,22 @@ class PScoreAndRecommendationEngine:
         requested_services: Optional[List[str]] = None,
         latest_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
         custom_weights: Optional[Dict[str, float]] = None,
+        pairwise_judgments: Optional[Dict[str, Optional[float]]] = None,
     ) -> Dict[str, Any]:
         start_t = time.perf_counter()
 
         w_drift = float((custom_weights or {}).get("drift", self.default_weights["drift"]))
         w_fanout = float((custom_weights or {}).get("fanout", self.default_weights["fanout"]))
         w_anomaly = float((custom_weights or {}).get("anomaly", self.default_weights["anomaly"]))
-        ahp_info = self.compute_ahp_validation(w_drift, w_fanout, w_anomaly)
+        pw = pairwise_judgments or {}
+        ahp_info = self.compute_ahp_validation(
+            w_drift,
+            w_fanout,
+            w_anomaly,
+            a12=pw.get("a12"),
+            a13=pw.get("a13"),
+            a23=pw.get("a23"),
+        )
         weights = ahp_info["normalizedWeights"]
 
         # 1. Discover active services
@@ -336,6 +509,7 @@ class PScoreAndRecommendationEngine:
                 "maturityTier": self.map_score_to_tier(0.0),
                 "weights": weights,
                 "ahpValidation": ahp_info,
+                "pScoreHistory": self.pscore_history,
                 "serviceEvaluations": [],
                 "recommendations": [],
             }
@@ -492,6 +666,8 @@ class PScoreAndRecommendationEngine:
                         "maxDependencyDepth": int(
                             fanout_info.get("maxDependencyDepth") or 1
                         ),
+                        "executionPattern": fanout_info.get("executionPattern", "SINGLE"),
+                        "sequentialRatio": float(fanout_info.get("sequentialRatio") or 0.0),
                         "isApiGateway": bool(fanout_info.get("isApiGateway")),
                         "attenuationFactor": float(
                             fanout_info.get("attenuationFactor") or 1.0
@@ -516,6 +692,7 @@ class PScoreAndRecommendationEngine:
                         "p95LatencyMs": p95_lat,
                         "p99LatencyMs": p99_lat,
                         "rps": float(prom.get("rps") or 0.0),
+                        "uptimeSeconds": round(uptime_sec, 1),
                     },
                 }
             )
@@ -558,6 +735,18 @@ class PScoreAndRecommendationEngine:
             cluster_apdex = 0.0
             cluster_tail_ratio = 1.0
 
+        drift_health = round(100.0 * (1.0 - avg_drift_score), 1)
+        fanout_health = round(100.0 * (1.0 - avg_fanout_score), 1)
+        anomaly_health = round(100.0 * (1.0 - avg_anomaly_score), 1)
+
+        history_records = self._record_pscore_snapshot(
+            overall_p_score,
+            drift_health,
+            fanout_health,
+            anomaly_health,
+            cluster_apdex,
+        )
+
         eval_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
 
         return {
@@ -580,13 +769,16 @@ class PScoreAndRecommendationEngine:
                 else "POOR",
             },
             "clusterSubScores": {
-                "driftHealthScore": round(100.0 * (1.0 - avg_drift_score), 1),
-                "fanOutHealthScore": round(100.0 * (1.0 - avg_fanout_score), 1),
-                "anomalyHealthScore": round(100.0 * (1.0 - avg_anomaly_score), 1),
+                "driftHealthScore": drift_health,
+                "fanOutHealthScore": fanout_health,
+                "anomalyHealthScore": anomaly_health,
                 "avgDriftPenalty": avg_drift_score,
                 "avgFanOutPenalty": avg_fanout_score,
                 "avgAnomalyPenalty": avg_anomaly_score,
+                "avgApdexScore": cluster_apdex,
+                "avgTailLatencyRatio": cluster_tail_ratio,
             },
+            "pScoreHistory": history_records,
             "discoveredServices": discovery,
             "serviceEvaluations": service_evaluations,
             "recommendations": all_recommendations,
