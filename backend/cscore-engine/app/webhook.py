@@ -49,6 +49,8 @@ async def github_webhook(
         pr = payload["pull_request"]
         full_name = payload["repository"]["full_name"]
         repo = db.add_repo(full_name, payload["installation"]["id"])
+        from app.live_logs import start_webhook_session
+        start_webhook_session(pr["number"], full_name, pr["head"]["sha"], payload.get("action", "opened"))
         
         # Auto-discover architecture dependencies from repo in background
         from app.phase2 import auto_discover_dependencies

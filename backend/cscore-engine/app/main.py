@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from app import db
+from app.live_logs import clear_live_logs, get_live_logs
 from app.scorer import predict_cscore
 from app.webhook import router as webhook_router
 
@@ -83,11 +84,11 @@ def get_dashboard_data():
         
     # Generate history for the chart (reverse so oldest is first)
     history_data = []
-    for p in reversed(prs[:7]):
+    for p in reversed(prs[:10]):
         # take time like '14:47' from '2026-10-09 14:47:52'
         time_label = p["time"].split(" ")[1][:5] if " " in p["time"] else p["time"]
         history_data.append({
-            "name": time_label,
+            "name": f"{p['id']} {p['services'][0]} {time_label}",
             "commitFreq": p["commitFreq"],
             "coDeploy": p["coDeployRate"],
             "couplingIndex": p["couplingIndex"]
@@ -124,7 +125,8 @@ def get_dashboard_data():
         },
         "recentPRs": prs,
         "history": history_data,
-        "serviceDist": service_dist
+        "serviceDist": service_dist,
+        "liveLogs": get_live_logs("phase1"),
     }
 
 
@@ -170,10 +172,10 @@ def get_phase2_dashboard():
 
     # Build history for Blast Radius chart (reverse for chronological)
     history_data = []
-    for p in reversed(prs[:7]):
+    for p in reversed(prs[:10]):
         time_label = p["time"].split(" ")[1][:5] if " " in p["time"] else p["time"]
         history_data.append({
-            "name": time_label,
+            "name": f"{p['id']} {p['services'][0]} {time_label}",
             "blastRadius": p["blastRadius"],
             "apiChanges": p["apiChanges"],
             "downstreamCount": p["downstreamCount"]
@@ -194,29 +196,10 @@ def get_phase2_dashboard():
         
     service_exposure = [
         {"service": s, "downstreamConsumers": service_exposure_map.get(s, 0)}
-        for s in (nodes_set if nodes_set else ["order-service", "book-service", "user-service", "gateway"])
+        for s in nodes_set
     ]
     
     nodes = [{"id": n, "label": n} for n in nodes_set]
-    if not nodes:
-        nodes = [
-            {"id": "gateway", "label": "gateway"},
-            {"id": "order-service", "label": "order-service"},
-            {"id": "book-service", "label": "book-service"},
-            {"id": "user-service", "label": "user-service"},
-        ]
-        edges = [
-            {"source": "gateway", "target": "order-service"},
-            {"source": "gateway", "target": "book-service"},
-            {"source": "order-service", "target": "book-service"},
-            {"source": "order-service", "target": "user-service"},
-        ]
-        service_exposure = [
-            {"service": "book-service", "downstreamConsumers": 2},
-            {"service": "order-service", "downstreamConsumers": 1},
-            {"service": "user-service", "downstreamConsumers": 1},
-            {"service": "gateway", "downstreamConsumers": 0},
-        ]
 
     return {
         "averages": {
@@ -231,8 +214,15 @@ def get_phase2_dashboard():
         "graph": {
             "nodes": nodes,
             "edges": edges
-        }
+        },
+        "liveLogs": get_live_logs("phase2"),
     }
+
+
+@app.post("/api/live-logs/clear")
+def api_clear_live_logs(phase: str = None):
+    clear_live_logs(phase)
+    return {"status": "cleared"}
 
 
 @app.post("/api/phase2/sync-architecture")

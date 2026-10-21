@@ -89,7 +89,7 @@ export const PHASE3_SCENARIOS: Record<string, Phase3ScenarioState> = {
     name: 'Nominal Canary Run (Pass Gate)',
     targetService: 'order-service',
     cscore: 14.2,
-    threshold: 60.0,
+    threshold: 28.9,
     decision: 'PROCEED',
     prCommentReason:
       'Canary Deployment Passed: All 10 architectural & runtime features are within nominal bounds (Max Call Depth: 2, Pod Restarts: 0, Error Rate: 0.2%). Promoting build from Sandbox to Production.',
@@ -176,7 +176,7 @@ export const PHASE3_SCENARIOS: Record<string, Phase3ScenarioState> = {
     name: 'Memory Leak & Pod CrashLoopBackOff (Feature 10 Alert)',
     targetService: 'order-service',
     cscore: 99.8,
-    threshold: 60.0,
+    threshold: 28.9,
     decision: 'ABORT',
     prCommentReason:
       'Deployment Blocked: High Architectural & Runtime Risk — Kubernetes Pod crashed and restarted 14 times (OOMKilled / CrashLoopBackOff) with 5.4% HTTP 5xx Error Rate during Canary test traffic.',
@@ -262,7 +262,7 @@ export const PHASE3_SCENARIOS: Record<string, Phase3ScenarioState> = {
     name: 'N+1 Blocking Cascade & Deep Call Chain (Features 7 & 8 Alert)',
     targetService: 'order-service',
     cscore: 94.6,
-    threshold: 60.0,
+    threshold: 28.9,
     decision: 'ABORT',
     prCommentReason:
       'Deployment Blocked: High Architectural Risk (Max Call Depth = 6 levels & Synchronous Blocking Call Count = 9 per request exceeded safe microservice decoupling limits, causing severe latency amplification).',
@@ -350,7 +350,7 @@ export const PHASE3_SCENARIOS: Record<string, Phase3ScenarioState> = {
     name: 'HTTP 4xx/5xx Error Rate Storm (Feature 9 Alert)',
     targetService: 'book-service',
     cscore: 96.4,
-    threshold: 60.0,
+    threshold: 28.9,
     decision: 'ABORT',
     prCommentReason:
       'Deployment Blocked: High Architectural Risk — Breaking API Contract (Blast Radius = 6) triggered an 18.4% HTTP 4xx/5xx Error Rate across downstream consumers in the Canary Sandbox.',
@@ -874,7 +874,7 @@ export const Phase3Dashboard: React.FC = () => {
               <div className="flex items-center justify-between text-xs mb-1.5">
                 <span className="text-text-secondary font-medium">Predicted Architectural Risk (C-Score):</span>
                 <span className={`font-mono font-bold text-base ${
-                  scenario.cscore >= scenario.threshold ? 'text-rose-400' : 'text-emerald-400'
+                  scenario.cscore > scenario.threshold ? 'text-rose-400' : 'text-emerald-400'
                 }`}>
                   {scenario.cscore} / 100
                 </span>
@@ -882,10 +882,16 @@ export const Phase3Dashboard: React.FC = () => {
               <div className="w-full h-2.5 bg-surface-secondary rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
-                    scenario.cscore >= scenario.threshold ? 'bg-rose-500' : 'bg-emerald-500'
+                    scenario.cscore > scenario.threshold ? 'bg-rose-500' : 'bg-emerald-500'
                   }`}
                   style={{ width: `${Math.min(100, Math.max(5, scenario.cscore))}%` }}
                 />
+              </div>
+              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-text-muted bg-surface-secondary/40 px-2.5 py-1.5 rounded border border-border/40">
+                <span>Threshold: <b className="text-rose-400">&gt; {scenario.threshold} (HIGH RISK)</b></span>
+                <span>ROC-AUC: <b className="text-emerald-400">0.8269</b></span>
+                <span>Acc: <b className="text-blue-400">78.81%</b></span>
+                <span>Dataset: <b className="text-text-primary">100k</b></span>
               </div>
             </div>
           </div>
