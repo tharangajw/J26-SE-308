@@ -64,6 +64,4 @@ def build_report(service, result, p1, p2):
     ]
     if p2["breaking_messages"]:
         lines += ["", "**Breaking API changes:**"] + [f"- {m}" for m in p2["breaking_messages"]]
-    if result["decision"] == "HIGH_RISK":
-        lines += ["", "> Deployment aborted. Reduce coupling / avoid breaking the API contract."]
     return "\n".join(lines)
