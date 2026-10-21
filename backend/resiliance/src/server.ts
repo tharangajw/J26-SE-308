@@ -323,6 +323,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         services: data.services,
         rules,
         selfHealing: data.selfHealing,
+        kubernetesValidation: data.kubernetesValidation,
         activeChaos: data.activeChaos,
         deviceHardware: data.deviceHardware,
         aiPrediction: data.aiPrediction,
@@ -415,9 +416,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
     // 6. Resilience history (GET /api/resilience/history)
     if (pathname === '/api/resilience/history' && method === 'GET') {
+      const requestedLimit = Number.parseInt(url.searchParams.get('limit') ?? '500', 10);
+      const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 500;
       return sendJson(res, 200, {
         count: historyBuffer.length,
-        history: historyBuffer
+        returned: Math.min(historyBuffer.length, limit),
+        history: historyBuffer.slice(-limit)
       });
     }
 
