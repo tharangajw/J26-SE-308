@@ -410,7 +410,7 @@ export const CiCdOverview: React.FC = () => {
           <div className="mt-3 text-[11px] text-text-muted flex items-center justify-between">
             <span>{summary.totalEvaluations} total Pull Requests</span>
             <span className="text-emerald-400 font-mono text-[10px] bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-              Gate: C-Score &lt; 60
+              Gate: C-Score &le; 28.9
             </span>
           </div>
           <div className="absolute -bottom-6 -right-6 w-20 h-20 bg-emerald-500/5 rounded-full blur-xl pointer-events-none" />
@@ -629,12 +629,12 @@ export const CiCdOverview: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Vector Features:</span>
-                  <span className="text-text-primary font-bold">10 Vector Inputs</span>
+                  <span>C-Score Threshold:</span>
+                  <span className="text-rose-400 font-bold">&gt; 28.9 (High Risk)</span>
                 </div>
                 <div className="flex justify-between">
                   <span>ML Model:</span>
-                  <span className="text-amber-400 font-semibold">XGBoost Classifier</span>
+                  <span className="text-amber-400 font-semibold">XGBoost (AUC: 0.8269 | 78.81%)</span>
                 </div>
               </div>
             </div>
@@ -698,7 +698,7 @@ export const CiCdOverview: React.FC = () => {
                 }}
               />
               <Legend verticalAlign="bottom" height={30} wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-              <ReferenceLine y={60} stroke="#f43f5e" strokeDasharray="4 4" label={{ value: 'Gate Abort Limit (60)', fill: '#f43f5e', fontSize: 10, position: 'right' }} />
+              <ReferenceLine y={28.9} stroke="#f43f5e" strokeDasharray="4 4" label={{ value: 'Gate Abort Limit (28.9)', fill: '#f43f5e', fontSize: 10, position: 'right' }} />
               <Area type="monotone" dataKey="cscore" name="C-Score" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#cscoreGrad)" />
               <Line type="monotone" dataKey="coupling" name="Coupling Index (%)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="blast" name="Blast Radius (Scaled)" stroke="#a855f7" strokeWidth={2} dot={{ r: 3 }} />
@@ -848,7 +848,7 @@ export const CiCdOverview: React.FC = () => {
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center justify-between text-xs">
                         <span className={`font-bold font-mono ${
-                          pr.cscore >= 60 ? 'text-rose-400' : pr.cscore >= 30 ? 'text-amber-400' : 'text-emerald-400'
+                          pr.cscore > 28.9 ? 'text-rose-400' : pr.cscore >= 20 ? 'text-amber-400' : 'text-emerald-400'
                         }`}>
                           {pr.cscore.toFixed(1)}
                         </span>
@@ -857,7 +857,7 @@ export const CiCdOverview: React.FC = () => {
                       <div className="w-20 h-1.5 bg-surface-secondary rounded-full overflow-hidden">
                         <div 
                           className={`h-full rounded-full ${
-                            pr.cscore >= 60 ? 'bg-rose-500' : pr.cscore >= 30 ? 'bg-amber-500' : 'bg-emerald-500'
+                            pr.cscore > 28.9 ? 'bg-rose-500' : pr.cscore >= 20 ? 'bg-amber-500' : 'bg-emerald-500'
                           }`}
                           style={{ width: `${Math.min(100, Math.max(5, pr.cscore))}%` }}
                         />
