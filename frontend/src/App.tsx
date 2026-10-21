@@ -22,6 +22,8 @@ import { ResilienceHistory } from './components/resilience/ResilienceHistory';
 import { Phase1Dashboard } from './pages/Phase1Dashboard';
 import { Phase2Dashboard } from './pages/Phase2Dashboard';
 import { CiCdOverview } from './pages/CiCdOverview';
+import { PScoreSummaryReportPage } from './pages/PScoreSummaryReportPage';
+import { PScoreTechnicalReportPage } from './pages/PScoreTechnicalReportPage';
 
 function App() {
   return (
@@ -29,6 +31,10 @@ function App() {
       <TelemetryProvider>
         <BrowserRouter>
         <Routes>
+          {/* Standalone Clean Printable Report Routes (No Sidebar, No App UI Frame) */}
+          <Route path="/reports/summary" element={<PScoreSummaryReportPage />} />
+          <Route path="/reports/technical" element={<PScoreTechnicalReportPage />} />
+
           <Route path="/" element={<Layout />}>
             <Route index element={<Overview />} />
             <Route path="dimensions/observability" element={<ObservabilityDashboard />} />
@@ -65,4 +71,4 @@ function App() {
   )
 }
 
-export default App
+export default App;

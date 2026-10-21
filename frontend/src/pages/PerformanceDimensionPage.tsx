@@ -24,7 +24,9 @@ import {
   RotateCcw,
   Sliders,
   Camera,
-  AlertTriangle
+  AlertTriangle,
+  FileText,
+  Printer
 } from 'lucide-react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -33,6 +35,15 @@ import {
   PerformanceFlowHeader,
   PerformanceStepFooter
 } from '../components/performace/PerformanceFlowNav';
+import {
+  PScoreExecutiveReportModal
+} from '../components/performace/PScoreExecutiveReportModal';
+import {
+  ReportService
+} from '../services/reportService';
+import type {
+  PScoreExecutiveReport
+} from '../services/reportService';
 
 interface MaturityTierInfo {
   level: number;
@@ -287,6 +298,22 @@ export const PerformanceDimensionPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
+  const [currentReport, setCurrentReport] = useState<PScoreExecutiveReport | null>(null);
+
+  const handleOpenReport = useCallback((serviceIdToFocus?: string) => {
+    if (!data) return;
+    const targetService =
+      serviceIdToFocus ||
+      (selectedServiceFilter !== 'ALL' ? selectedServiceFilter : null) ||
+      TelemetryService.getActiveService() ||
+      data.serviceEvaluations?.[0]?.serviceId ||
+      'user-service-1';
+
+    const reportObj = ReportService.buildExecutiveReport(data, targetService);
+    setCurrentReport(reportObj);
+    setIsReportModalOpen(true);
+  }, [data, selectedServiceFilter]);
 
   const activePreset = useMemo(
     () => WEIGHT_PRESETS.find((p) => p.id === selectedPresetId) || WEIGHT_PRESETS[0],
@@ -569,7 +596,7 @@ export const PerformanceDimensionPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={fetchCompositePScore}
@@ -577,8 +604,39 @@ export const PerformanceDimensionPage: React.FC = () => {
             className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-secondary/40 px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-secondary transition-colors"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin text-brand-perf' : ''}`} />
-            Evaluate Live P-Score
+            Evaluate Live
           </button>
+
+          {/* Dedicated Download Buttons for the 2 Reports */}
+          <Link
+            to={`/reports/summary?service=${encodeURIComponent(
+              (selectedServiceFilter !== 'ALL' ? selectedServiceFilter : null) ||
+              TelemetryService.getActiveService() ||
+              data?.serviceEvaluations?.[0]?.serviceId ||
+              'order-service-1'
+            )}&autoPrint=true`}
+            target="_blank"
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 shadow-sm transition-all"
+            title="Download 1-Page Plain Language Executive Summary PDF"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            📄 Summary PDF (1 Page)
+          </Link>
+
+          <Link
+            to={`/reports/technical?service=${encodeURIComponent(
+              (selectedServiceFilter !== 'ALL' ? selectedServiceFilter : null) ||
+              TelemetryService.getActiveService() ||
+              data?.serviceEvaluations?.[0]?.serviceId ||
+              'order-service-1'
+            )}&autoPrint=true`}
+            target="_blank"
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-400 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-amber-300 shadow-sm transition-all"
+            title="Download 4-Page Comprehensive Engineering Audit PDF"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            🔧 Technical PDF (4 Pages)
+          </Link>
           <div className="text-right">
             <div className="flex items-baseline justify-end gap-2">
               <div className="text-4xl font-mono font-bold text-brand-perf">
@@ -1490,6 +1548,13 @@ export const PerformanceDimensionPage: React.FC = () => {
 
       {/* Bottom Step Navigation Footer */}
       <PerformanceStepFooter currentStep="pscore" />
+
+      {/* Executive Report & SLA / DORA Modal */}
+      <PScoreExecutiveReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        report={currentReport}
+      />
     </PageContainer>
   );
 };

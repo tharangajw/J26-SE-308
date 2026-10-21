@@ -34,10 +34,27 @@ const sendJson = (response: import('node:http').ServerResponse, status: number, 
   response.end(JSON.stringify(body));
 };
 
+const readJsonBody = async (req: import('node:http').IncomingMessage): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+};
+
 createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
   if (request.method === 'OPTIONS') return sendJson(response, 204, {});
-  if (request.method !== 'GET') return sendJson(response, 405, { error: 'Only GET is supported' });
+  if (request.method !== 'GET' && !(request.method === 'POST' && url.pathname === '/api/telemetry/report/save')) {
+    return sendJson(response, 405, { error: 'Method not allowed' });
+  }
 
   if (url.pathname === '/health') {
     return sendJson(response, 200, { status: 'ok', service: 'telemetry-collector', lastCollectedServices });
@@ -177,6 +194,23 @@ createServer(async (request, response) => {
       historicalDriftAnalysis: driftResults,
       fanOutTopologyAnalysis: fanOutResults,
     });
+  }
+
+  if (url.pathname === '/api/telemetry/report/save' && request.method === 'POST') {
+    try {
+      const payload = await readJsonBody(request);
+      const res = await telemetryMongo.savePScoreReport(payload);
+      return sendJson(response, 200, res);
+    } catch (err: any) {
+      return sendJson(response, 400, { success: false, error: err?.message || 'Invalid JSON body' });
+    }
+  }
+
+  if (url.pathname === '/api/telemetry/report/history' && request.method === 'GET') {
+    const service = url.searchParams.get('service') || undefined;
+    const limit = Number(url.searchParams.get('limit') || 20);
+    const history = await telemetryMongo.getPScoreReportHistory(service, limit);
+    return sendJson(response, 200, { service: service || 'all', count: history.length, history });
   }
 
   return sendJson(response, 404, { error: 'Route not found' });

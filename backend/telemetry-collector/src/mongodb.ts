@@ -236,6 +236,55 @@ export class TelemetryMongoDatabase {
     }
   }
 
+  /**
+   * Persists a comprehensive P-Score Executive Report to MongoDB.
+   */
+  public async savePScoreReport(report: any): Promise<{ success: boolean; id?: string }> {
+    const isConnected = await this.connect();
+    if (!isConnected || !this.db) return { success: false };
+
+    try {
+      const col = this.db.collection('pscore_reports');
+      const serviceId = (report.serviceId || 'cluster').toLowerCase();
+      const doc = {
+        ...report,
+        serviceId,
+        createdAt: new Date(),
+        timestampMs: report.timestampMs || Date.now(),
+      };
+      const res = await col.insertOne(doc);
+      return { success: true, id: res.insertedId.toString() };
+    } catch (err: any) {
+      console.warn('[TelemetryMongoDatabase] Failed to save P-Score report:', err?.message);
+      return { success: false };
+    }
+  }
+
+  /**
+   * Retrieves historical P-Score reports from MongoDB, optionally filtered by service.
+   */
+  public async getPScoreReportHistory(serviceId?: string, limit: number = 20): Promise<any[]> {
+    const isConnected = await this.connect();
+    if (!isConnected || !this.db) return [];
+
+    try {
+      const col = this.db.collection('pscore_reports');
+      const query = serviceId && serviceId !== 'all' ? { serviceId: serviceId.toLowerCase() } : {};
+      const docs = await col
+        .find(query)
+        .sort({ timestampMs: -1 })
+        .limit(limit)
+        .toArray();
+
+      return docs.map((d) => ({
+        ...d,
+        _id: d._id.toString(),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   public async close(): Promise<void> {
     if (this.client) {
       await this.client.close();
