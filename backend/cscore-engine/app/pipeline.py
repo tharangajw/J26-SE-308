@@ -1,5 +1,5 @@
 """Runs the full analysis for one Pull Request:
-Phase 1 + Phase 2 (+ Phase 3 telemetry from DB) -> XGBoost -> GitHub Check."""
+Phase 1 + Phase 2 -> XGBoost -> GitHub Check."""
 import traceback
 
 from app import db

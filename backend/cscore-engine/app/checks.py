@@ -61,14 +61,7 @@ def build_report(service, result, p1, p2):
         f"| Commit Frequency (per day) | {f['commit_freq']} |",
         f"| Co-Deploy Rate | {f['co_deploy_rate']} |",
         f"| Downstream Services | {', '.join(p2['downstream_services']) or 'none'} |",
-        f"| Pod Restarts (Runtime) | **{int(f.get('pod_restarts', 0))}** |",
-        f"| CPU Spike / Error Rate | {f.get('cpu_spike_pct', 0)}% / {f.get('error_rate_pct', 0)}% |",
-        f"| Trace Depth / Sync Calls | {int(f.get('max_call_depth', 1))} / {int(f.get('sync_call_count', 0))} |",
     ]
     if p2["breaking_messages"]:
         lines += ["", "**Breaking API changes:**"] + [f"- {m}" for m in p2["breaking_messages"]]
-    if f.get("pod_restarts", 0) > 0 or f.get("cpu_spike_pct", 0) > 80:
-        lines += ["", f"⚠️ **Critical Runtime Anomalies Detected:** {int(f.get('pod_restarts', 0))} pod restarts recorded."]
-    if result["decision"] == "HIGH_RISK":
-        lines += ["", "> 🛑 **Deployment Aborted:** High architectural or runtime risk score exceeds safety threshold."]
     return "\n".join(lines)
