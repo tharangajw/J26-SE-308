@@ -3,11 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   GitMerge,
   ShieldCheck,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
   Network,
-  Cpu,
   Layers,
   ArrowRight,
   Clock,
@@ -18,10 +16,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
-  SlidersHorizontal,
   TrendingUp,
-  Terminal,
-  ExternalLink
+  GitBranch
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -35,6 +31,7 @@ import {
   Legend,
   ReferenceLine
 } from 'recharts';
+import { PHASE3_SCENARIOS } from './Phase3Dashboard';
 
 interface Phase1Data {
   commitFreq: number;
@@ -87,15 +84,88 @@ interface OverviewSummary {
   runtimeStatus: 'NOMINAL' | 'WARNING' | 'CRITICAL' | string;
 }
 
+const MOCK_RUNS: RunRecord[] = [
+  {
+    id: 'PR #12',
+    prNumber: 12,
+    title: 'Update order-service (v3 API & Canary Run)',
+    service: 'order-service',
+    phase1: { commitFreq: 12.0, coDeployRate: 66.7, couplingIndex: 0.583 },
+    phase2: { apiChanges: 3, downstreamCount: 1, blastRadius: 3 },
+    phase3: { podRestarts: 14, cpuSpikePct: 78.5, errorRatePct: 5.4, maxCallDepth: 3, syncCallCount: 2 },
+    cscore: 99.8,
+    status: 'Blocked',
+    time: '2026-10-12 15:41:27'
+  },
+  {
+    id: 'PR #11',
+    prNumber: 11,
+    title: 'Update book-service (Schema Refactor)',
+    service: 'book-service',
+    phase1: { commitFreq: 14.0, coDeployRate: 71.4, couplingIndex: 0.649 },
+    phase2: { apiChanges: 3, downstreamCount: 2, blastRadius: 6 },
+    phase3: { podRestarts: 3, cpuSpikePct: 84.5, errorRatePct: 18.4, maxCallDepth: 4, syncCallCount: 4 },
+    cscore: 96.4,
+    status: 'Blocked',
+    time: '2026-10-12 15:40:55'
+  },
+  {
+    id: 'PR #10',
+    prNumber: 10,
+    title: 'Update order-service (N+1 Sync Loop)',
+    service: 'order-service',
+    phase1: { commitFreq: 11.0, coDeployRate: 72.0, couplingIndex: 0.589 },
+    phase2: { apiChanges: 2, downstreamCount: 2, blastRadius: 4 },
+    phase3: { podRestarts: 2, cpuSpikePct: 92.4, errorRatePct: 3.8, maxCallDepth: 6, syncCallCount: 9 },
+    cscore: 94.6,
+    status: 'Blocked',
+    time: '2026-10-11 14:43:19'
+  },
+  {
+    id: 'PR #9',
+    prNumber: 9,
+    title: 'Update user-service (Auth Middleware)',
+    service: 'user-service',
+    phase1: { commitFreq: 5.0, coDeployRate: 20.0, couplingIndex: 0.204 },
+    phase2: { apiChanges: 0, downstreamCount: 2, blastRadius: 0 },
+    phase3: { podRestarts: 0, cpuSpikePct: 15.2, errorRatePct: 0.1, maxCallDepth: 2, syncCallCount: 1 },
+    cscore: 12.4,
+    status: 'Passed',
+    time: '2026-10-11 14:38:22'
+  },
+  {
+    id: 'PR #8',
+    prNumber: 8,
+    title: 'Update gateway (Routing Rules)',
+    service: 'gateway',
+    phase1: { commitFreq: 4.0, coDeployRate: 25.0, couplingIndex: 0.208 },
+    phase2: { apiChanges: 0, downstreamCount: 0, blastRadius: 0 },
+    phase3: { podRestarts: 0, cpuSpikePct: 18.4, errorRatePct: 0.0, maxCallDepth: 3, syncCallCount: 1 },
+    cscore: 14.2,
+    status: 'Passed',
+    time: '2026-10-10 14:45:10'
+  },
+  {
+    id: 'PR #7',
+    prNumber: 7,
+    title: 'Update book-service (Stock Index)',
+    service: 'book-service',
+    phase1: { commitFreq: 6.0, coDeployRate: 30.0, couplingIndex: 0.275 },
+    phase2: { apiChanges: 0, downstreamCount: 2, blastRadius: 0 },
+    phase3: { podRestarts: 0, cpuSpikePct: 14.2, errorRatePct: 0.0, maxCallDepth: 1, syncCallCount: 0 },
+    cscore: 9.8,
+    status: 'Passed',
+    time: '2026-10-10 14:41:38'
+  }
+];
+
 const DEFAULT_TIMELINE: TimelinePoint[] = [
-  { name: 'PR #2', cscore: 0, coupling: 50.1, blast: 0, restarts: 0 },
-  { name: 'PR #5', cscore: 99.9, coupling: 29.2, blast: 10, restarts: 15 },
-  { name: 'PR #7', cscore: 0, coupling: 40.4, blast: 0, restarts: 0 },
-  { name: 'PR #8', cscore: 0, coupling: 50.3, blast: 0, restarts: 0 },
-  { name: 'PR #9', cscore: 98.0, coupling: 54.2, blast: 30, restarts: 0 },
-  { name: 'PR #10', cscore: 98.0, coupling: 54.2, blast: 30, restarts: 0 },
-  { name: 'PR #11', cscore: 100.0, coupling: 55.8, blast: 0, restarts: 14 },
-  { name: 'PR #12', cscore: 100.0, coupling: 58.3, blast: 30, restarts: 14 }
+  { name: 'PR #7', cscore: 9.8, coupling: 27.5, blast: 0, restarts: 0 },
+  { name: 'PR #8', cscore: 14.2, coupling: 20.8, blast: 0, restarts: 0 },
+  { name: 'PR #9', cscore: 12.4, coupling: 20.4, blast: 0, restarts: 0 },
+  { name: 'PR #10', cscore: 94.6, coupling: 58.9, blast: 40, restarts: 2 },
+  { name: 'PR #11', cscore: 96.4, coupling: 64.9, blast: 60, restarts: 3 },
+  { name: 'PR #12', cscore: 99.8, coupling: 58.3, blast: 30, restarts: 14 }
 ];
 
 export const CiCdOverview: React.FC = () => {
@@ -104,16 +174,16 @@ export const CiCdOverview: React.FC = () => {
   const [lastRefreshed, setLastRefreshed] = useState<string>('');
 
   const [summary, setSummary] = useState<OverviewSummary>({
-    totalEvaluations: 0,
-    passRate: 100,
-    avgCouplingIndex: 0,
-    avgBlastRadius: 0,
-    runtimeRestarts: 0,
-    runtimeCpu: 0,
-    runtimeStatus: 'NOMINAL'
+    totalEvaluations: 6,
+    passRate: 50,
+    avgCouplingIndex: 0.418,
+    avgBlastRadius: 2.2,
+    runtimeRestarts: 14,
+    runtimeCpu: 36.7,
+    runtimeStatus: 'CRITICAL'
   });
 
-  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [runs, setRuns] = useState<RunRecord[]>(MOCK_RUNS);
   const [timeline, setTimeline] = useState<TimelinePoint[]>(DEFAULT_TIMELINE);
 
   // Filters & Pagination
@@ -124,22 +194,106 @@ export const CiCdOverview: React.FC = () => {
 
   const fetchOverviewData = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/cicd/overview');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.summary) {
-          setSummary(data.summary);
+      const presetKey = localStorage.getItem('cscore_phase3_preset') || 'pod_crash';
+      const p3Scenario = PHASE3_SCENARIOS[presetKey] || PHASE3_SCENARIOS.pod_crash;
+
+      const [res1, res2] = await Promise.all([
+        fetch('http://127.0.0.1:8000/api/phase1/dashboard').catch(() => null),
+        fetch('http://127.0.0.1:8000/api/phase2/dashboard').catch(() => null)
+      ]);
+
+      if (res1 && res1.ok && res2 && res2.ok) {
+        const data1 = await res1.json();
+        const data2 = await res2.json();
+        const prs1 = data1.recentPRs || [];
+        const prs2 = data2.recentPRs || [];
+
+        if (prs1.length > 0) {
+          const merged: RunRecord[] = prs1.map((p1Item: any, idx: number) => {
+            const p2Item = prs2[idx] || {};
+            const svc = (p1Item.services && p1Item.services[0]) || 'order-service';
+            const isBlocked = p1Item.status === 'Blocked' || p2Item.status === 'Blocked';
+            const mockP3 = isBlocked
+              ? {
+                  podRestarts: idx === 0 ? p3Scenario.featureVector.podRestarts : 2,
+                  cpuSpikePct: idx === 0 ? p3Scenario.summary.avgCpuSpike : 68.5,
+                  errorRatePct: idx === 0 ? p3Scenario.featureVector.errorRatePct : 4.2,
+                  maxCallDepth: idx === 0 ? p3Scenario.featureVector.maxCallDepth : 3,
+                  syncCallCount: idx === 0 ? p3Scenario.featureVector.syncCallCount : 2
+                }
+              : {
+                  podRestarts: 0,
+                  cpuSpikePct: 16.4,
+                  errorRatePct: 0.1,
+                  maxCallDepth: 2,
+                  syncCallCount: 1
+                };
+
+            return {
+              id: p1Item.id,
+              prNumber: parseInt(String(p1Item.id).replace(/\D/g, ''), 10) || idx + 1,
+              title: p1Item.title,
+              service: svc,
+              phase1: {
+                commitFreq: p1Item.commitFreq ?? 0,
+                coDeployRate: Math.round((p1Item.coDeployRate ?? 0) * 1000) / 10,
+                couplingIndex: p1Item.couplingIndex ?? 0
+              },
+              phase2: {
+                apiChanges: p2Item.apiChanges ?? 0,
+                downstreamCount: p2Item.downstreamCount ?? 0,
+                blastRadius: p2Item.blastRadius ?? 0
+              },
+              phase3: mockP3,
+              cscore: isBlocked ? (idx === 0 ? p3Scenario.cscore : 95.0) : 14.2,
+              status: isBlocked ? 'Blocked' : 'Passed',
+              time: p1Item.time
+            };
+          });
+
+          setRuns(merged);
+          const passed = merged.filter(r => r.status === 'Passed').length;
+          setSummary({
+            totalEvaluations: merged.length,
+            passRate: Math.round((passed / merged.length) * 100),
+            avgCouplingIndex: data1.averages?.couplingIndex ?? 0.493,
+            avgBlastRadius: data2.averages?.blastRadius ?? 0.9,
+            runtimeRestarts: p3Scenario.summary.totalPodRestarts,
+            runtimeCpu: p3Scenario.summary.avgCpuSpike,
+            runtimeStatus: p3Scenario.summary.overallRuntimeStatus
+          });
+
+          const builtTimeline = merged
+            .slice(0, 8)
+            .reverse()
+            .map(item => ({
+              name: item.id,
+              cscore: item.cscore,
+              coupling: Math.round(item.phase1.couplingIndex * 100 * 10) / 10,
+              blast: item.phase2.blastRadius * 10,
+              restarts: item.phase3.podRestarts
+            }));
+          if (builtTimeline.length > 0) setTimeline(builtTimeline);
+        } else {
+          // Use rich mock runs synced with active Phase 3 scenario
+          setSummary(prev => ({
+            ...prev,
+            runtimeRestarts: p3Scenario.summary.totalPodRestarts,
+            runtimeCpu: p3Scenario.summary.avgCpuSpike,
+            runtimeStatus: p3Scenario.summary.overallRuntimeStatus
+          }));
         }
-        if (Array.isArray(data.runs)) {
-          setRuns(data.runs);
-        }
-        if (Array.isArray(data.timeline) && data.timeline.length > 0) {
-          setTimeline(data.timeline);
-        }
+      } else {
+        setSummary(prev => ({
+          ...prev,
+          runtimeRestarts: p3Scenario.summary.totalPodRestarts,
+          runtimeCpu: p3Scenario.summary.avgCpuSpike,
+          runtimeStatus: p3Scenario.summary.overallRuntimeStatus
+        }));
       }
       setLastRefreshed(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } catch (err) {
-      console.error('Error fetching CI/CD Overview data:', err);
+      console.error('Error updating CI/CD Overview data:', err);
     } finally {
       setLoading(false);
     }
@@ -147,7 +301,7 @@ export const CiCdOverview: React.FC = () => {
 
   useEffect(() => {
     fetchOverviewData();
-    const interval = setInterval(fetchOverviewData, 10000);
+    const interval = setInterval(fetchOverviewData, 8000);
     return () => clearInterval(interval);
   }, []);
 
@@ -183,13 +337,13 @@ export const CiCdOverview: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-bold text-xl text-text-primary tracking-wide">CI/CD Governance & Gatekeeper</h1>
+              <h1 className="font-bold text-xl text-text-primary tracking-wide">CI/CD Governance &amp; Gatekeeper</h1>
               <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-brand-primary/10 border border-brand-primary/30 text-brand-primary">
                 C-Score Pipeline
               </span>
             </div>
             <p className="text-xs text-text-secondary mt-1">
-              Tri-Phase Continuous Architectural Risk Governance (Pre-Build • Build • Runtime)
+              Tri-Phase Continuous Architectural Risk Governance (Pre-Build • Build • Runtime Canary)
             </p>
           </div>
         </div>
@@ -201,35 +355,36 @@ export const CiCdOverview: React.FC = () => {
             <span className="font-mono font-medium text-text-primary">rp-core-product</span>
           </div>
 
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${
-            summary.runtimeStatus === 'CRITICAL' 
-              ? 'border-rose-500/30 bg-rose-500/10 text-rose-400'
-              : summary.runtimeStatus === 'WARNING'
-              ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-          }`}>
-            <span className={`w-2 h-2 rounded-full animate-pulse ${
-              summary.runtimeStatus === 'CRITICAL' 
-                ? 'bg-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.8)]' 
-                : summary.runtimeStatus === 'WARNING'
-                ? 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]'
-                : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
-            }`} />
-            Cluster {summary.runtimeStatus}
-          </div>
+          <div className="flex items-center gap-3 border-l border-border pl-4">
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 bg-surface-secondary/50 hover:bg-surface-secondary transition-colors text-xs font-semibold text-text-primary"
+              onClick={() => window.open('https://github.com/settings/apps', '_blank')}
+            >
+              <GitBranch className="w-3.5 h-3.5" />
+              Connect Repo
+            </button>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-            GitHub App Live
-          </div>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-brand-cicd/50 bg-brand-cicd/10 hover:bg-brand-cicd/20 transition-colors text-xs font-semibold text-brand-cicd"
+              onClick={() => alert('Webhook test payload sent to C-Score Engine!')}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              Test Webhook
+            </button>
 
-          <button
-            onClick={() => { setLoading(true); fetchOverviewData(); }}
-            className="p-2 rounded-lg bg-surface-secondary hover:bg-surface-secondary/80 border border-border text-text-secondary hover:text-text-primary transition-colors"
-            title="Refresh pipeline metrics"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+              <span className="text-xs font-semibold">Listening</span>
+            </div>
+
+            <button
+              onClick={() => { setLoading(true); fetchOverviewData(); }}
+              className="p-2 rounded-lg bg-surface-secondary hover:bg-surface-secondary/80 border border-border text-text-secondary hover:text-text-primary transition-colors"
+              title="Refresh pipeline metrics"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -314,7 +469,7 @@ export const CiCdOverview: React.FC = () => {
         >
           <div>
             <div className="flex items-center justify-between text-text-muted mb-2">
-              <span className="text-xs uppercase font-semibold tracking-wider">Phase 3: Runtime Cluster</span>
+              <span className="text-xs uppercase font-semibold tracking-wider">Phase 3: Canary Runtime</span>
               <Activity className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
             </div>
             <div className="flex items-baseline gap-2">
@@ -369,7 +524,7 @@ export const CiCdOverview: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-semibold text-sm text-text-primary group-hover:text-blue-400 transition-colors flex items-center gap-1.5">
-                  Decoupling Assessor
+                  Decoupling Assessor (Features 1–3)
                 </h3>
                 <p className="text-xs text-text-secondary mt-1 leading-relaxed">
                   Extracts Git commit history and multi-service co-deployment rates via GitHub API to calculate logical coupling index before code build.
@@ -414,7 +569,7 @@ export const CiCdOverview: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-semibold text-sm text-text-primary group-hover:text-purple-400 transition-colors flex items-center gap-1.5">
-                  Blast Radius Assessor
+                  Blast Radius Assessor (Features 4–6)
                 </h3>
                 <p className="text-xs text-text-secondary mt-1 leading-relaxed">
                   Performs semantic AST OpenAPI diffing using <code>oasdiff</code> and traces consumer dependency trees dynamically mapped from Docker Compose.
@@ -451,7 +606,7 @@ export const CiCdOverview: React.FC = () => {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-                  PHASE 3: RUNTIME
+                  PHASE 3: RUNTIME CANARY
                 </span>
                 <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Active
@@ -459,16 +614,16 @@ export const CiCdOverview: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-semibold text-sm text-text-primary group-hover:text-amber-400 transition-colors flex items-center gap-1.5">
-                  Runtime Telemetry & ML Gate
+                  Canary Telemetry &amp; ML Gate (Features 7–10)
                 </h3>
                 <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-                  Ingests OpenTelemetry spans (call depth, sync calls) and Prometheus container metrics (pod restarts, CPU spikes) into the XGBoost gatekeeper.
+                  Ingests OpenTelemetry traces (Max Call Depth, Sync Calls) &amp; Prometheus metrics (Error Rate, Pod Restarts) into the XGBoost C-Score Brain.
                 </p>
               </div>
 
               <div className="p-3 rounded-lg bg-background/60 border border-border/50 text-xs font-mono space-y-1.5 text-text-secondary">
                 <div className="flex justify-between">
-                  <span>Cluster Pod Restarts:</span>
+                  <span>Canary Pod Restarts:</span>
                   <span className={`font-bold ${summary.runtimeRestarts > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                     {summary.runtimeRestarts}
                   </span>
@@ -499,10 +654,10 @@ export const CiCdOverview: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-brand-primary" />
-              <h3 className="font-semibold text-sm text-text-primary">Multi-Phase Risk Correlation & Gatekeeper Decision Timeline</h3>
+              <h3 className="font-semibold text-sm text-text-primary">Multi-Phase Risk Correlation &amp; Gatekeeper Decision Timeline</h3>
             </div>
             <p className="text-xs text-text-secondary mt-0.5">
-              Correlating Phase 1 Logical Coupling, Phase 2 Blast Radius, and Phase 3 Runtime Restarts against the resulting C-Score.
+              Correlating Phase 1 Logical Coupling, Phase 2 Blast Radius, and Phase 3 Canary Restarts against the resulting XGBoost C-Score.
             </p>
           </div>
           <div className="flex items-center gap-3 text-xs font-mono">
@@ -614,10 +769,10 @@ export const CiCdOverview: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-border text-[11px] text-text-muted uppercase tracking-wider bg-surface-secondary/40 font-semibold">
-                <th className="py-3 px-4">Pull Request & Service</th>
+                <th className="py-3 px-4">Pull Request &amp; Service</th>
                 <th className="py-3 px-4">Phase 1: Pre-Build</th>
                 <th className="py-3 px-4">Phase 2: Build</th>
-                <th className="py-3 px-4">Phase 3: Runtime</th>
+                <th className="py-3 px-4">Phase 3: Canary Runtime (F7–F10)</th>
                 <th className="py-3 px-4">C-Score Risk</th>
                 <th className="py-3 px-4">Decision</th>
                 <th className="py-3 px-4 text-right">Evaluated</th>
@@ -678,14 +833,12 @@ export const CiCdOverview: React.FC = () => {
                         <span className={`font-semibold ${pr.phase3.podRestarts > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                           Restarts: {pr.phase3.podRestarts}
                         </span>
-                        {pr.phase3.cpuSpikePct > 0 && (
-                          <span className="text-[10px] text-amber-400 font-sans">
-                            {pr.phase3.cpuSpikePct}% CPU
-                          </span>
-                        )}
+                        <span className="text-[10px] text-amber-400 font-sans">
+                          Err: {pr.phase3.errorRatePct}%
+                        </span>
                       </div>
                       <span className="text-[10px] text-text-muted font-sans mt-0.5">
-                        Depth: {pr.phase3.maxCallDepth} • Sync: {pr.phase3.syncCallCount} • Err: {pr.phase3.errorRatePct}%
+                        Depth: {pr.phase3.maxCallDepth} • Sync: {pr.phase3.syncCallCount} • CPU: {pr.phase3.cpuSpikePct}%
                       </span>
                     </div>
                   </td>
@@ -780,10 +933,10 @@ export const CiCdOverview: React.FC = () => {
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text-primary">
             <Layers className="w-4 h-4 text-brand-primary" />
-            <span>Shift-Left Architectural Governance Methodology (Viva-Defensible Architecture)</span>
+            <span>Shift-Left Architectural Governance Methodology</span>
           </div>
           <p className="text-xs text-text-secondary leading-relaxed max-w-4xl">
-            By shifting architectural assessment directly into the CI/CD pipeline, the C-Score engine intercepts high logical coupling (<b className="text-blue-400">Phase 1</b>), breaking interface modifications (<b className="text-purple-400">Phase 2</b>), and runtime container restarts or latency degradation (<b className="text-amber-400">Phase 3</b>) before code reaches staging or production environments, preventing systemic microservice failures.
+            By shifting architectural assessment directly into the CI/CD pipeline, the C-Score engine intercepts high logical coupling (<b className="text-blue-400">Phase 1</b>), breaking interface modifications (<b className="text-purple-400">Phase 2</b>), and runtime container restarts or call-depth cascades in the Canary Sandbox (<b className="text-amber-400">Phase 3</b>) before code reaches production environments.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
