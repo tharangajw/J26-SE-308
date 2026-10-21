@@ -112,6 +112,9 @@ services:
       JAEGER_URL: http://jaeger:16686
       LOKI_URL: http://loki:3100
       KUBERNETES_URL: http://host.docker.internal:8001
+      MONGODB_URI: mongodb://pscore-mongo:27017/pscore_telemetry
+    depends_on:
+      - mongodb
     networks:
       pscore-net:
         aliases:

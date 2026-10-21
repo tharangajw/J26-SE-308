@@ -2,12 +2,6 @@
   "book-service-1": [
     {
       "version": "Snapshot #21",
-      "p95LatencyMs": 171.46,
-      "evaluatedAt": "2026-10-20 17:57:31",
-      "timestampMs": 1792519051171
-    },
-    {
-      "version": "Snapshot #21",
       "p95LatencyMs": 100.57,
       "evaluatedAt": "2026-10-20 17:57:46",
       "timestampMs": 1792519066881
@@ -119,15 +113,15 @@
       "evaluatedAt": "2026-10-20 18:04:13",
       "p95LatencyMs": 173.41,
       "timestampMs": 1792519453524
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:04:37",
+      "p95LatencyMs": 162.31,
+      "timestampMs": 1792519477617
     }
   ],
   "order-service-1": [
-    {
-      "version": "Snapshot #21",
-      "p95LatencyMs": 48.79,
-      "evaluatedAt": "2026-10-20 17:57:31",
-      "timestampMs": 1792519051048
-    },
     {
       "version": "Snapshot #21",
       "p95LatencyMs": 37.71,
@@ -241,15 +235,15 @@
       "evaluatedAt": "2026-10-20 18:04:13",
       "p95LatencyMs": 124.72,
       "timestampMs": 1792519453474
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:04:37",
+      "p95LatencyMs": 112.34,
+      "timestampMs": 1792519477564
     }
   ],
   "gateway-1": [
-    {
-      "version": "Snapshot #21",
-      "p95LatencyMs": 87.32,
-      "evaluatedAt": "2026-10-20 17:57:31",
-      "timestampMs": 1792519051087
-    },
     {
       "version": "Snapshot #21",
       "p95LatencyMs": 66.12,
@@ -363,15 +357,15 @@
       "evaluatedAt": "2026-10-20 18:04:13",
       "p95LatencyMs": 13.25,
       "timestampMs": 1792519453363
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:04:37",
+      "p95LatencyMs": 65.46,
+      "timestampMs": 1792519477518
     }
   ],
   "user-service-1": [
-    {
-      "version": "Snapshot #21",
-      "p95LatencyMs": 135.39,
-      "evaluatedAt": "2026-10-20 17:57:31",
-      "timestampMs": 1792519051131
-    },
     {
       "version": "Snapshot #21",
       "p95LatencyMs": 9,
@@ -485,6 +479,12 @@
       "evaluatedAt": "2026-10-20 18:04:13",
       "p95LatencyMs": 72.91,
       "timestampMs": 1792519453421
+    },
+    {
+      "version": "Snapshot #21",
+      "evaluatedAt": "2026-10-20 18:04:37",
+      "p95LatencyMs": 13.98,
+      "timestampMs": 1792519477463
     }
   ]
 }

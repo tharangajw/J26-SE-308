@@ -16,6 +16,7 @@ COPY --from=collector-build /usr/local/bin/node /usr/local/bin/node
 # Copy compiled Telemetry Collector (:8787)
 COPY --from=collector-build /build/dist /app/telemetry-collector/dist
 COPY --from=collector-build /build/package.json /app/telemetry-collector/package.json
+COPY --from=collector-build /build/node_modules /app/telemetry-collector/node_modules
 
 # Install Python Anomaly & P-Score dependencies (:8000)
 COPY performance/anomaly-detection/requirements.txt /app/anomaly-detection/requirements.txt

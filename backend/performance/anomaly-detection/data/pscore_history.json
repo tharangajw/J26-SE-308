@@ -1,14 +1,5 @@
 [
   {
-    "timestampMs": 1792492265463,
-    "timeSlot": "10:31:05",
-    "overallPScore": 98.0,
-    "driftHealthScore": 100.0,
-    "fanOutHealthScore": 100.0,
-    "anomalyHealthScore": 89.9,
-    "apdexScore": 11.7
-  },
-  {
     "timestampMs": 1792492272028,
     "timeSlot": "10:31:12",
     "overallPScore": 87.9,
@@ -355,6 +346,15 @@
     "timeSlot": "18:04:14",
     "overallPScore": 73.6,
     "driftHealthScore": 83.6,
+    "fanOutHealthScore": 77.2,
+    "anomalyHealthScore": 46.6,
+    "apdexScore": 0.0
+  },
+  {
+    "timestampMs": 1792519479420,
+    "timeSlot": "18:04:39",
+    "overallPScore": 77.0,
+    "driftHealthScore": 92.2,
     "fanOutHealthScore": 77.2,
     "anomalyHealthScore": 46.6,
     "apdexScore": 0.0
