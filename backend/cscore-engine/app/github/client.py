@@ -4,7 +4,7 @@ import time
 import jwt  # PyJWT
 import requests
 
-from app.config import GITHUB_APP_ID, GITHUB_PRIVATE_KEY_PATH
+from app.core.config import GITHUB_APP_ID, GITHUB_PRIVATE_KEY_PATH
 
 API = "https://api.github.com"
 

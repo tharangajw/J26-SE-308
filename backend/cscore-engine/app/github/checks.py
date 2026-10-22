@@ -1,7 +1,7 @@
 """GitHub Checks API (green/red check) and PR comments."""
 import requests
 
-from app.github_client import API, get_installation_token
+from app.github.client import API, get_installation_token
 
 
 def _headers(installation_id):

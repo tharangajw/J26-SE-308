@@ -4,7 +4,7 @@ import tempfile
 # Use a temporary DB file so tests never touch the real database.
 os.environ["CSCORE_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
 
-from app import db  # noqa: E402
+from app.core import db  # noqa: E402
 
 
 def test_db_flow():

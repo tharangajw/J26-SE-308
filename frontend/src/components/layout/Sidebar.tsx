@@ -161,6 +161,7 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/phase1/coupling" icon={<GitPullRequest />} label="Phase 1: Coupling" />
               <NavItem to="/phase2/blast-radius" icon={<Network />} label="Phase 2: Blast Radius" />
               <NavItem to="/phase3/telemetry" icon={<Activity />} label="Phase 3: Telemetry" />
+              <NavItem to="/dimensions/cicd/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
           </nav>
         </div>

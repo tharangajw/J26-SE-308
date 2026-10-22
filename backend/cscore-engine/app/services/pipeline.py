@@ -2,12 +2,12 @@
 Phase 1 + Phase 2 -> XGBoost -> GitHub Check."""
 import traceback
 
-from app import db
-from app.checks import build_report, complete_check, create_check, post_pr_comment
-from app.live_logs import add_log, finish_webhook_session, set_result
-from app.phase1 import get_phase1_features, get_pr_services
-from app.phase2 import get_phase2_features
-from app.scorer import predict_cscore
+from app.core import db
+from app.github.checks import build_report, complete_check, create_check, post_pr_comment
+from app.services.live_logs import add_log, finish_webhook_session, set_result
+from app.phases.phase1 import get_phase1_features, get_pr_services
+from app.phases.phase2 import get_phase2_features
+from app.ml.scorer import predict_cscore
 
 PHASE3_KEYS = ["max_call_depth", "sync_call_count", "cpu_spike_pct",
                "mem_spike_pct", "error_rate_pct", "pod_restarts"]

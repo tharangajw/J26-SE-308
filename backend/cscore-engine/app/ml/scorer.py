@@ -5,7 +5,7 @@ import numpy as np
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from app.config import (MODEL_PATH, SCALER_PATH, MODEL_FEATURES,
+from app.core.config import (MODEL_PATH, SCALER_PATH, MODEL_FEATURES,
                         FEATURE_NAMES, THRESHOLD)
 
 # Pickles are version-sensitive: see the pinned versions in requirements.txt

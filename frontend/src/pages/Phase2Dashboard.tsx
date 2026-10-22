@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { VerdictPopup } from '../components/VerdictPopup';
+import { ServiceDependencyGraph } from '../components/ServiceDependencyGraph';
 import type { WebhookResult } from '../components/VerdictPopup';
 import {
   Network,
@@ -588,15 +589,9 @@ export const Phase2Dashboard = () => {
                   </span>
                 </div>
                 
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                <div>
                   {graph.edges.length > 0 ? (
-                    graph.edges.map((edge: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between p-2 rounded bg-surface-secondary/50 border border-border/40 text-xs font-mono">
-                        <span className="text-blue-400">{edge.source}</span>
-                        <span className="text-text-muted text-[10px]">──calls──►</span>
-                        <span className="text-purple-400">{edge.target}</span>
-                      </div>
-                    ))
+                    <ServiceDependencyGraph nodes={graph.nodes} edges={graph.edges} />
                   ) : (
                     <div className="text-center text-xs text-text-muted py-4">
                       No dependencies registered in database.

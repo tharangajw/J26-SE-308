@@ -5,7 +5,7 @@ A "service" = a top-level folder of the repo (e.g. order-service/).
 """
 from datetime import datetime, timedelta, timezone
 
-from app.github_client import gh_get
+from app.github.client import gh_get
 
 IGNORE_FOLDERS = {".github", "ci-cd-engine", "docs", "node_modules"}
 HISTORY_DAYS = 30
