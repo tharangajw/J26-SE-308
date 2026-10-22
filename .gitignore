@@ -15,8 +15,15 @@ backend/**/.cache/
 backend/**/.npm/
 backend/**/*.tsbuildinfo
 backend/**/.eslintcache
-backend/**/__pycache__/
+__pycache__/
 *.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+.mypy_cache/
+.ruff_cache/
 
 node_modules
 dist
