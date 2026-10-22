@@ -958,6 +958,7 @@ export const CiCdOverview: React.FC = () => {
           >
             Phase 3
           </button>
+          <button onClick={() => navigate('/dimensions/cicd/calculation')} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20 transition-colors flex items-center gap-1.5">Calculation Logic &rarr;</button>
         </div>
       </div>
 
