@@ -11,8 +11,6 @@ import {
   Box,
   Layers,
   Calculator,
-  GitBranch,
-  Activity,
   ChevronLeft,
   ChevronRight,
   RefreshCw,
@@ -185,22 +183,6 @@ export const Phase1Dashboard = () => {
         </div>
 
         <div className="flex items-center gap-4 border-l border-border pl-4">
-          <button 
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 bg-surface-secondary/50 hover:bg-surface-secondary transition-colors text-xs font-semibold text-text-primary"
-            onClick={() => window.open('https://github.com/settings/apps', '_blank')}
-          >
-            <GitBranch className="w-3.5 h-3.5" />
-            Connect Repo
-          </button>
-          
-          <button 
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-brand-cicd/50 bg-brand-cicd/10 hover:bg-brand-cicd/20 transition-colors text-xs font-semibold text-brand-cicd"
-            onClick={() => alert('Webhook test payload sent to C-Score Engine!')}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            Test Webhook
-          </button>
-          
           {backendConnected ? (
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
               <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />

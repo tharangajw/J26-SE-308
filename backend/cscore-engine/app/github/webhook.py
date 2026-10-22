@@ -5,9 +5,9 @@ import json
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 
-from app import db
-from app.config import GITHUB_WEBHOOK_SECRET
-from app.pipeline import run_pipeline
+from app.core import db
+from app.core.config import GITHUB_WEBHOOK_SECRET
+from app.services.pipeline import run_pipeline
 
 router = APIRouter()
 
@@ -49,11 +49,11 @@ async def github_webhook(
         pr = payload["pull_request"]
         full_name = payload["repository"]["full_name"]
         repo = db.add_repo(full_name, payload["installation"]["id"])
-        from app.live_logs import start_webhook_session
+        from app.services.live_logs import start_webhook_session
         start_webhook_session(pr["number"], full_name, pr["head"]["sha"], payload.get("action", "opened"))
         
         # Auto-discover architecture dependencies from repo in background
-        from app.phase2 import auto_discover_dependencies
+        from app.phases.phase2 import auto_discover_dependencies
         background_tasks.add_task(
             auto_discover_dependencies, payload["installation"]["id"], full_name, repo["id"], pr["base"]["ref"]
         )

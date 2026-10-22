@@ -1,4 +1,4 @@
-from app import phase1
+from app.phases import phase1
 
 
 def test_service_of():

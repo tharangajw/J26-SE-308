@@ -1,4 +1,4 @@
-from app.scorer import predict_cscore
+from app.ml.scorer import predict_cscore
 
 LOW = {"commit_freq": 0.2, "co_deploy_rate": 0.0}
 HIGH = {

@@ -8,7 +8,7 @@ os.environ["CSCORE_DB"] = os.path.join(tempfile.mkdtemp(), "test_wh.db")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.config import GITHUB_WEBHOOK_SECRET  # noqa: E402
+from app.core.config import GITHUB_WEBHOOK_SECRET  # noqa: E402
 from app.main import app  # noqa: E402
 
 client = TestClient(app)
@@ -36,5 +36,5 @@ def test_accepts_installation_event():
         headers={"X-Hub-Signature-256": _sign(body), "X-GitHub-Event": "installation"},
     )
     assert r.status_code == 200
-    from app import db
+    from app.core import db
     assert db.get_repo("tharangajw/demo")["installation_id"] == 99
