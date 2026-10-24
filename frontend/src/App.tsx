@@ -16,6 +16,7 @@ import { DriftAnalysisPage } from './pages/DriftAnalysisPage';
 import { AnomalyDetectionPage } from './pages/AnomalyDetectionPage';
 import { FanOutAnalysisPage } from './pages/FanOutAnalysisPage';
 import { PerformanceDimensionPage } from './pages/PerformanceDimensionPage';
+import { PerformanceCalculationPage } from './pages/PerformanceCalculationPage';
 import { FaultToleranceDashboard } from './components/resilience/FaultToleranceDashboard';
 import { FaultToleranceCalculation } from './components/resilience/FaultToleranceCalculation';
 import { ResilienceHistory } from './components/resilience/ResilienceHistory';
@@ -51,6 +52,7 @@ function App() {
             <Route path="dimensions/performance/drift" element={<DriftAnalysisPage />} />
             <Route path="dimensions/performance/fanout" element={<FanOutAnalysisPage />} />
             <Route path="dimensions/performance/anomaly" element={<AnomalyDetectionPage />} />
+            <Route path="dimensions/performance/calculation" element={<PerformanceCalculationPage />} />
             <Route path="dimensions/FaultToleranceDashboard" element={<FaultToleranceDashboard />} />
             <Route path="dimensions/fault-tolerance/chaos" element={<FaultToleranceDashboard standaloneChaos />} />
             <Route path="dimensions/fault-tolerance/calculation" element={<FaultToleranceCalculation />} />

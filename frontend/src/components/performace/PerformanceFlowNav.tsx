@@ -12,7 +12,8 @@ import {
   Server,
   Plus,
   CheckCircle2,
-  ChevronRight
+  ChevronRight,
+  Calculator
 } from 'lucide-react';
 import { TelemetryService } from '../../services/telemetry';
 
@@ -156,9 +157,18 @@ export const PerformanceFlowHeader: React.FC<PerformanceFlowHeaderProps> = ({
               Follow the end-to-end performance evaluation workflow below:
             </span>
           </div>
-          <span className="font-mono text-[11px] text-text-secondary">
-            Active Stage: <strong className="text-brand-perf">{activeStepDef.stepBadge}</strong>
-          </span>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/dimensions/performance/calculation"
+              className="inline-flex items-center gap-1 rounded-md border border-brand-perf/40 bg-brand-perf/10 hover:bg-brand-perf/20 px-2 py-0.5 font-mono text-[11px] font-semibold text-brand-perf transition-colors"
+              title="View Complete Mathematical Calculations & Worked Examples"
+            >
+              <Calculator className="h-3 w-3" /> Calculation Logic
+            </Link>
+            <span className="font-mono text-[11px] text-text-secondary">
+              Active Stage: <strong className="text-brand-perf">{activeStepDef.stepBadge}</strong>
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">

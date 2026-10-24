@@ -133,6 +133,7 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/performance/fanout" icon={<GitMerge />} label="2B. Call-Tree Fan-Out (40%)" />
               <NavItem to="/dimensions/performance/anomaly" icon={<ShieldAlert />} label="2C. ML Anomaly (20%)" />
               <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="3. Composite P-Score" end />
+              <NavItem to="/dimensions/performance/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
             <NavGroup icon={<Shield />} label="Fault Tolerance">
               <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
