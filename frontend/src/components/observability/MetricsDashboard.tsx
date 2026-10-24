@@ -1,8 +1,8 @@
+// Prometheus-backed charts for CPU, memory, request rate, and latency.
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { Activity, Cpu, HardDrive, Network, Database } from 'lucide-react';
-import { AnomalyPanel } from '../performace/AnomalyPanel';
 import { ChartTooltip } from './ChartTooltip';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
@@ -130,7 +130,6 @@ export default function MetricsDashboard({ data }: any) {
         </Card>
       </div>
 
-      <AnomalyPanel />
     </div>
   );
 }

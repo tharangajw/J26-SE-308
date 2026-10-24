@@ -1,3 +1,4 @@
+// Historical O-Score and CCI view; live backend history replaces the baseline when available.
 import React, { useState } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';

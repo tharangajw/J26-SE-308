@@ -4,15 +4,19 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: pscore-frontend
+    restart: unless-stopped
     ports:
       - "5173:3000"
     environment:
       PROMETHEUS_PROXY_TARGET: http://prometheus:9090
       LOKI_PROXY_TARGET: http://loki:3100
       JAEGER_PROXY_TARGET: http://jaeger:16686
+      OBSERVABILITY_PROXY_TARGET: http://observability-engine:8010
+      ANOMALY_PROXY_TARGET: http://anomaly-detection:8000
     depends_on:
       - resilience-api
       - telemetry-collector
+      - observability-engine
     networks:
       - pscore-net
 
@@ -67,8 +71,10 @@ services:
     image: grafana/loki:2.9.8
     container_name: pscore-loki
     ports:
-      - "3100:3100"
-    command: -config.file=/etc/loki/local-config.yaml
+      - "13100:3100"
+    command: -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      - ./backend/observability/loki-config.yaml:/etc/loki/loki-config.yaml:ro
     networks:
       - pscore-net
 
@@ -77,8 +83,9 @@ services:
       context: ./backend/observability-engine
       dockerfile: Dockerfile
     container_name: pscore-observability-engine
+    restart: unless-stopped
     ports:
-      - "8010:8010"
+      - "18011:8010"
     environment:
       PROMETHEUS_URL: http://prometheus:9090
       LOKI_URL: http://loki:3100
@@ -107,7 +114,7 @@ services:
       dockerfile: Dockerfile
     container_name: pscore-anomaly-detection
     ports:
-      - "8000:8000"
+      - "18002:8000"
     networks:
       - pscore-net
 

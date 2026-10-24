@@ -2,6 +2,8 @@ import os
 import time
 import uuid
 
+# FastAPI routes expose live telemetry, scoring, RCA, and guarded remediation APIs.
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,11 +26,13 @@ approval_queue: list[dict] = []
 
 
 @app.get("/health")
+# Lightweight liveness endpoint for container and proxy health checks.
 def health() -> dict:
     return {"status": "ok", "service": "observability-engine"}
 
 
 @app.get("/api/observability/telemetry")
+# Collect one live snapshot, calculate scores, and append bounded history.
 def telemetry() -> dict:
     snapshot = collect_telemetry()
     snapshot["integration"] = collect_integrated(
@@ -46,6 +50,7 @@ def telemetry() -> dict:
 
 
 @app.get("/api/observability/ai/providers")
+# Report provider configuration without exposing API keys.
 def ai_providers() -> dict:
     return {
         "gemini": {"configured": bool(os.getenv("GEMINI_API_KEY")), "model": os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"), "fallbackModels": os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.8-flash").split(",")},
@@ -55,6 +60,7 @@ def ai_providers() -> dict:
 
 
 @app.post("/api/observability/ai/analyze")
+# Run provider-backed RCA against the supplied telemetry snapshot.
 def ai_analyze(request: AIAnalysisRequest) -> dict:
     if request.provider not in {"gemini", "claude", "openrouter"}:
         return {"error": "provider must be gemini, claude, or openrouter"}
@@ -62,6 +68,7 @@ def ai_analyze(request: AIAnalysisRequest) -> dict:
 
 
 @app.post("/api/observability/ai/remediation")
+# Generate a guarded remediation patch and queue risky live results for review.
 def ai_remediation(request: AIRemediationRequest) -> dict:
     if request.provider not in {"gemini", "claude", "openrouter"}:
         return {"error": "provider must be gemini, claude, or openrouter"}
@@ -84,11 +91,13 @@ def ai_remediation(request: AIRemediationRequest) -> dict:
 
 
 @app.get("/api/observability/ai/approvals")
+# List pending and completed remediation approval records.
 def get_approvals() -> dict:
     return {"approvals": list(reversed(approval_queue))}
 
 
 @app.post("/api/observability/ai/approvals/{approval_id}/approve")
+# Mark a remediation approval record as operator-approved.
 def approve_remediation(approval_id: str) -> dict:
     for approval in approval_queue:
         if approval["approval_id"] == approval_id:
@@ -99,6 +108,7 @@ def approve_remediation(approval_id: str) -> dict:
 
 
 @app.post("/api/observability/ai/approvals/{approval_id}/reject")
+# Mark a remediation approval record as operator-rejected.
 def reject_remediation(approval_id: str) -> dict:
     for approval in approval_queue:
         if approval["approval_id"] == approval_id:
@@ -109,12 +119,14 @@ def reject_remediation(approval_id: str) -> dict:
 
 
 @app.get("/api/observability/integrated")
+# Return integrated performance and resilience data for selected services.
 def integrated_snapshot(services: str = "api-gateway,order-service,payment-service") -> dict:
     service_ids = [item.strip() for item in services.split(",") if item.strip()]
     return {"services": service_ids, **collect_integrated(service_ids)}
 
 
 @app.get("/api/observability/resilience/score")
+# Calculate resilience score and service rows from active chaos history.
 def resilience_score(services: str = "api-gateway,order-service,payment-service") -> dict:
     service_ids = [item.strip() for item in services.split(",") if item.strip()]
     resilience = collect_integrated(service_ids)["resilience"]
@@ -153,11 +165,13 @@ def resilience_score(services: str = "api-gateway,order-service,payment-service"
 
 
 @app.get("/api/observability/chaos/history")
+# Expose chaos experiment history for the observability UI.
 def get_chaos_history() -> dict:
     return {"events": chaos_history()}
 
 
 @app.post("/api/observability/chaos/inject")
+# Start a bounded telemetry fault simulation requested by the UI.
 def post_chaos_inject(request: dict) -> dict:
     return inject_chaos(
         str(request.get("faultType", "UNKNOWN")),
@@ -169,5 +183,6 @@ def post_chaos_inject(request: dict) -> dict:
 
 
 @app.post("/api/observability/chaos/clear")
+# Recover selected or all active telemetry fault simulations.
 def post_chaos_clear(request: dict | None = None) -> dict:
     return {"recovered": clear_chaos((request or {}).get("serviceId"))}

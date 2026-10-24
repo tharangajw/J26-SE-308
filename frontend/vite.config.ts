@@ -15,7 +15,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api/observability': {
-        target: 'http://localhost:8010',
+        target: process.env.OBSERVABILITY_PROXY_TARGET || 'http://localhost:18011',
         changeOrigin: true,
       },
       '/proxy/prometheus': {
@@ -24,7 +24,7 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/proxy\/prometheus/, '')
       },
       '/proxy/loki': {
-        target: process.env.LOKI_PROXY_TARGET || 'http://localhost:3100',
+        target: process.env.LOKI_PROXY_TARGET || 'http://localhost:13100',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/loki/, '')
       },
@@ -38,7 +38,7 @@ export default defineConfig({
         changeOrigin: true
       },
       '/api/anomaly': {
-        target: 'http://localhost:8000',
+        target: process.env.ANOMALY_PROXY_TARGET || 'http://localhost:18002',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/anomaly/, '')
       }

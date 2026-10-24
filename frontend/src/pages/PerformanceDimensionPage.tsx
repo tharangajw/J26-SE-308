@@ -233,7 +233,7 @@ export const PerformanceDimensionPage: React.FC = () => {
       const qs = `?w_drift=${activePreset.drift}&w_fanout=${activePreset.fanout}&w_anomaly=${activePreset.anomaly}`;
       const urls = [
         `/api/anomaly/pscore/evaluate${qs}`,
-        `http://localhost:8000/pscore/evaluate${qs}`
+        `http://localhost:18002/pscore/evaluate${qs}`
       ];
       let payload: PythonPScoreResponse | null = null;
 

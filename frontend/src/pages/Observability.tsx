@@ -1,3 +1,4 @@
+// Detailed explorer for live metrics, logs, traces, CCI, RCA, and remediation.
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTelemetry } from '../context/TelemetryContext';
@@ -155,6 +156,11 @@ export const Observability: React.FC = () => {
                 ? 'Use Gemini or Claude to diagnose correlated telemetry and explain the likely root cause.'
                 : 'Real-time telemetry correlation across Prometheus, Loki, and Jaeger.'}
           </p>
+          {telemetry?.lastUpdated && (
+            <p className="mt-1 text-[11px] text-emerald-400">
+              Live data · updated {new Date(telemetry.lastUpdated).toLocaleTimeString()}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

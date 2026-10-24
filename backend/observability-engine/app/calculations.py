@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from typing import Any
 
+# Pure scoring functions keep O-Score and CCI results reproducible for a snapshot.
+
 
 RI = {1: 0.0, 2: 0.0, 3: 0.58, 4: 0.90, 5: 1.12,
       6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49}
@@ -15,6 +17,7 @@ PILLAR_LABELS = [
 PILLAR_MATRIX = [[1.0, 1.0, 1.2], [1.0, 1.0, 1.2], [1 / 1.2, 1 / 1.2, 1.0]]
 
 
+# Normalize the comparison matrix and calculate weights and consistency ratio.
 def run_ahp(matrix: list[list[float]], labels: list[str]) -> dict[str, Any]:
     n = len(matrix)
     column_sums = [sum(row[column] for row in matrix) for column in range(n)]
@@ -41,6 +44,7 @@ def run_ahp(matrix: list[list[float]], labels: list[str]) -> dict[str, Any]:
 OBS_AHP = run_ahp(PILLAR_MATRIX, PILLAR_LABELS)
 
 
+# Convert Prometheus, Loki, Jaeger, or frontend timestamps to milliseconds.
 def _timestamp_ms(value: Any) -> float | None:
     try:
         number = float(value)
@@ -57,10 +61,12 @@ def _timestamp_ms(value: Any) -> float | None:
         return None
 
 
+# Normalize service identifiers before comparing telemetry events.
 def _service_name(value: Any) -> str:
     return str(value or "").strip().lower().replace("_", "-")
 
 
+# Check same-service and bounded-time correlation between two events.
 def _within_window(left: dict[str, Any], right: dict[str, Any], window_ms: int = 2_000) -> bool:
     left_time = _timestamp_ms(left.get("timestamp", left.get("time")))
     right_time = _timestamp_ms(right.get("timestamp", right.get("time")))
@@ -72,6 +78,7 @@ def _within_window(left: dict[str, Any], right: dict[str, Any], window_ms: int =
     return same_service and abs(left_time - right_time) <= window_ms
 
 
+# Calculate cross-pillar coverage, trace-log matches, and blind spots.
 def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
     sources = snapshot["sources"]
     error_count = int(snapshot["logs"]["errorCount"])
@@ -171,6 +178,7 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Produce the deterministic O-Score, maturity, breakdown, and verification evidence.
 def calculate_observability(snapshot: dict[str, Any]) -> dict[str, Any]:
     sources = snapshot["sources"]
     details = snapshot
@@ -184,6 +192,17 @@ def calculate_observability(snapshot: dict[str, Any]) -> dict[str, Any]:
     score = max(0.0, raw_score - penalty)
     status = "HEALTHY" if score >= 80 else "WARNING" if score >= 60 else "CRITICAL"
     maturity = "Proactive" if score >= 80 else "Intermediate" if score >= 50 else "Reactive"
+    source_coverage = round((sum((metrics, traces, logs)) / 3) * 100, 2)
+    score_range_valid = 0 <= score <= 100
+    cci_range_valid = 0 <= cci["cci_index"] <= 100
+    ahp_consistent = OBS_AHP["consistencyRatio"] < 0.10
+    verification_percentage = round(max(0.0, min(100.0, (
+        source_coverage * 0.4
+        + cci["correlation_confidence"] * 0.4
+        + (100.0 if ahp_consistent else 0.0) * 0.1
+        + (100.0 if score_range_valid and cci_range_valid else 0.0) * 0.1
+        - penalty
+    ))), 2)
     return {
         "oScore": round(score, 2),
         "cciIndex": cci["cci_index"],
@@ -197,6 +216,17 @@ def calculate_observability(snapshot: dict[str, Any]) -> dict[str, Any]:
             "tracePropagation": traces,
             "logStructuralIntegrity": logs,
             "weightedRawScore": round(raw_score, 2),
+            "blindSpotPenalty": penalty,
+        },
+        "verification": {
+            "status": "VERIFIED" if score_range_valid and cci_range_valid and ahp_consistent else "REVIEW_REQUIRED",
+            "verificationPercentage": verification_percentage,
+            "sourceCoveragePct": source_coverage,
+            "correlationConfidencePct": cci["correlation_confidence"],
+            "ahpConsistencyRatio": round(OBS_AHP["consistencyRatio"], 6),
+            "ahpConsistent": ahp_consistent,
+            "scoreRangeValid": score_range_valid,
+            "cciRangeValid": cci_range_valid,
             "blindSpotPenalty": penalty,
         },
     }

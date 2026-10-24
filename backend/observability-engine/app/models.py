@@ -1,5 +1,6 @@
 from typing import Any
 
+# Request models define the validated contract for observability AI endpoints.
 from pydantic import BaseModel, Field
 
 

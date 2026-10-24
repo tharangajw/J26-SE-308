@@ -1,3 +1,4 @@
+// Live Observability overview: source health, O-Score, CCI, and telemetry history.
 import {
   CheckCircle2,
   Activity,
@@ -157,8 +158,8 @@ export const ObservabilityDashboard = () => {
               <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">Blind Spots</span>
               <TriangleAlert className="h-4 w-4 text-amber-400" />
             </div>
-            <div className="mt-2 font-mono text-2xl font-semibold text-text-primary">1</div>
-            <p className="mt-1 text-[11px] text-text-muted">payment-service missing traces</p>
+            <div className="mt-2 font-mono text-2xl font-semibold text-text-primary">{telemetry?.calculation.blindSpotCount ?? '—'}</div>
+            <p className="mt-1 text-[11px] text-text-muted">Live engine-detected blind spots</p>
           </CardContent>
         </Card>
       </div>

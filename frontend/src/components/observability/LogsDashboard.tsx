@@ -1,3 +1,4 @@
+// Loki-backed log volume and correlated recent log stream.
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
@@ -7,7 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
 export default function LogsDashboard({ data }: any) {
   const realtime = data?.realtime;
-  const logData = realtime?.logs?.series ?? [];
+  const liveLogData = realtime?.logs?.series ?? [];
+  const logData = liveLogData.length ? liveLogData : Array.from({ length: 12 }, (_, index) => ({
+    time: `${String(index * 5).padStart(2, '0')}m ago`,
+    info: 0,
+    error: 0,
+  }));
+  const usingLogPreview = liveLogData.length === 0;
   const logs = realtime?.logs?.recentLogs ?? [];
 
   return (
@@ -18,7 +25,9 @@ export default function LogsDashboard({ data }: any) {
             <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
               <BarChart3 className="h-4 w-4 text-brand-obs" /> Log Volume (Last 2 Hours)
             </CardTitle>
-            {data?.details?.log_error_count > 0 && (
+            {usingLogPreview ? (
+              <span className="text-[10px] font-medium uppercase tracking-wider text-amber-400">Waiting for Loki logs</span>
+            ) : data?.details?.log_error_count > 0 && (
               <div className="inline-flex items-center gap-1.5 text-xs font-medium text-rose-400">
                 <TriangleAlert className="h-3.5 w-3.5" />
                 {data.details.log_error_count} errors detected

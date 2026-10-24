@@ -1,3 +1,4 @@
+// Sends the live correlated snapshot to an AI provider for root-cause analysis.
 import { useEffect, useState } from 'react';
 import { BrainCircuit, CheckCircle2, LoaderCircle, Sparkles, TriangleAlert, Zap } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';

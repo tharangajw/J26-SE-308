@@ -1,3 +1,4 @@
+// Controlled demo faults exercise telemetry gaps without taking Prometheus down.
 import { Skull, RefreshCw, Activity, CheckCircle, XCircle, Radio, ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
 import { useChaosContext } from '../../context/ChaosContext';

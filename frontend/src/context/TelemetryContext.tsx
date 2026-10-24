@@ -1,3 +1,4 @@
+// Shared two-second polling context keeps dashboard views on one live snapshot.
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { TelemetryService } from '../services/telemetry';
 import type { TelemetryData } from '../services/telemetry';

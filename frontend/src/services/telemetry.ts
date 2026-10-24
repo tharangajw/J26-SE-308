@@ -1,3 +1,4 @@
+// Client contract and API adapter for the backend's live Prometheus/Loki/Jaeger snapshot.
 export interface TelemetryData {
   metrics: {
     cpuUsage: number;
@@ -38,6 +39,17 @@ export interface TelemetryData {
     ahp: any;
     cciData: any;
     scoreBreakdown: any;
+    verification: {
+      status: string;
+      verificationPercentage: number;
+      sourceCoveragePct: number;
+      correlationConfidencePct: number;
+      ahpConsistencyRatio: number;
+      ahpConsistent: boolean;
+      scoreRangeValid: boolean;
+      cciRangeValid: boolean;
+      blindSpotPenalty: number;
+    };
   };
   history: Array<{ timestamp: string; oscore: number; cci_index: number; blind_spot_count: number }>;
 }

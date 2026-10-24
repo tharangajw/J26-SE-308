@@ -1,10 +1,18 @@
 import React from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { mockAssessmentData } from '../../data/mockData';
+import { useTelemetry } from '../../context/TelemetryContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export const TrendChart: React.FC = () => {
-  const data = mockAssessmentData.history;
+  const { history } = useTelemetry();
+  const data = history.length
+    ? history.map((record) => ({
+        date: new Date(record.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        overall: record.oscore,
+        observability: record.oscore,
+      }))
+    : mockAssessmentData.history;
 
   return (
     <Card className="h-full flex flex-col">
