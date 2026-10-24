@@ -36,11 +36,32 @@ export interface RScoreRuleResult {
 }
 
 export interface SelfHealingMetrics {
-  podRestartSuccessRate: number;
-  replicaReplacementSuccessRate: number;
-  hpaEffectiveness: number;
-  circuitBreakerEffectiveness: number;
-  selfHealingScore: number;
+  podRestartSuccessRate: number | null;
+  replicaReplacementSuccessRate: number | null;
+  hpaEffectiveness: number | null;
+  circuitBreakerEffectiveness: number | null;
+  selfHealingScore: number | null;
+}
+
+export interface KubernetesValidationSnapshot {
+  podCount: number;
+  podRestartCount: number;
+  deploymentCount: number;
+  desiredReplicas: number;
+  readyReplicas: number;
+  hpas: Array<{
+    name: string;
+    namespace: string;
+    currentReplicas: number;
+    desiredReplicas: number;
+    currentCpuPercent: number | null;
+    targetCpuPercent: number | null;
+  }>;
+  circuitBreaker: {
+    configured: false;
+    status: 'NOT_MEASURED';
+    reason: string;
+  };
 }
 
 export interface ChaosInjectRequest {
@@ -111,6 +132,7 @@ export interface ResilienceScoreResponse {
   services: Service[];
   rules: RScoreRuleResult[];
   selfHealing: SelfHealingMetrics;
+  kubernetesValidation?: KubernetesValidationSnapshot | null;
   activeChaos: ActiveChaosEvent | null;
   sources: {
     prometheus: boolean;

@@ -78,6 +78,7 @@ const statusFor = (score: number) => score >= 75 ? 'HEALTHY' : score >= 50 ? 'WA
 
 export const ResilienceHistory: React.FC = () => {
   const [records, setRecords] = useState<HistoryRecord[]>([]);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [experiments, setExperiments] = useState<ChaosExperiment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -88,14 +89,15 @@ export const ResilienceHistory: React.FC = () => {
     let active = true;
     const loadHistory = async () => {
       try {
-        const response = await fetch('http://localhost:3010/api/resilience/history');
+        const response = await fetch('http://localhost:3010/api/resilience/history?limit=500');
         if (!response.ok) throw new Error(`History request failed (${response.status}).`);
-        const data = await response.json() as { history?: HistoryRecord[] };
+        const data = await response.json() as { history?: HistoryRecord[]; count?: number };
         if (active) {
           const normalizedRecords = (Array.isArray(data.history) ? data.history : [])
             .map(record => ({ ...record, timestamp: normalizeTimestamp(record.timestamp) }))
             .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
           setRecords(normalizedRecords);
+          setTotalRecords(Number.isFinite(data.count) ? Number(data.count) : normalizedRecords.length);
           setError('');
           setLoading(false);
         }
@@ -107,7 +109,7 @@ export const ResilienceHistory: React.FC = () => {
       }
     };
     void loadHistory();
-    const timer = window.setInterval(loadHistory, 5000);
+    const timer = window.setInterval(loadHistory, 30000);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
 
@@ -124,7 +126,7 @@ export const ResilienceHistory: React.FC = () => {
       }
     };
     void loadExperiments();
-    const timer = window.setInterval(loadExperiments, 5000);
+    const timer = window.setInterval(loadExperiments, 30000);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
 
@@ -161,13 +163,13 @@ export const ResilienceHistory: React.FC = () => {
           <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-orange-400 to-amber-400 flex items-center gap-3">
             <Shield className="w-7 h-7 text-rose-400" /> R-Score Full History
           </h1>
-          <p className="text-sm text-slate-400 mt-1">Persisted resilience engine snapshots, refreshed every 5 seconds.</p>
+          <p className="text-sm text-slate-400 mt-1">Showing the latest 500 resilience snapshots; refreshes every 30 seconds.</p>
         </div>
         <button onClick={exportCsv} disabled={!records.length} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg hover:bg-rose-500/20 disabled:opacity-40">
           <Download className="w-4 h-4" /> Export CSV
         </button>
       </div>
-      <div className="text-xs text-slate-500 mb-4">{records.length} recorded snapshots</div>
+      <div className="text-xs text-slate-500 mb-4">Showing {records.length} of {totalRecords} recorded snapshots</div>
       {loading && <p className="text-sm text-slate-400 mb-4">Loading R-Score history…</p>}
       {error && <p className="text-sm text-rose-400 mb-4">{error} Make sure the resilience backend is running.</p>}
       {!loading && !error && !records.length && <p className="text-sm text-slate-400 mb-4">No snapshots have been recorded yet. The backend will collect the first snapshot shortly.</p>}

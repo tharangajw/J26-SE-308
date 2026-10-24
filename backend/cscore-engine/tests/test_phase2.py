@@ -1,4 +1,4 @@
-from app import phase2
+from app.phases import phase2
 
 OLD_SPEC = """openapi: 3.0.3
 info: {title: T, version: 1.0.0}

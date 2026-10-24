@@ -21,7 +21,9 @@ import { FaultToleranceCalculation } from './components/resilience/FaultToleranc
 import { ResilienceHistory } from './components/resilience/ResilienceHistory';
 import { Phase1Dashboard } from './pages/Phase1Dashboard';
 import { Phase2Dashboard } from './pages/Phase2Dashboard';
+import { Phase3Dashboard } from './pages/Phase3Dashboard';
 import { CiCdOverview } from './pages/CiCdOverview';
+import { CiCdCalculationPage } from './pages/CiCdCalculationPage';
 
 function App() {
   return (
@@ -46,12 +48,16 @@ function App() {
             <Route path="dimensions/performance/fanout" element={<FanOutAnalysisPage />} />
             <Route path="dimensions/performance/anomaly" element={<AnomalyDetectionPage />} />
             <Route path="dimensions/FaultToleranceDashboard" element={<FaultToleranceDashboard />} />
+            <Route path="dimensions/fault-tolerance/chaos" element={<FaultToleranceDashboard standaloneChaos />} />
             <Route path="dimensions/fault-tolerance/calculation" element={<FaultToleranceCalculation />} />
             <Route path="dimensions/fault-tolerance/history" element={<ResilienceHistory />} />
             <Route path="dimensions/cicd" element={<CiCdOverview />} />
+            <Route path="dimensions/cicd/calculation" element={<CiCdCalculationPage />} />
+            <Route path="cicd/calculation" element={<CiCdCalculationPage />} />
             <Route path="dimensions/:dimensionId" element={<DimensionPage />} />
             <Route path="phase1/coupling" element={<Phase1Dashboard />} />
             <Route path="phase2/blast-radius" element={<Phase2Dashboard />} />
+            <Route path="phase3/telemetry" element={<Phase3Dashboard />} />
             <Route path="assessment" element={<Assessment />} />
             <Route path="architecture" element={<Architecture />} />
             <Route path="evidence" element={<div className="p-8">Evidence Review is integrated into Assessment</div>} />

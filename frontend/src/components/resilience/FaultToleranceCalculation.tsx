@@ -19,59 +19,59 @@ import {
 const runtimeRules = [
   { 
     title: 'Availability', 
-    description: '12.5 points when availability is at least 99.0%.',
+    description: 'Up to 26.63 points; normalized availability is availability ÷ 99%.',
     icon: 'Activity',
     threshold: '>= 99.0%',
-    points: 12.5
+    points: 26.63
   },
   { 
     title: 'CPU load', 
-    description: '12.5 points when average CPU utilization stays below 70%.',
+    description: 'Up to 3.26 points; lower CPU utilization scores higher against the 70% reference.',
     icon: 'Cpu',
     threshold: '< 70%',
-    points: 12.5
+    points: 3.26
   },
   { 
     title: 'Memory load', 
-    description: '12.5 points when average memory utilization stays below 75%.',
+    description: 'Up to 3.26 points; lower memory utilization scores higher against the 75% reference.',
     icon: 'HardDrive',
     threshold: '< 75%',
-    points: 12.5
+    points: 3.26
   },
   { 
     title: 'Error rate', 
-    description: '12.5 points when the average error rate stays below 1.0%.',
+    description: 'Up to 14.86 points; lower error rate scores higher against the 1% reference.',
     icon: 'AlertTriangle',
     threshold: '< 1.0%',
-    points: 12.5
+    points: 14.86
   },
   { 
     title: 'Pod restarts',
-    description: '12.5 points when total pod restarts remain below 2.',
+    description: 'Up to 5.41 points; fewer restarts score higher against the 2 restart reference.',
     icon: 'RefreshCw',
     threshold: '< 2',
-    points: 12.5
+    points: 5.41
   },
   { 
     title: 'MTTR', 
-    description: '12.5 points when Mean Time To Repair is at most 15 seconds.',
+    description: 'Up to 14.05 points; lower MTTR scores higher against the 15 second reference.',
     icon: 'Clock',
     threshold: '<= 15s',
-    points: 12.5
+    points: 14.05
   },
   { 
     title: 'Response Time', 
-    description: '12.5 points when average API latency stays below 50ms.',
+    description: 'Up to 8.42 points; lower latency scores higher against the 50 ms reference.',
     icon: 'Zap',
     threshold: '< 50ms',
-    points: 12.5
+    points: 8.42
   },
   { 
     title: 'Failover Success', 
-    description: '12.5 points when failover success rate is 100%.',
+    description: 'Up to 24.11 points; normalized failover success is success rate ÷ 100%.',
     icon: 'CheckCircle2',
     threshold: '100%',
-    points: 12.5
+    points: 24.11
   },
 ];
 
@@ -118,7 +118,7 @@ export const FaultToleranceCalculation: React.FC = () => {
             </div>
             <div>
               <h2 className="text-lg font-bold text-text-primary">Phase 1: Runtime Resilience Score (R-Score)</h2>
-              <p className="text-sm text-text-muted mt-1">Real-time assessment of system health based on eight critical metrics.</p>
+              <p className="text-sm text-text-muted mt-1">AHP weighted resilience score using eight metrics normalized to 0–1, where higher always means better resilience.</p>
             </div>
           </div>
 
@@ -129,16 +129,16 @@ export const FaultToleranceCalculation: React.FC = () => {
               </h3>
               <p className="text-sm">Real-time telemetry from active microservices including CPU, memory, latency, error rates, availability, pod restart counts, MTTR, and failover success rate.</p>
               <div className="mt-3 p-2 bg-blue-400/10 rounded border border-blue-400/30">
-                <p className="text-xs text-blue-400"><strong>Note:</strong> All 8 displayed metrics are used in the R-Score calculation for comprehensive resilience assessment.</p>
+                <p className="text-xs text-blue-400"><strong>Normalization:</strong> Availability and failover are divided by their target; adverse metrics are inverted against their reference limits and clamped to 0–1.</p>
               </div>
             </div>
             <div className="bg-surface-secondary/50 p-4 rounded-lg border border-border/50">
               <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted mb-2 flex items-center gap-2">
                 <Cpu className="w-4 h-4" /> Logic Algorithm
               </h3>
-              <p className="text-sm">Binary rule evaluation system where each metric is compared against a threshold. Passing rules award 12.5 points each for a maximum of 100 points.</p>
+              <p className="text-sm">Each normalized metric contributes its AHP weight multiplied by its 0–1 normalized value. Outcome and recovery metrics carry most of the score.</p>
               <div className="mt-3 p-2 bg-orange-400/10 rounded border border-orange-400/30">
-                <p className="text-xs text-orange-400"><strong>Scope:</strong> R-Score focuses on critical health indicators. All 8 metrics contribute equally to the core resilience score.</p>
+                <p className="text-xs text-orange-400"><strong>AHP weights:</strong> Availability 26.63%, failover 24.11%, error rate 14.86%, MTTR 14.05%, latency 8.42%, restarts 5.41%, CPU 3.26%, memory 3.26%.</p>
               </div>
             </div>
           </div>
@@ -148,10 +148,10 @@ export const FaultToleranceCalculation: React.FC = () => {
               <span className="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-1 rounded">R-Score Formula</span>
             </div>
             <div className="bg-surface-secondary p-3 rounded text-center text-sm font-mono text-text-primary mb-4 border border-border/50 shadow-inner">
-              R-Score = 12.5A + 12.5C + 12.5M + 12.5E + 12.5R + 12.5T + 12.5L + 12.5F
+              R-Score = 100 × (0.2663A + 0.2411F + 0.1486E + 0.1405T + 0.0842L + 0.0541R + 0.0326C + 0.0326M)
             </div>
             <div className="text-sm border-l-2 border-brand-fault pl-3 py-1">
-              <strong className="text-text-primary">Variables:</strong> A=Availability, C=CPU, M=Memory, E=Error Rate, R=Pod Restarts, T=MTTR, L=Latency, F=Failover. Each is 1 (pass) or 0 (fail). Maximum score: 100 points.
+              <strong className="text-text-primary">Variables:</strong> A=availability ÷ 99%, F=failover ÷ 100%; E, T, L, R, C, and M are the inverted normalized error, MTTR, latency, restart, CPU, and memory values. Every value is clamped to 0–1. Maximum score: 100 points.
             </div>
           </div>
 
@@ -215,14 +215,14 @@ export const FaultToleranceCalculation: React.FC = () => {
                   <div className="w-6 h-6 rounded-full bg-brand-fault/20 text-brand-fault flex items-center justify-center text-xs font-bold">3</div>
                   <h3 className="font-bold text-sm">Evaluate Rules</h3>
                 </div>
-                <p className="text-sm text-text-muted ml-9">Compare aggregate values against the eight thresholds (Availability {'>='}99%, CPU {'<'}70%, MTTR {'<='}15s, etc.).</p>
+              <p className="text-sm text-text-muted ml-9">Normalize each aggregate against its reference target, invert adverse metrics, and clamp all results to 0–1.</p>
               </div>
               <div className="bg-surface-secondary/50 p-4 rounded-lg border border-border/50">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="w-6 h-6 rounded-full bg-brand-fault/20 text-brand-fault flex items-center justify-center text-xs font-bold">4</div>
                   <h3 className="font-bold text-sm">Compute Score</h3>
                 </div>
-                <p className="text-sm text-text-muted ml-9">Add 12.5 points for each passing threshold and publish the resulting R-Score (0-100).</p>
+                <p className="text-sm text-text-muted ml-9">Multiply each normalized value by its AHP weight, sum the contributions, and publish the R-Score (0–100).</p>
               </div>
             </div>
           </div>
@@ -235,8 +235,8 @@ export const FaultToleranceCalculation: React.FC = () => {
               <CheckCircle2 className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-text-primary">Phase 3: Worked Example</h2>
-              <p className="text-sm text-text-muted mt-1">Practical demonstration of the scoring algorithm.</p>
+              <h2 className="text-lg font-bold text-text-primary">Phase 3: Example Metric Inputs</h2>
+              <p className="text-sm text-text-muted mt-1">The example values below are illustrative; the live R-Score uses the normalized AHP weighted formula above.</p>
             </div>
           </div>
 
@@ -292,48 +292,48 @@ export const FaultToleranceCalculation: React.FC = () => {
               <div className="text-xs text-text-muted mb-3 text-center">Step-by-Step Calculation:</div>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">
-                  <span>Availability (A) passes: <span className="text-green-400 font-bold">+12.5 points</span></span>
-                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">12.5 × 1 = 12.5</span>
+                  <span>Availability contributes: <span className="text-green-400 font-bold">+26.63 points</span></span>
+                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">26.63 × 1 = 26.63</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">
-                  <span>CPU (C) passes: <span className="text-green-400 font-bold">+12.5 points</span></span>
-                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">12.5 × 1 = 12.5</span>
+                  <span>CPU contributes: <span className="text-green-400 font-bold">+1.17 points</span></span>
+                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">3.26 × (1 − 45/70) = 1.17</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">
                   <span>Memory (M) fails: <span className="text-red-400 font-bold">+0 points</span></span>
-                  <span className="font-mono text-xs bg-red-400/10 px-2 py-1 rounded">12.5 × 0 = 0</span>
+                  <span className="font-mono text-xs bg-red-400/10 px-2 py-1 rounded">3.26 × clamp(1 − 82/75) = 0</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">
-                  <span>Error Rate (E) passes: <span className="text-green-400 font-bold">+12.5 points</span></span>
-                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">12.5 × 1 = 12.5</span>
+                  <span>Error Rate contributes: <span className="text-green-400 font-bold">+10.40 points</span></span>
+                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">14.86 × (1 − 0.3/1) = 10.40</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">
-                  <span>Pod Restarts (R) passes: <span className="text-green-400 font-bold">+12.5 points</span></span>
-                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">12.5 × 1 = 12.5</span>
+                  <span>Pod Restarts contribute: <span className="text-green-400 font-bold">+5.41 points</span></span>
+                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">5.41 × (1 − 0/2) = 5.41</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">
                   <span>MTTR (T) fails: <span className="text-red-400 font-bold">+0 points</span></span>
-                  <span className="font-mono text-xs bg-red-400/10 px-2 py-1 rounded">12.5 × 0 = 0</span>
+                  <span className="font-mono text-xs bg-red-400/10 px-2 py-1 rounded">14.05 × clamp(1 − 18/15) = 0</span>
                 </div>
                 <div className="flex items-center justify-between border-b border-border/30 pb-2">
-                  <span>Latency (L) passes: <span className="text-green-400 font-bold">+12.5 points</span></span>
-                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">12.5 × 1 = 12.5</span>
+                  <span>Latency contributes: <span className="text-green-400 font-bold">+4.04 points</span></span>
+                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">8.42 × (1 − 26/50) = 4.04</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>Failover (F) passes: <span className="text-green-400 font-bold">+12.5 points</span></span>
-                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">12.5 × 1 = 12.5</span>
+                  <span>Failover contributes: <span className="text-green-400 font-bold">+24.11 points</span></span>
+                  <span className="font-mono text-xs bg-green-400/10 px-2 py-1 rounded">24.11 × (100/100) = 24.11</span>
                 </div>
               </div>
               <div className="mt-4 pt-3 border-t-2 border-brand-fault text-center">
                 <div className="font-mono font-bold text-lg">
-                  Total: 12.5 + 12.5 + 0 + 12.5 + 12.5 + 0 + 12.5 + 12.5 = <span className="text-brand-fault text-2xl">75.0 points</span>
+                  Total: 26.63 + 1.17 + 0 + 10.40 + 5.41 + 0 + 4.04 + 24.11 = <span className="text-brand-fault text-2xl">71.8 points</span>
                 </div>
               </div>
             </div>
             
             <div className="flex items-center gap-2 text-sm bg-orange-400/10 p-3 rounded-lg border border-orange-400/30">
               <XCircle className="w-5 h-5 text-orange-400 shrink-0" />
-              <span className="text-text-secondary"><strong className="text-text-primary">Result:</strong> 75.0/100 points - System is resilient but needs memory optimization and MTTR improvement to reach perfect score.</span>
+              <span className="text-text-secondary"><strong className="text-text-primary">Result:</strong> 71.8/100 points. Reduced memory and recovery performance lower the score; outcome and recovery metrics carry the largest influence.</span>
             </div>
           </div>
         </section>

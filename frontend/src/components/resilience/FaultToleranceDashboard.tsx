@@ -22,21 +22,29 @@ import {
   type AiRecommendation,
   type RecentActivity,
   type AiFailurePrediction,
-  type SelfHealingMetrics,
   type KubernetesChaosLog,
   mockTelemetrySources
 } from '../../data/mockData';
-import { ChaosEngineeringSuite } from './ChaosEngineeringSuite';
+import { ChaosEngineeringSuite, type KubernetesValidationSnapshot } from './ChaosEngineeringSuite';
 import { TelemetryTrends } from './TelemetryTrends';
 import { ResilienceOverview } from './ResilienceOverview';
+import { calculateResilienceScore } from './rScore';
 import './FaultToleranceDashboard.css';
 
-export const FaultToleranceDashboard: React.FC = () => {
+interface FaultToleranceDashboardProps {
+  standaloneChaos?: boolean;
+}
+
+export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = ({ standaloneChaos = false }) => {
   const [isSimulation, setIsSimulation] = useState(true);
   const [metrics, setMetrics] = useState<FaultMetrics>(mockInitialFaultMetrics);
   const [history, setHistory] = useState<HistoryPoint[]>(generateInitialHistory());
   const [services, setServices] = useState<Service[]>(mockFaultToleranceServices);
-  const [mainViewMode, setMainViewMode] = useState<'overview' | 'telemetry' | 'chaos'>('overview');
+  const [mainViewMode, setMainViewMode] = useState<'overview' | 'telemetry' | 'chaos'>(standaloneChaos ? 'chaos' : 'overview');
+
+  useEffect(() => {
+    setMainViewMode(standaloneChaos ? 'chaos' : 'overview');
+  }, [standaloneChaos]);
 
   const [cardSettings, setCardSettings] = useState<Record<string, CardSetting>>(mockDefaultCardSettings);
 
@@ -54,13 +62,9 @@ export const FaultToleranceDashboard: React.FC = () => {
     confidence: 94.8
   });
 
-  const [selfHealing, setSelfHealing] = useState<SelfHealingMetrics>({
-    podRestartSuccessRate: 98.5,
-    replicaReplacementSuccessRate: 100,
-    hpaEffectiveness: 95.0,
-    circuitBreakerEffectiveness: 96.8
-  });
   const [deviceHardware, setDeviceHardware] = useState<any>(null);
+  const [kubernetesConnected, setKubernetesConnected] = useState(false);
+  const [kubernetesValidation, setKubernetesValidation] = useState<KubernetesValidationSnapshot | null>(null);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
@@ -107,15 +111,14 @@ export const FaultToleranceDashboard: React.FC = () => {
         const res = await fetch('http://localhost:3010/api/resilience/score');
         if (res.ok) {
           const data = await res.json();
+          setKubernetesConnected(Boolean(data.sources?.kubernetes));
+          setKubernetesValidation(data.kubernetesValidation ?? null);
           setMetrics(data.metrics);
           if (data.services && data.services.length > 0) {
             setServices(data.services);
           }
           if (data.aiPrediction) {
             setAiPrediction(data.aiPrediction);
-          }
-          if (data.selfHealing) {
-            setSelfHealing(data.selfHealing);
           }
           if (data.deviceHardware) {
             setDeviceHardware(data.deviceHardware);
@@ -158,6 +161,8 @@ export const FaultToleranceDashboard: React.FC = () => {
         }
       } catch {
         setIsSimulation(true);
+        setKubernetesConnected(false);
+        setKubernetesValidation(null);
       }
     };
     checkBackend();
@@ -243,9 +248,13 @@ export const FaultToleranceDashboard: React.FC = () => {
         ? parseFloat((99.9 - (offlineCount * 4.5) - (Math.random() * 0.5)).toFixed(2))
         : parseFloat(Math.max(0, 99.9 - (avgErrorRate * 0.2)).toFixed(2));
 
-      let score = 0;
       const failoverSuccess = (offlineCount > 0 || degradedCount > 0) ? (offlineCount > 1 ? 65 : 80) : 100;
       const simulatedMttr = (offlineCount > 0 || degradedCount > 0) ? 18 : 12;
+
+      const score = calculateResilienceScore({
+        availability, cpu: avgCpu, memory: avgMem, errorRate: avgErrorRate,
+        restarts: totalRestarts, mttr: simulatedMttr, latency: avgLatency, failoverSuccess,
+      });
 
       const rules = {
         availability: availability >= 99.0,
@@ -257,15 +266,6 @@ export const FaultToleranceDashboard: React.FC = () => {
         mttr: simulatedMttr <= 15,
         failover: failoverSuccess >= 100
       };
-
-      if (rules.availability) score += 12.5;
-      if (rules.cpu) score += 12.5;
-      if (rules.memory) score += 12.5;
-      if (rules.latency) score += 12.5;
-      if (rules.errorRate) score += 12.5;
-      if (rules.restarts) score += 12.5;
-      if (rules.mttr) score += 12.5;
-      if (rules.failover) score += 12.5;
 
       let maturity: FaultMetrics['maturity'] = 'Initial';
       if (score >= 87.5) maturity = 'Optimized';
@@ -712,7 +712,7 @@ export const FaultToleranceDashboard: React.FC = () => {
       </header>
 
       {/* Subheader Navigation Tabs */}
-      <div className="view-mode-tabs-bar">
+      {!standaloneChaos && <div className="view-mode-tabs-bar">
         <button 
           className={`view-mode-tab ${mainViewMode === 'overview' ? 'active' : ''}`}
           onClick={() => setMainViewMode('overview')}
@@ -721,20 +721,13 @@ export const FaultToleranceDashboard: React.FC = () => {
           <span>Resilience &amp; Health Overview</span>
         </button>
         <button 
-          className={`view-mode-tab ${mainViewMode === 'chaos' ? 'active' : ''}`}
-          onClick={() => setMainViewMode('chaos')}
-        >
-          <Flame size={15} className="text-danger" />
-          <span>Chaos Engineering Fault Injection Suite</span>
-        </button>
-        <button 
           className={`view-mode-tab ${mainViewMode === 'telemetry' ? 'active' : ''}`}
           onClick={() => setMainViewMode('telemetry')}
         >
           <TrendingUp size={15} className="text-primary" />
           <span>Historical Telemetry Trends</span>
         </button>
-      </div>
+      </div>}
 
       {/* Section 2: Telemetry Data Sources Pipeline Bar */}
       {/* <div className="telemetry-pipeline-bar">
@@ -757,7 +750,8 @@ export const FaultToleranceDashboard: React.FC = () => {
             aiPrediction={aiPrediction}
             activeFaults={activeFaults}
             activeChaosEvent={activeChaosEvent}
-            selfHealing={selfHealing}
+            kubernetesConnected={kubernetesConnected}
+            kubernetesValidation={kubernetesValidation}
             activities={activities}
             activityFilter={activityFilter}
             filteredActivities={filteredActivities}
@@ -779,6 +773,8 @@ export const FaultToleranceDashboard: React.FC = () => {
             services={services}
             activeFaults={activeFaults}
             activeChaosEvent={activeChaosEvent}
+            kubernetesConnected={kubernetesConnected}
+            kubernetesValidation={kubernetesValidation}
             cardSettings={cardSettings}
             onInjectFault={injectChaosFault}
             onHealService={healService}
