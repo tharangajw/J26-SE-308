@@ -6,6 +6,8 @@ and resilience components remain responsible for their own calculations.
 
 from __future__ import annotations
 
+# Integration boundary for collector telemetry and controlled chaos experiments.
+
 import threading
 import time
 import uuid
@@ -22,6 +24,7 @@ _chaos_events: list[dict[str, Any]] = []
 _telemetry_gap: dict[str, Any] | None = None
 
 
+# Read optional telemetry-collector data without making integration mandatory.
 def _get_json(path: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
     try:
         response = requests.get(
@@ -34,6 +37,7 @@ def _get_json(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]
         return None
 
 
+# Retrieve performance snapshots for the services represented in the observability view.
 def collect_performance(service_ids: list[str]) -> dict[str, Any]:
     """Read the existing performance collector without duplicating its logic."""
     payload = _get_json(
@@ -50,6 +54,7 @@ def collect_performance(service_ids: list[str]) -> dict[str, Any]:
     }
 
 
+# Register a bounded fault simulation for testing observability response behavior.
 def inject_chaos(
     fault_type: str,
     target_service: str,
@@ -84,6 +89,7 @@ def inject_chaos(
     return event
 
 
+# Mark matching experiments recovered and clear their active telemetry gap.
 def clear_chaos(target_service: str | None = None) -> list[dict[str, Any]]:
     global _telemetry_gap
     now = int(time.time() * 1000)
@@ -103,6 +109,7 @@ def clear_chaos(target_service: str | None = None) -> list[dict[str, Any]]:
     return recovered
 
 
+# Return the current synthetic telemetry gap after checking its expiry time.
 def telemetry_gap() -> str | None:
     """Return the active research/demo telemetry gap, if any."""
     global _telemetry_gap
@@ -112,6 +119,7 @@ def telemetry_gap() -> str | None:
         return _telemetry_gap["fault_type"] if _telemetry_gap else None
 
 
+# Return active chaos context used to alter the next telemetry snapshot.
 def telemetry_experiment() -> dict[str, Any] | None:
     """Return the active experiment context without exposing internal state."""
     global _telemetry_gap
@@ -121,6 +129,7 @@ def telemetry_experiment() -> dict[str, Any] | None:
         return dict(_telemetry_gap) if _telemetry_gap else None
 
 
+# Return experiment history and close expired events.
 def chaos_history() -> list[dict[str, Any]]:
     now = int(time.time() * 1000)
     with _lock:
@@ -133,6 +142,7 @@ def chaos_history() -> list[dict[str, Any]]:
         return [dict(event) for event in reversed(_chaos_events)]
 
 
+# Summarize active faults, recovery rates, and MTTR per service.
 def collect_resilience(service_ids: list[str]) -> dict[str, Any]:
     events = chaos_history()
     by_service = []
@@ -156,6 +166,7 @@ def collect_resilience(service_ids: list[str]) -> dict[str, Any]:
     }
 
 
+# Combine performance telemetry with the observability-owned resilience gateway.
 def collect_integrated(service_ids: list[str]) -> dict[str, Any]:
     return {
         "performance": collect_performance(service_ids),

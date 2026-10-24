@@ -16,6 +16,7 @@ JAEGER_URL = os.getenv("JAEGER_URL", "http://localhost:16686")
 TIMEOUT_SECONDS = float(os.getenv("OBSERVABILITY_TIMEOUT_SECONDS", "2"))
 
 
+# Fetch one telemetry source without allowing source failure to crash collection.
 def _get_json(url: str, params: dict[str, str] | None = None) -> dict | None:
     try:
         response = requests.get(url, params=params, timeout=TIMEOUT_SECONDS)
@@ -25,6 +26,7 @@ def _get_json(url: str, params: dict[str, str] | None = None) -> dict | None:
         return None
 
 
+# Extract a safe scalar value from a Prometheus instant-query response.
 def _prometheus_value(payload: dict | None) -> float:
     result = (payload or {}).get("data", {}).get("result", [])
     try:
@@ -33,6 +35,7 @@ def _prometheus_value(payload: dict | None) -> float:
         return 0.0
 
 
+# Convert Prometheus range-query values into chart-ready points.
 def _prometheus_series(payload: dict | None, name: str) -> list[dict]:
     points = []
     for result in (payload or {}).get("data", {}).get("result", []):
@@ -44,6 +47,7 @@ def _prometheus_series(payload: dict | None, name: str) -> list[dict]:
     return points
 
 
+# Query a bounded Prometheus time range for live dashboard history.
 def _query_range(query: str, start: datetime, end: datetime, step: str = "60s") -> dict | None:
     return _get_json(f"{PROMETHEUS_URL}/api/v1/query_range", {
         "query": query,
@@ -53,6 +57,7 @@ def _query_range(query: str, start: datetime, end: datetime, step: str = "60s") 
     })
 
 
+# Emit correlated demo heartbeat logs/traces for the bundled local stack.
 def _push_observability_event(now: datetime) -> list[dict]:
     """Emit a small structured heartbeat so the local Loki dashboard has a live stream.
 
@@ -89,6 +94,7 @@ def _push_observability_event(now: datetime) -> list[dict]:
         return []
 
 
+# Build a service dependency graph from discovered Jaeger spans or safe fallback edges.
 def _dependency_map(traces_payload: dict | None, heartbeat_traces: list[dict]) -> dict:
     """Build a service graph from Jaeger parent/child spans.
 
@@ -153,6 +159,7 @@ def _dependency_map(traces_payload: dict | None, heartbeat_traces: list[dict]) -
     return {"root": root, "nodes": nodes, "edges": list(edges.values()), "live": discovered_edges}
 
 
+# Collect and normalize the complete Prometheus/Loki/Jaeger snapshot.
 def collect_telemetry() -> dict:
     now = datetime.now(timezone.utc)
     start = now - timedelta(minutes=30)

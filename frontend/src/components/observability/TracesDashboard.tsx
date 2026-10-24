@@ -1,3 +1,4 @@
+// Jaeger-backed distributed trace samples and latency visualization.
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ZAxis
 } from 'recharts';

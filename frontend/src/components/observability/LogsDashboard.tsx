@@ -1,3 +1,4 @@
+// Loki-backed log volume and correlated recent log stream.
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';

@@ -1,3 +1,4 @@
+// Shared tooltip for live telemetry charts; values are supplied by the dashboard.
 export const ChartTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (

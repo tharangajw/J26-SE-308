@@ -1,3 +1,4 @@
+// Prometheus-backed charts for CPU, memory, request rate, and latency.
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';

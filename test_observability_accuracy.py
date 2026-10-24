@@ -4,7 +4,10 @@ import random
 import time
 
 # Ensure backend/observability-engine is in path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend", "observability-engine")))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+engine_path = os.path.join(current_dir, "backend", "observability-engine")
+if engine_path not in sys.path:
+    sys.path.insert(0, engine_path)
 
 from app.calculations import calculate_observability, calculate_cci, OBS_AHP
 

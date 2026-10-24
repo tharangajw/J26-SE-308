@@ -1,3 +1,4 @@
+// Live Observability overview: source health, O-Score, CCI, and telemetry history.
 import {
   CheckCircle2,
   Activity,

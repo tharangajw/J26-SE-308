@@ -1,3 +1,4 @@
+// Displays AI remediation output and the human-review/security guardrail state.
 import { useState } from 'react';
 import { Wrench, TriangleAlert } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';

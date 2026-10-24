@@ -1,3 +1,4 @@
+// Detailed explorer for live metrics, logs, traces, CCI, RCA, and remediation.
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTelemetry } from '../context/TelemetryContext';

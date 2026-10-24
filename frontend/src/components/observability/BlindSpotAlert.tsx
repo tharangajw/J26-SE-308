@@ -1,3 +1,4 @@
+// Highlights missing metrics, logs, traces, or context propagation detected by CCI.
 export default function BlindSpotAlert({ spot }: any) {
   const pillars = [
     { key: 'has_metric', label: 'Metric', src: 'Prometheus' },

@@ -1,3 +1,4 @@
+// Client contract and API adapter for the backend's live Prometheus/Loki/Jaeger snapshot.
 export interface TelemetryData {
   metrics: {
     cpuUsage: number;
