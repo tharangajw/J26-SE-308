@@ -1,18 +1,33 @@
 """The Brain: loads the XGBoost model and turns 10 features into a C-Score (0-100)."""
+import warnings
 import joblib
 import numpy as np
 
-from app.config import MODEL_PATH, SCALER_PATH, FEATURE_NAMES, THRESHOLD
+warnings.filterwarnings("ignore", category=UserWarning)
 
+from app.core.config import (MODEL_PATH, SCALER_PATH, MODEL_FEATURES,
+                        FEATURE_NAMES, THRESHOLD)
+
+# Pickles are version-sensitive: see the pinned versions in requirements.txt
+# (must match the Colab training environment).
 _model = joblib.load(MODEL_PATH)
 _scaler = joblib.load(SCALER_PATH)
+
+
+def _scale(row: list) -> np.ndarray:
+    return _scaler.transform(np.array([row], dtype=float))
 
 
 def predict_cscore(features: dict) -> dict:
     """features: dict with the 10 feature names (missing ones default to 0)."""
     row = [float(features.get(name, 0) or 0) for name in FEATURE_NAMES]
-    scaled = _scaler.transform(np.array([row]))
-    probability = float(_model.predict_proba(scaled)[0][1])  # prob. of high risk
+
+    # Model inputs: derived features are computed exactly as in training
+    f = dict(zip(FEATURE_NAMES, row))
+    f["coupling_index"] = f["commit_freq"] * f["co_deploy_rate"]
+    f["blast_radius"] = f["api_changes"] * f["downstream_count"]
+    model_row = [f[name] for name in MODEL_FEATURES]
+    probability = float(_model.predict_proba(_scale(model_row))[0][1])  # prob. of high risk
     
     # --- Guardrail: Research Proposal Constraint ---
     # If Phase 1 detects highly tight coupling, force abort (override ML)
@@ -33,7 +48,7 @@ def predict_cscore(features: dict) -> dict:
     # -----------------------------------------------
 
     cscore = round(probability * 100, 2)
-    high_risk = cscore >= THRESHOLD
+    high_risk = cscore > THRESHOLD
     return {
         "cscore": cscore,
         "threshold": THRESHOLD,

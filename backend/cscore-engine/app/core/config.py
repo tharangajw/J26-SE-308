@@ -1,7 +1,7 @@
 """Central settings. Values can be overridden with environment variables."""
 import os
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _load_env_file():
@@ -20,6 +20,13 @@ _load_env_file()
 MODEL_PATH = os.path.join(BASE_DIR, "models", "xgboost_c_score_model.pkl")
 SCALER_PATH = os.path.join(BASE_DIR, "models", "minmax_scaler.pkl")
 
+# EXACT feature order the model was trained with (see the Colab training notebook)
+MODEL_FEATURES = [
+    "commit_freq", "co_deploy_rate", "coupling_index",
+    "api_changes", "downstream_count", "blast_radius",
+    "max_call_depth", "sync_call_count", "error_rate_pct", "pod_restarts",
+]
+
 # GitHub App
 GITHUB_APP_ID = os.environ.get("GITHUB_APP_ID", "")
 GITHUB_WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
@@ -27,8 +34,8 @@ GITHUB_PRIVATE_KEY_PATH = os.path.join(
     BASE_DIR, os.environ.get("GITHUB_PRIVATE_KEY_PATH", "github-app.pem")
 )
 
-# C-Score >= THRESHOLD  -> High Risk (pipeline fails)
-THRESHOLD = float(os.environ.get("CSCORE_THRESHOLD", 60))
+# C-Score > THRESHOLD  -> High Risk (pipeline fails)
+THRESHOLD = float(os.environ.get("CSCORE_THRESHOLD", 28.9))
 
 # EXACT order used when the model was trained (Excel columns):
 # Commit_Freq, Co_Deploy_Rate, API_Changes, Downstream_Count, Max_Call_Depth,

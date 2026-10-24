@@ -8,8 +8,8 @@ import tempfile
 
 import requests
 
-from app import db
-from app.github_client import API, get_installation_token
+from app.core import db
+from app.github.client import API, get_installation_token
 
 OPENAPI_FILE = "openapi.yaml"  # expected inside each service folder
 
@@ -90,6 +90,8 @@ def auto_discover_dependencies(installation_id, full_name, repo_id, ref="main"):
                             
         if discovered > 0:
             print(f"[discovery] Auto-discovered {discovered} inter-service dependencies from repository!")
+            from app.services.live_logs import add_log
+            add_log("phase2", f"[discovery] Auto-discovered {discovered} inter-service dependencies from repository!", level="info")
         return discovered
     except Exception as e:
         print(f"[discovery] Error during automatic dependency discovery: {e}")

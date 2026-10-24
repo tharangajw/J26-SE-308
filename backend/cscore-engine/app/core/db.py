@@ -4,7 +4,7 @@ import os
 import secrets
 import sqlite3
 
-from app.config import BASE_DIR, FEATURE_NAMES
+from app.core.config import BASE_DIR, FEATURE_NAMES
 
 DB_PATH = os.environ.get("CSCORE_DB", os.path.join(BASE_DIR, "cscore.db"))
 

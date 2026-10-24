@@ -19,7 +19,8 @@ import {
   TrendingUp,
   ShieldAlert,
   Sparkles,
-  Wrench
+  Wrench,
+  GitPullRequest
 } from 'lucide-react';
 import clsx from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -40,7 +41,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, badge, end = false }
       className={({ isActive }) =>
         twMerge(
           clsx(
-            'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
+            'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors min-w-0',
             'hover:bg-surface-secondary hover:text-text-primary',
             isActive
               ? 'bg-surface-secondary text-text-primary border border-border/50 shadow-sm'
@@ -49,10 +50,12 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, badge, end = false }
         )
       }
     >
-      {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })}
+      <span className="shrink-0 w-4 h-4 flex items-center justify-center text-text-muted">
+        {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })}
+      </span>
       <span className="flex-1 truncate">{label}</span>
       {badge && (
-        <span className="rounded-full border border-brand-obs/40 bg-brand-obs/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-brand-obs">
+        <span className="shrink-0 rounded-full border border-brand-obs/40 bg-brand-obs/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-brand-obs">
           {badge}
         </span>
       )}
@@ -80,8 +83,10 @@ const NavGroup: React.FC<NavGroupProps> = ({ icon, label, children, defaultOpen 
           compact ? 'px-2 py-1.5' : 'px-3 py-2'
         )}
       >
-        <div className="flex min-w-0 items-center gap-3 whitespace-nowrap">
-          {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="shrink-0 w-4 h-4 flex items-center justify-center">
+            {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })}
+          </span>
           <span className="truncate">{label}</span>
         </div>
         <ChevronDown className={clsx('w-4 h-4 shrink-0 transition-transform', { '-rotate-90': !isOpen })} />
@@ -89,7 +94,7 @@ const NavGroup: React.FC<NavGroupProps> = ({ icon, label, children, defaultOpen 
       {isOpen && (
         <div className={clsx(
           'space-y-1 border-l border-border/60 mt-1',
-          compact ? 'ml-2 pl-2' : 'ml-4 pl-3'
+          compact ? 'ml-2 pl-2' : 'ml-4 pl-2.5'
         )}>
           {children}
         </div>
@@ -114,7 +119,7 @@ export const Sidebar: React.FC = () => {
         <div>
           <div className="px-3 mb-2 text-[10px] uppercase tracking-wider font-semibold text-text-muted">General</div>
           <nav className="space-y-1">
-            <NavItem to="/" icon={<LayoutDashboard />} label="Overview" end />
+            <NavItem to="/" icon={<LayoutDashboard />} label="Overview" end={true} />
             <NavItem to="/assessment" icon={<Activity />} label="Assessment" />
             <NavGroup icon={<Eye />} label="Observability">
               <NavItem to="/dimensions/observability/overview" icon={<LayoutDashboard />} label="Overview" />
@@ -134,6 +139,10 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/performance/anomaly" icon={<ShieldAlert />} label="2C. ML Anomaly (20%)" />
               <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="3. Composite P-Score" end />
               <NavItem to="/dimensions/performance/calculation" icon={<Calculator />} label="Calculation Logic" />
+              <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" end />
+              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Telemetry Collection Data" />
+              <NavItem to="/dimensions/performance/pipeline" icon={<Activity />} label="Data Pipeline Outputs" />
+              <NavItem to="/dimensions/performance/drift" icon={<TrendingUp />} label="Historical Drift Analyzer" />
             </NavGroup>
             <NavGroup icon={<Shield />} label="Fault Tolerance">
               <NavItem to="/dimensions/FaultToleranceDashboard" icon={<LayoutDashboard />} label="Overview" />
@@ -153,10 +162,12 @@ export const Sidebar: React.FC = () => {
               <NavItem to="/dimensions/fault-tolerance/history" icon={<History />} label="R-Score History" />
               <NavItem to="/dimensions/fault-tolerance/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
-            <NavGroup icon={<GitMerge />} label="CI/CD Integration">
-              <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" />
-              <NavItem to="/phase1/coupling" icon={<GitMerge />} label="Phase 1: Assessor Dashboard" />
+            <NavGroup icon={<GitMerge />} label="CI/CD Integration" defaultOpen={true}>
+              <NavItem to="/dimensions/cicd" icon={<LayoutDashboard />} label="Overview" end={true} />
+              <NavItem to="/phase1/coupling" icon={<GitPullRequest />} label="Phase 1: Coupling" />
               <NavItem to="/phase2/blast-radius" icon={<Network />} label="Phase 2: Blast Radius" />
+              <NavItem to="/phase3/telemetry" icon={<Activity />} label="Phase 3: Telemetry" />
+              <NavItem to="/dimensions/cicd/calculation" icon={<Calculator />} label="Calculation Logic" />
             </NavGroup>
           </nav>
         </div>
