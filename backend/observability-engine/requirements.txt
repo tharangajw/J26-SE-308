@@ -2,4 +2,5 @@ fastapi
 uvicorn
 pydantic
 requests
+PyYAML
 pytest

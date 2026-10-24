@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 import requests
+import yaml
 
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
@@ -161,6 +162,20 @@ def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
             lines = lines[:-1]
         script = "\n".join(lines).strip()
     parsed["script"] = script
+
+    try:
+        manifest = yaml.safe_load(script)
+    except yaml.YAMLError as error:
+        raise ValueError(f"remediation response contained invalid YAML: {error}") from error
+    if not isinstance(manifest, dict):
+        raise ValueError("remediation response did not contain a YAML mapping")
+    if manifest.get("apiVersion") != "apps/v1":
+        raise ValueError("remediation manifest must use apiVersion apps/v1")
+    if manifest.get("kind") != "Deployment":
+        raise ValueError("remediation manifest must be a Deployment")
+    metadata = manifest.get("metadata")
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("name"), str) or not metadata["name"].strip():
+        raise ValueError("remediation manifest metadata.name is required")
 
     required_yaml = ("apiVersion:", "kind:", "metadata:")
     if not structured_manifest and not all(marker in script for marker in required_yaml):

@@ -184,6 +184,17 @@ def calculate_observability(snapshot: dict[str, Any]) -> dict[str, Any]:
     score = max(0.0, raw_score - penalty)
     status = "HEALTHY" if score >= 80 else "WARNING" if score >= 60 else "CRITICAL"
     maturity = "Proactive" if score >= 80 else "Intermediate" if score >= 50 else "Reactive"
+    source_coverage = round((sum((metrics, traces, logs)) / 3) * 100, 2)
+    score_range_valid = 0 <= score <= 100
+    cci_range_valid = 0 <= cci["cci_index"] <= 100
+    ahp_consistent = OBS_AHP["consistencyRatio"] < 0.10
+    verification_percentage = round(max(0.0, min(100.0, (
+        source_coverage * 0.4
+        + cci["correlation_confidence"] * 0.4
+        + (100.0 if ahp_consistent else 0.0) * 0.1
+        + (100.0 if score_range_valid and cci_range_valid else 0.0) * 0.1
+        - penalty
+    ))), 2)
     return {
         "oScore": round(score, 2),
         "cciIndex": cci["cci_index"],
@@ -197,6 +208,17 @@ def calculate_observability(snapshot: dict[str, Any]) -> dict[str, Any]:
             "tracePropagation": traces,
             "logStructuralIntegrity": logs,
             "weightedRawScore": round(raw_score, 2),
+            "blindSpotPenalty": penalty,
+        },
+        "verification": {
+            "status": "VERIFIED" if score_range_valid and cci_range_valid and ahp_consistent else "REVIEW_REQUIRED",
+            "verificationPercentage": verification_percentage,
+            "sourceCoveragePct": source_coverage,
+            "correlationConfidencePct": cci["correlation_confidence"],
+            "ahpConsistencyRatio": round(OBS_AHP["consistencyRatio"], 6),
+            "ahpConsistent": ahp_consistent,
+            "scoreRangeValid": score_range_valid,
+            "cciRangeValid": cci_range_valid,
             "blindSpotPenalty": penalty,
         },
     }

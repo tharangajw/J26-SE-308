@@ -2,6 +2,7 @@ import React from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { mockAssessmentData } from '../data/mockData';
+import { useTelemetry } from '../context/TelemetryContext';
 import { FileText, Download, Gauge } from 'lucide-react';
 
 const downloadPScoreDetails = () => {
@@ -47,7 +48,40 @@ const downloadPScoreDetails = () => {
   URL.revokeObjectURL(url);
 };
 
+const downloadObservabilityDetails = (score: number, telemetry: any) => {
+  const calculation = telemetry?.calculation;
+  const report = [
+    'OBSERVABILITY SCORE DETAILS',
+    `Project: ${mockAssessmentData.projectName}`,
+    `Assessment: ${mockAssessmentData.id}`,
+    `Generated: ${new Date().toISOString()}`,
+    '',
+    `O-Score: ${score.toFixed(1)}/100`,
+    `Metrics source: ${telemetry?.sources.prometheus ? 'LIVE' : 'OFFLINE'}`,
+    `Logs source: ${telemetry?.sources.loki ? 'LIVE' : 'OFFLINE'}`,
+    `Distributed tracing source: ${telemetry?.sources.jaeger ? 'LIVE' : 'OFFLINE'}`,
+    `Trace samples: ${telemetry?.traces.samples.length ?? 0}`,
+    `Trace error rate: ${(telemetry?.traces.errorRate ?? 0).toFixed(1)}%`,
+    '',
+    'SCORE BREAKDOWN',
+    `Metrics coverage: ${((calculation?.scoreBreakdown?.metricsCoverage ?? 0) * 100).toFixed(1)}%`,
+    `Trace propagation: ${((calculation?.scoreBreakdown?.tracePropagation ?? 0) * 100).toFixed(1)}%`,
+    `Log integrity: ${((calculation?.scoreBreakdown?.logStructuralIntegrity ?? 0) * 100).toFixed(1)}%`,
+    `Blind spots: ${calculation?.blindSpotCount ?? 0}`,
+  ].join('\n');
+  const url = URL.createObjectURL(new Blob([report], { type: 'text/plain;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `observability-details-${mockAssessmentData.id.toLowerCase()}.txt`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
 export const Reports: React.FC = () => {
+  const { telemetry, oScore } = useTelemetry();
+  const observabilityScore = telemetry ? oScore : mockAssessmentData.dimensions.observability.score;
+  const traceSourceLive = telemetry?.sources.jaeger ?? false;
+  const traceCount = telemetry?.traces.samples.length ?? 0;
   return (
     <PageContainer className="space-y-6">
       <div className="mb-6 flex items-center justify-between">
@@ -114,6 +148,65 @@ export const Reports: React.FC = () => {
             </p>
           </div>
 
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="border-b border-border/50 bg-surface-secondary/20">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Gauge className="w-5 h-5 text-brand-obs" />
+              <div>
+                <CardTitle className="text-lg">Observability Assessment Report</CardTitle>
+                <p className="text-xs text-text-muted mt-1 font-mono">
+                  {telemetry ? `Live telemetry · ${new Date(telemetry.lastUpdated).toLocaleTimeString()}` : 'Assessment baseline'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {telemetry && <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400">REALTIME</span>}
+              <button onClick={() => downloadObservabilityDetails(observabilityScore, telemetry)} className="border border-brand-obs/50 text-brand-obs px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 hover:bg-brand-obs/10 transition-colors">
+                <Download className="w-4 h-4" /> <span className="hidden sm:inline">Download Details</span>
+              </button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-8">
+          <div className="grid gap-6 md:grid-cols-[1fr_1.5fr]">
+            <div className="border-r-0 border-border md:border-r md:pr-8">
+              <p className="text-sm uppercase tracking-wider text-text-muted">O-Score</p>
+              <div className="mt-2 font-mono text-5xl text-brand-obs">{observabilityScore.toFixed(1)}<span className="text-xl text-text-muted">/100</span></div>
+              <p className="mt-2 text-sm text-text-secondary">Prometheus, Loki, and Jaeger correlation maturity</p>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+              <div><p className="text-xs text-text-muted">Metrics coverage</p><p className="mt-1 font-mono text-xl">{telemetry ? `${((telemetry.calculation.scoreBreakdown.metricsCoverage ?? 0) * 100).toFixed(0)}%` : '—'}</p></div>
+              <div><p className="text-xs text-text-muted">Log integrity</p><p className="mt-1 font-mono text-xl">{telemetry ? `${((telemetry.calculation.scoreBreakdown.logStructuralIntegrity ?? 0) * 100).toFixed(0)}%` : '—'}</p></div>
+              <div><p className="text-xs text-text-muted">Distributed Tracing</p><p className="mt-1 font-mono text-xl text-indigo-400">{traceSourceLive ? `${traceCount} traces` : 'OFFLINE'}</p></div>
+              <div><p className="text-xs text-text-muted">Trace Error Rate</p><p className="mt-1 font-mono text-xl">{telemetry ? `${telemetry.traces.errorRate.toFixed(1)}%` : '—'}</p></div>
+            </div>
+          </div>
+          <div className="mt-6 border-t border-border/60 pt-5">
+            <h3 className="text-sm font-medium">Primary observability signals</h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {['Logging', 'Metrics', 'Distributed Tracing', 'Root Cause Analysis'].map((item) => (
+                <div key={item} className="rounded-md bg-surface-secondary/50 px-3 py-2 text-xs text-text-secondary">{item}</div>
+              ))}
+            </div>
+          </div>
+          {telemetry?.calculation.verification && (
+            <div className="mt-6 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-emerald-300">Deterministic Output Verification</h3>
+                <span className="font-mono text-xs text-emerald-400">{telemetry.calculation.verification.status}</span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+                <div><span className="text-text-muted">Source coverage</span><p className="mt-1 font-mono text-text-primary">{telemetry.calculation.verification.sourceCoveragePct.toFixed(1)}%</p></div>
+                <div><span className="text-text-muted">Correlation confidence</span><p className="mt-1 font-mono text-text-primary">{telemetry.calculation.verification.correlationConfidencePct.toFixed(1)}%</p></div>
+                <div><span className="text-text-muted">AHP CR</span><p className="mt-1 font-mono text-text-primary">{telemetry.calculation.verification.ahpConsistencyRatio.toFixed(3)}</p></div>
+                <div><span className="text-text-muted">Range checks</span><p className="mt-1 font-mono text-text-primary">{telemetry.calculation.verification.scoreRangeValid && telemetry.calculation.verification.cciRangeValid ? 'PASS' : 'REVIEW'}</p></div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

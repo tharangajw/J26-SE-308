@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '../ui/Card';
 import { mockAssessmentData } from '../../data/mockData';
+import { useTelemetry } from '../../context/TelemetryContext';
 
 export const MaturityScore: React.FC = () => {
+  const { oScore, telemetry } = useTelemetry();
   const [livePerfScore, setLivePerfScore] = useState<number | null>(null);
   const [score, setScore] = useState(0);
 
@@ -46,7 +48,9 @@ export const MaturityScore: React.FC = () => {
             4
           ).toFixed(1)
         )
-      : mockAssessmentData.overallScore;
+      : telemetry
+        ? Number(((mockAssessmentData.dimensions.cicd.score + mockAssessmentData.dimensions.performance.score + oScore + mockAssessmentData.dimensions.faultTolerance.score) / 4).toFixed(1))
+        : mockAssessmentData.overallScore;
 
   useEffect(() => {
     let startTime: number;
@@ -118,6 +122,11 @@ export const MaturityScore: React.FC = () => {
               {livePerfScore !== null && (
                 <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400">
                   Live P-Score: {livePerfScore}
+                </span>
+              )}
+              {telemetry && (
+                <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 font-mono text-[10px] text-cyan-400">
+                  Live O-Score: {oScore.toFixed(1)}
                 </span>
               )}
             </div>

@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { ProgressBar } from '../ui/ProgressBar';
 import { mockAssessmentData } from '../../data/mockData';
+import { useTelemetry } from '../../context/TelemetryContext';
 
 export const ScoreBreakdown: React.FC = () => {
+  const { oScore, telemetry } = useTelemetry();
   const [livePerfScore, setLivePerfScore] = useState<number | null>(null);
   const [livePerfLevel, setLivePerfLevel] = useState<string | null>(null);
 
@@ -36,6 +38,9 @@ export const ScoreBreakdown: React.FC = () => {
   }, []);
 
   const dims = Object.values(mockAssessmentData.dimensions).map((d) => {
+    if (d.id === 'observability' && telemetry) {
+      return { ...d, score: Number(oScore.toFixed(1)), level: oScore >= 80 ? 'Proactive' : oScore >= 50 ? 'Intermediate' : 'Reactive' };
+    }
     if (d.id === 'performance' && livePerfScore !== null) {
       return {
         ...d,
@@ -53,10 +58,10 @@ export const ScoreBreakdown: React.FC = () => {
           <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">
             Dimension Breakdown
           </CardTitle>
-          {livePerfScore !== null && (
+          {telemetry && (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Live P-Score
+              Live Observability
             </span>
           )}
         </div>
@@ -78,6 +83,9 @@ export const ScoreBreakdown: React.FC = () => {
                     <span className="rounded bg-brand-perf/15 border border-brand-perf/30 px-1.5 py-0.2 font-mono text-[9px] text-brand-perf">
                       PYTHON LIVE
                     </span>
+                  )}
+                  {dim.id === 'observability' && telemetry && (
+                    <span className="rounded bg-brand-obs/15 border border-brand-obs/30 px-1.5 py-0.2 font-mono text-[9px] text-brand-obs">REALTIME</span>
                   )}
                 </div>
                 <div className="flex items-center gap-3">
