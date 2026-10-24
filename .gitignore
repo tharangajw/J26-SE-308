@@ -7,6 +7,24 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Backend package/build artifacts
+backend/**/node_modules/
+backend/**/dist/
+backend/**/coverage/
+backend/**/.cache/
+backend/**/.npm/
+backend/**/*.tsbuildinfo
+backend/**/.eslintcache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+.mypy_cache/
+.ruff_cache/
+
 node_modules
 dist
 dist-ssr
@@ -25,3 +43,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Persisted local resilience history
+backend/resiliance/data/

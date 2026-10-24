@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+joblib==1.6.0
+numpy==2.1.3
+scikit-learn==1.6.1
+xgboost==3.4.1
+pandas==2.2.3
+requests
+PyJWT
+cryptography
+pytest
+httpx

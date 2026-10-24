@@ -3,15 +3,25 @@ export interface TelemetryData {
     cpuUsage: number;
     memoryUsage: number;
     requestCount: number;
+    p95Latency: number;
+  };
+  series: {
+    cpu: Array<{ time: string; value: number }>;
+    memory: Array<{ time: string; value: number }>;
+    requests: Array<{ time: string; value: number }>;
+    latency: Array<{ time: string; value: number }>;
   };
   logs: {
     errorCount: number;
     recentErrors: string[];
+    recentLogs: Array<{ timestamp: string; level: string; service: string; message: string; traceId: string }>;
+    series: Array<{ time: string; info: number; error: number }>;
   };
   traces: {
     latency: number;
     errorRate: number;
     serviceCount: number;
+    samples: Array<{ id: string; time: number; duration: number; spans: number; isError: boolean; service: string; operation: string }>;
   };
   sources: {
     prometheus: boolean;
@@ -19,12 +29,25 @@ export interface TelemetryData {
     jaeger: boolean;
   };
   lastUpdated: string;
+  calculation: {
+    oScore: number;
+    cciIndex: number;
+    blindSpotCount: number;
+    status: string;
+    maturity: string;
+    ahp: any;
+    cciData: any;
+    scoreBreakdown: any;
+  };
+  history: Array<{ timestamp: string; oscore: number; cci_index: number; blind_spot_count: number }>;
 }
 
-// Use Vite proxies to bypass CORS issues
 const PROMETHEUS_URL = '/proxy/prometheus';
 const LOKI_URL = '/proxy/loki';
 const JAEGER_URL = '/proxy/jaeger';
+
+const COLLECTED_SERVICES_KEY = 'pscore_collected_services';
+const ACTIVE_SERVICE_KEY = 'pscore_active_service';
 
 async function fetchJson(
   url: string,
@@ -53,6 +76,74 @@ async function fetchJson(
 }
 
 export class TelemetryService {
+  static getCollectedServices(): string[] {
+    try {
+      const raw = localStorage.getItem(COLLECTED_SERVICES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string' && s.trim().length > 0) : [];
+      const active = localStorage.getItem(ACTIVE_SERVICE_KEY);
+      if (active && typeof active === 'string' && active.trim().length > 0 && !list.includes(active.trim())) {
+        list.push(active.trim());
+      }
+      return list;
+    } catch {
+      return [];
+    }
+  }
+
+  static setCollectedServices(services: string[], activeService?: string): void {
+    try {
+      const unique = Array.from(new Set(services.map((s) => s.trim()).filter(Boolean)));
+      if (activeService && !unique.includes(activeService.trim())) {
+        unique.push(activeService.trim());
+      }
+      localStorage.setItem(COLLECTED_SERVICES_KEY, JSON.stringify(unique));
+      if (activeService) {
+        localStorage.setItem(ACTIVE_SERVICE_KEY, activeService.trim());
+      } else if (unique.length > 0) {
+        const currentActive = localStorage.getItem(ACTIVE_SERVICE_KEY);
+        if (!currentActive || !unique.includes(currentActive)) {
+          localStorage.setItem(ACTIVE_SERVICE_KEY, unique[0]);
+        }
+      }
+      window.dispatchEvent(new CustomEvent('pscore-services-updated', { detail: { services: unique, activeService } }));
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  static getActiveService(): string | null {
+    try {
+      const val = localStorage.getItem(ACTIVE_SERVICE_KEY);
+      return val && val.trim().length > 0 ? val.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  static setActiveService(serviceId: string): void {
+    try {
+      if (serviceId && typeof serviceId === 'string') {
+        const trimmed = serviceId.trim();
+        localStorage.setItem(ACTIVE_SERVICE_KEY, trimmed);
+        const raw = localStorage.getItem(COLLECTED_SERVICES_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        const list = Array.isArray(parsed) ? parsed : [];
+        if (!list.includes(trimmed)) {
+          list.push(trimmed);
+          localStorage.setItem(COLLECTED_SERVICES_KEY, JSON.stringify(list));
+        }
+        window.dispatchEvent(
+          new CustomEvent('pscore-services-updated', {
+            detail: { services: list, activeService: trimmed },
+          })
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   static async fetchPrometheusQuery(query: string): Promise<any> {
     return fetchJson(`${PROMETHEUS_URL}/api/v1/query`, { query }, 'Prometheus');
   }
@@ -97,43 +188,117 @@ export class TelemetryService {
   }
 
   static async getCombinedTelemetry(): Promise<TelemetryData> {
-    const [prom, loki, jaeger] = await Promise.all([
-      this.fetchPrometheusMetrics(),
-      this.fetchLokiLogs(),
-      this.fetchJaegerTraces(),
-    ]);
+    const response = await fetch('/api/observability/telemetry');
+    if (!response.ok) throw new Error(`Observability engine request failed (${response.status})`);
+    const body = await response.json();
+    return { ...body.telemetry, calculation: body.calculation, history: body.history };
+  }
 
-    const promValue = prom?.cpu?.data?.result?.[0]?.value?.[1];
-    const lokiStreams = loki?.data?.result ?? [];
-    const jaegerServices = jaeger?.data ?? [];
-    const cpuUsage = promValue == null ? 0 : Number(promValue);
-    const errorCount = lokiStreams.reduce((count: number, stream: any) => (
-      count + (Array.isArray(stream.values) ? stream.values.length : 0)
-    ), 0);
+  static async discoverServices(): Promise<{
+    prometheusJobs: string[];
+    jaegerServices: string[];
+    dockerContainers?: string[];
+    lastCollectedServices?: string[];
+    applicationServices: string[];
+    infrastructureServices: string[];
+    allServices: string[];
+  }> {
+    const storedCollected = this.getCollectedServices();
+
+    const collectorUrls = [
+      '/api/telemetry/discovered-services',
+      'http://localhost:8787/api/telemetry/discovered-services',
+    ];
+    for (const url of collectorUrls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const body = await res.json();
+          if (body && Array.isArray(body.allServices)) {
+            const backendCollected: string[] = Array.isArray(body.lastCollectedServices)
+              ? body.lastCollectedServices
+              : [];
+            const combinedCollected = Array.from(new Set([...storedCollected, ...backendCollected]));
+
+            // If user explicitly collected services in Data Collection, prioritize them
+            const appServices = Array.from(
+              new Set([...combinedCollected, ...(body.applicationServices || [])])
+            );
+            const allServices = Array.from(
+              new Set([...combinedCollected, ...(body.allServices || [])])
+            );
+
+            if (allServices.length > 0) {
+              return {
+                prometheusJobs: body.prometheusJobs || [],
+                jaegerServices: body.jaegerServices || [],
+                dockerContainers: body.dockerContainers || [],
+                lastCollectedServices: combinedCollected,
+                applicationServices: appServices,
+                infrastructureServices: body.infrastructureServices || [],
+                allServices,
+              };
+            }
+          }
+        }
+      } catch {
+        // fallback to direct queries below
+      }
+    }
+
+    let prometheusJobs: string[] = [];
+    let jaegerServices: string[] = [];
+
+    try {
+      const promRes = await fetchJson(`${PROMETHEUS_URL}/api/v1/label/job/values`, {}, 'Prometheus');
+      if (promRes?.status === 'success' && Array.isArray(promRes.data)) {
+        prometheusJobs = promRes.data;
+      }
+    } catch {
+      try {
+        const res = await fetch('http://localhost:9090/api/v1/label/job/values');
+        const data = await res.json();
+        if (data?.status === 'success' && Array.isArray(data.data)) {
+          prometheusJobs = data.data;
+        }
+      } catch {
+        // unreachable
+      }
+    }
+
+    try {
+      const jaegerRes = await this.fetchJaegerTraces();
+      if (jaegerRes?.data && Array.isArray(jaegerRes.data)) {
+        jaegerServices = jaegerRes.data;
+      }
+    } catch {
+      try {
+        const res = await fetch('http://localhost:16686/api/services');
+        const data = await res.json();
+        if (Array.isArray(data.data)) {
+          jaegerServices = data.data;
+        }
+      } catch {
+        // unreachable
+      }
+    }
+
+    const infraKeywords = ['prometheus', 'jaeger', 'loki', 'grafana', 'collector', 'performance-engine', 'pscore-'];
+    const isInfra = (name: string) => infraKeywords.some((kw) => name.toLowerCase().includes(kw));
+
+    const allSet = new Set<string>([...storedCollected, ...prometheusJobs, ...jaegerServices]);
+    const allServices = Array.from(allSet);
+    const applicationServices = allServices.filter((s) => !isInfra(s));
+    const infrastructureServices = allServices.filter((s) => isInfra(s));
 
     return {
-      metrics: {
-        cpuUsage: Number.isFinite(cpuUsage) ? cpuUsage : 0,
-        memoryUsage: Number(prom?.memory?.data?.result?.[0]?.value?.[1] ?? 0),
-        requestCount: Number(prom?.requests?.data?.result?.[0]?.value?.[1] ?? 0),
-      },
-      logs: {
-        errorCount,
-        recentErrors: lokiStreams.flatMap((stream: any) => (
-          (stream.values ?? []).slice(-5).map((entry: string[]) => entry[1])
-        )),
-      },
-      traces: {
-        latency: 0,
-        errorRate: 0,
-        serviceCount: Array.isArray(jaegerServices) ? jaegerServices.length : 0,
-      },
-      sources: {
-        prometheus: prom !== null,
-        loki: loki !== null,
-        jaeger: jaeger !== null,
-      },
-      lastUpdated: new Date().toISOString(),
+      prometheusJobs,
+      jaegerServices,
+      dockerContainers: [],
+      lastCollectedServices: storedCollected,
+      applicationServices,
+      infrastructureServices,
+      allServices,
     };
   }
 }

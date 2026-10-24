@@ -6,8 +6,9 @@ import {
 } from 'lucide-react';
 import type {
   FaultMetrics, AiFailurePrediction, ActiveFault, ActiveChaosEvent,
-  SelfHealingMetrics, RecentActivity
+  RecentActivity
 } from '../../data/mockData';
+import type { KubernetesValidationSnapshot } from './ChaosEngineeringSuite';
 import './ResilienceOverview.css';
 
 interface ResilienceOverviewProps {
@@ -15,7 +16,8 @@ interface ResilienceOverviewProps {
   aiPrediction: AiFailurePrediction;
   activeFaults: ActiveFault[];
   activeChaosEvent: ActiveChaosEvent | null;
-  selfHealing: SelfHealingMetrics;
+  kubernetesConnected: boolean;
+  kubernetesValidation: KubernetesValidationSnapshot | null;
   activities: RecentActivity[];
   activityFilter: 'ALL' | 'INJECT' | 'HEAL' | 'ALERT';
   filteredActivities: RecentActivity[];
@@ -30,7 +32,8 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
   aiPrediction,
   activeFaults,
   activeChaosEvent,
-  selfHealing,
+  kubernetesConnected,
+  kubernetesValidation,
   activities,
   activityFilter,
   filteredActivities,
@@ -40,8 +43,8 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
   healService
 }) => {
   const getScoreColor = (score: number) => {
-    if (score >= 90) return 'color-success';
-    if (score >= 70) return 'color-warning';
+    if (score >= 87.5) return 'color-success';
+    if (score >= 50) return 'color-warning';
     return 'color-danger';
   };
 
@@ -111,32 +114,47 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
 
         {/* Rule Engine Breakdown */}
         <div className="glass-card rules-card">
-          <h2><CheckCircle size={16} className="card-title-icon" /> Scoring Engine Rules (Rule-Based)</h2>
+          <h2><CheckCircle size={16} className="card-title-icon" /> AHP Metric Weights</h2>
           <div className="rules-list">
-            <div className={`rule-item ${metrics.availability > 99.0 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
-              <span className="rule-desc">Availability &gt; 99.0%</span>
-              <span className="rule-points">+20 pts</span>
+            <div className={`rule-item ${metrics.availability >= 99.0 ? 'passed' : 'failed'}`}>
+              <CheckCircle size={14} className="rule-icon" />
+              <span className="rule-desc">Availability &gt;= 99.0%</span>
+              <span className="rule-points">+26.63 pts</span>
             </div>
             <div className={`rule-item ${metrics.cpu < 70 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
+              <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">CPU Avg Load &lt; 70%</span>
-              <span className="rule-points">+20 pts</span>
+              <span className="rule-points">+3.26 pts</span>
             </div>
             <div className={`rule-item ${metrics.memory < 75 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
+              <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Memory Avg Load &lt; 75%</span>
-              <span className="rule-points">+20 pts</span>
+              <span className="rule-points">+3.26 pts</span>
+            </div>
+            <div className={`rule-item ${metrics.latency < 50 ? 'passed' : 'failed'}`}>
+              <CheckCircle size={14} className="rule-icon" />
+              <span className="rule-desc">Response Time &lt; 50ms</span>
+              <span className="rule-points">+8.42 pts</span>
             </div>
             <div className={`rule-item ${metrics.errorRate < 1.0 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
+              <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Request Error Rate &lt; 1.0%</span>
-              <span className="rule-points">+20 pts</span>
+              <span className="rule-points">+14.86 pts</span>
             </div>
             <div className={`rule-item ${metrics.restarts < 2 ? 'passed' : 'failed'}`}>
-              <CheckCircle size={16} className="rule-icon" />
+              <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Pod Restart Count &lt; 2</span>
-              <span className="rule-points">+20 pts</span>
+              <span className="rule-points">+5.41 pts</span>
+            </div>
+            <div className={`rule-item ${metrics.mttr <= 15 ? 'passed' : 'failed'}`}>
+              <CheckCircle size={14} className="rule-icon" />
+              <span className="rule-desc">MTTR &lt;= 15s</span>
+              <span className="rule-points">+14.05 pts</span>
+            </div>
+            <div className={`rule-item ${metrics.failoverSuccess >= 100 ? 'passed' : 'failed'}`}>
+              <CheckCircle size={14} className="rule-icon" />
+              <span className="rule-desc">Failover Success &gt;= 100%</span>
+              <span className="rule-points">+24.11 pts</span>
             </div>
           </div>
         </div>
@@ -176,19 +194,16 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
                   </div>
                 ))}
               </div>
-            ) : activeChaosEvent ? (
-              <div className={`log-event-box ${activeChaosEvent.status.toLowerCase().includes('recovered') ? 'recovered' : 'injected'}`}>
+            ) : activeChaosEvent && !activeChaosEvent.status.toLowerCase().includes('healed') && !activeChaosEvent.status.toLowerCase().includes('recovered') ? (
+              <div className="log-event-box injected">
                 <div className="event-header">
                   <Flame className="event-icon" size={16} />
-                  <strong>Chaos Event Status</strong>
+                  <strong>Active Chaos Fault: {activeChaosEvent.experimentName || activeChaosEvent.type}</strong>
                 </div>
                 <p>Target: <code>{activeChaosEvent.service}</code></p>
                 <p>Type: {activeChaosEvent.type}</p>
                 <div className="event-footer">
                   <span className="status-badge">{activeChaosEvent.status}</span>
-                  {activeChaosEvent.recoveryTime && (
-                    <span className="time-badge">MTTR: {activeChaosEvent.recoveryTime}</span>
-                  )}
                 </div>
               </div>
             ) : (
@@ -204,45 +219,45 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
 
       {/* Telemetry Metrics Cards Grid */}
       <section className="metrics-grid">
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.cpu >= 70 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Cpu size={18} className="text-primary" />
+            <Cpu size={18} className={metrics.cpu >= 70 ? 'text-danger' : 'text-primary'} />
             <span>CPU Usage</span>
           </div>
           <div className={`metric-value ${metrics.cpu >= 70 ? 'fail-val' : ''}`}>{metrics.cpu}%</div>
-          <div className="metric-status">Target &lt; 70%</div>
+          <div className={`metric-status ${metrics.cpu >= 70 ? 'status-breached' : ''}`}>Target &lt; 70%</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.memory >= 75 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <HardDrive size={18} className="text-accent" />
+            <HardDrive size={18} className={metrics.memory >= 75 ? 'text-danger' : 'text-accent'} />
             <span>Memory Usage</span>
           </div>
           <div className={`metric-value ${metrics.memory >= 75 ? 'fail-val' : ''}`}>{metrics.memory}%</div>
-          <div className="metric-status">Target &lt; 75%</div>
+          <div className={`metric-status ${metrics.memory >= 75 ? 'status-breached' : ''}`}>Target &lt; 75%</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.availability < 99.0 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <CheckCircle size={18} className="text-success" />
+            <CheckCircle size={18} className={metrics.availability < 99.0 ? 'text-danger' : 'text-success'} />
             <span>Availability</span>
           </div>
-          <div className={`metric-value ${metrics.availability < 99 ? 'fail-val' : ''}`}>
+          <div className={`metric-value ${metrics.availability < 99.0 ? 'fail-val' : ''}`}>
             {metrics.availability}%
           </div>
-          <div className="metric-status">Target &gt; 99.0%</div>
+          <div className={`metric-status ${metrics.availability < 99.0 ? 'status-breached' : ''}`}>Target &gt; 99.0%</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.latency >= 50 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Clock size={18} className="text-warning" />
+            <Clock size={18} className={metrics.latency >= 50 ? 'text-danger' : 'text-warning'} />
             <span>Response Time</span>
           </div>
-          <div className={`metric-value ${metrics.latency > 300 ? 'warning-val' : ''}`}>{metrics.latency} ms</div>
-          <div className="metric-status">Average API Latency</div>
+          <div className={`metric-value ${metrics.latency >= 50 ? 'fail-val' : ''}`}>{metrics.latency} ms</div>
+          <div className={`metric-status ${metrics.latency >= 50 ? 'status-breached' : ''}`}>Target &lt; 50 ms</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.errorRate >= 1.0 ? 'card-breached' : ''}`}>
           <div className="metric-header">
             <AlertTriangle size={18} className="text-danger" />
             <span>Error Rate</span>
@@ -250,36 +265,36 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
           <div className={`metric-value ${metrics.errorRate >= 1.0 ? 'fail-val' : ''}`}>
             {metrics.errorRate}%
           </div>
-          <div className="metric-status">Target &lt; 1.0%</div>
+          <div className={`metric-status ${metrics.errorRate >= 1.0 ? 'status-breached' : ''}`}>Target &lt; 1.0%</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.restarts >= 2 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Server size={18} />
+            <Server size={18} className={metrics.restarts >= 2 ? 'text-danger' : ''} />
             <span>Pod Restarts</span>
           </div>
           <div className={`metric-value ${metrics.restarts >= 2 ? 'fail-val' : ''}`}>
             {metrics.restarts}
           </div>
-          <div className="metric-status">Target &lt; 2 restarts</div>
+          <div className={`metric-status ${metrics.restarts >= 2 ? 'status-breached' : ''}`}>Target &lt; 2 restarts</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.mttr > 15 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <RotateCcw size={18} className="text-success" />
+            <RotateCcw size={18} className={metrics.mttr > 15 ? 'text-danger' : 'text-success'} />
             <span>MTTR</span>
           </div>
-          <div className="metric-value">{metrics.mttr}s</div>
-          <div className="metric-status">Mean Time to Repair</div>
+          <div className={`metric-value ${metrics.mttr > 15 ? 'fail-val' : ''}`}>{metrics.mttr}s</div>
+          <div className={`metric-status ${metrics.mttr > 15 ? 'status-breached' : ''}`}>Target &le; 15s</div>
         </div>
 
-        <div className="glass-card metric-item">
+        <div className={`glass-card metric-item ${metrics.failoverSuccess < 100 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <TrendingUp size={18} className="text-primary" />
+            <TrendingUp size={18} className={metrics.failoverSuccess < 100 ? 'text-danger' : 'text-primary'} />
             <span>Failover Success</span>
           </div>
-          <div className="metric-value">{metrics.failoverSuccess}%</div>
-          <div className="metric-status">Redirection Rate</div>
+          <div className={`metric-value ${metrics.failoverSuccess < 100 ? 'fail-val' : ''}`}>{metrics.failoverSuccess}%</div>
+          <div className={`metric-status ${metrics.failoverSuccess < 100 ? 'status-breached' : ''}`}>Target &ge; 100%</div>
         </div>
       </section>
 
@@ -289,26 +304,30 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
           <h3>
             <Activity size={18} /> Self-Healing Assessment Engine (Kubernetes Validation)
           </h3>
-          <span className="mode-badge live" style={{ margin: 0, fontSize: '10px' }}>
-            KUBERNETES AUTONOMOUS RECOVERY ACTIVE
+          <span className={`mode-badge ${kubernetesConnected ? 'live' : ''}`} style={{ margin: 0, fontSize: '10px' }}>
+            {kubernetesConnected ? 'KUBERNETES API CONNECTED' : 'KUBERNETES API UNAVAILABLE'}
           </span>
         </div>
         <div className="self-healing-grid">
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{selfHealing.podRestartSuccessRate}%</div>
-            <div className="sh-metric-lbl">Pod Auto-Restart Success</div>
+            <div className="sh-metric-val">{kubernetesValidation ? kubernetesValidation.podRestartCount : '—'}</div>
+            <div className="sh-metric-lbl">Pod restarts (cumulative)</div>
+            <small>Across {kubernetesValidation?.podCount ?? 0} pods</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{selfHealing.replicaReplacementSuccessRate}%</div>
-            <div className="sh-metric-lbl">Replica Replacement Success</div>
+            <div className="sh-metric-val">{kubernetesValidation ? `${kubernetesValidation.readyReplicas} / ${kubernetesValidation.desiredReplicas}` : '—'}</div>
+            <div className="sh-metric-lbl">Deployment replicas ready</div>
+            <small>Across {kubernetesValidation?.deploymentCount ?? 0} deployments</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{selfHealing.hpaEffectiveness}%</div>
-            <div className="sh-metric-lbl">HPA Auto-Scaling Effectiveness</div>
+            <div className="sh-metric-val">{kubernetesValidation ? kubernetesValidation.hpas.length : '—'}</div>
+            <div className="sh-metric-lbl">Horizontal pod autoscalers</div>
+            <small>{kubernetesValidation?.hpas.length ? kubernetesValidation.hpas.map(hpa => `${hpa.name}: ${hpa.currentReplicas}/${hpa.desiredReplicas}`).join(' · ') : 'No HPA resources found'}</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{selfHealing.circuitBreakerEffectiveness}%</div>
-            <div className="sh-metric-lbl">Circuit Breaker Effectiveness</div>
+            <div className="sh-metric-val">Not measured</div>
+            <div className="sh-metric-lbl">Circuit breaker</div>
+            <small>{kubernetesValidation?.circuitBreaker.reason ?? 'Requires service-mesh or application telemetry'}</small>
           </div>
         </div>
       </section>

@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import type { RawTelemetrySnapshot } from './types.js';
+
 export interface RawTelemetrySample {
   id: string;
   timestamp: string;
@@ -79,53 +83,119 @@ export const DEFAULT_BOUNDS: NormalizationBounds = {
   requestRateRps: { min: 0, max: 1000 }
 };
 
-export function generateTelemetrySamples(
-  services: string[] = ['api-gateway', 'order-service', 'payment-service'],
-  windowMinutes: number = 5,
-  gapProbability: number = 0.15
-): RawTelemetrySample[] {
-  const samples: RawTelemetrySample[] = [];
-  const now = Date.now();
-  const startTime = now - windowMinutes * 60 * 1000;
+const PIPELINE_STORAGE_PATH = path.resolve(process.cwd(), 'data', 'pipeline-samples.json');
+const MAX_SAMPLES_PER_SERVICE = 72; // 6 minutes of 5s samples
+const realSampleBuffer: Map<string, RawTelemetrySample[]> = new Map();
 
-  services.forEach((serviceId) => {
-    let currentTime = startTime;
-    let baseCpu = 250 + Math.random() * 300;
-    let baseMem = 400 + Math.random() * 400;
-    let baseLat = 40 + Math.random() * 80;
-    let baseRps = 150 + Math.random() * 300;
-
-    let sampleIdx = 0;
-    while (currentTime <= now) {
-      const jitter = (Math.random() - 0.5) * 4500;
-      const sampleTime = new Date(currentTime + jitter);
-      const isGap = Math.random() < gapProbability;
-
-      baseCpu = Math.max(50, Math.min(1850, baseCpu + (Math.random() - 0.48) * 60));
-      baseMem = Math.max(128, Math.min(1900, baseMem + (Math.random() - 0.47) * 40));
-      baseLat = Math.max(15, Math.min(950, baseLat + (Math.random() - 0.49) * 25));
-      baseRps = Math.max(10, Math.min(950, baseRps + (Math.random() - 0.48) * 50));
-
-      const sources: Array<'prometheus' | 'jaeger' | 'k8s' | 'loki'> = ['prometheus', 'jaeger', 'k8s', 'loki'];
-      samples.push({
-        id: `raw-${serviceId}-${sampleIdx}`,
-        timestamp: sampleTime.toISOString(),
-        timestampMs: sampleTime.getTime(),
-        serviceId,
-        cpuMillicores: isGap ? null : Math.round(baseCpu),
-        memoryMB: isGap ? null : Math.round(baseMem),
-        latencyMs: isGap ? null : Math.round(baseLat),
-        requestRateRps: isGap ? null : Math.round(baseRps),
-        source: sources[sampleIdx % sources.length],
-        hasScrapeGap: isGap
-      });
-
-      currentTime += 4500 + Math.random() * 1500;
-      sampleIdx++;
+function loadPersistedPipelineSamples(): void {
+  try {
+    if (fs.existsSync(PIPELINE_STORAGE_PATH)) {
+      const raw = fs.readFileSync(PIPELINE_STORAGE_PATH, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        for (const [svc, list] of Object.entries(parsed)) {
+          if (Array.isArray(list)) {
+            realSampleBuffer.set(svc, list as RawTelemetrySample[]);
+          }
+        }
+      }
     }
-  });
+  } catch {
+    // ignore read error on cold start
+  }
+}
 
-  return samples.sort((a, b) => a.timestampMs - b.timestampMs);
+function savePersistedPipelineSamples(): void {
+  try {
+    const dir = path.dirname(PIPELINE_STORAGE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const obj: Record<string, RawTelemetrySample[]> = {};
+    for (const [svc, list] of realSampleBuffer.entries()) {
+      obj[svc] = list;
+    }
+    fs.writeFileSync(PIPELINE_STORAGE_PATH, JSON.stringify(obj, null, 2), 'utf-8');
+  } catch {
+    // ignore write error
+  }
+}
+
+loadPersistedPipelineSamples();
+
+/**
+ * Records real telemetry snapshots collected from Prometheus/Docker/Jaeger/Loki/K8s
+ * into the rolling time-series buffer used by the Phase 2 Preprocessing Pipeline.
+ */
+export function recordRealSnapshotsToPipeline(snapshots: RawTelemetrySnapshot[]): void {
+  let updated = false;
+  for (const snap of snapshots) {
+    const svc = snap.serviceId;
+    if (!svc) continue;
+
+    const prom = snap.prometheus;
+    const cpu = prom.cpuUsageMillicores;
+    const mem = prom.memoryUsageMB;
+    const lat = prom.p95LatencyMs > 0 ? prom.p95LatencyMs : prom.avgResponseTimeMs;
+    const rps = prom.rps;
+
+    const hasMetrics = cpu > 0 || mem > 0 || lat > 0 || rps > 0;
+    const tsMs = snap.timestamp || Date.now();
+    const list = realSampleBuffer.get(svc) || [];
+
+    const activeSource: 'prometheus' | 'jaeger' | 'k8s' | 'loki' = snap.sources?.prometheus
+      ? 'prometheus'
+      : snap.sources?.jaeger
+      ? 'jaeger'
+      : snap.sources?.kubernetes
+      ? 'k8s'
+      : 'loki';
+
+    list.push({
+      id: `real-${svc}-${tsMs}`,
+      timestamp: new Date(tsMs).toISOString(),
+      timestampMs: tsMs,
+      serviceId: svc,
+      cpuMillicores: hasMetrics ? parseFloat(cpu.toFixed(2)) : null,
+      memoryMB: hasMetrics ? parseFloat(mem.toFixed(2)) : null,
+      latencyMs: hasMetrics ? parseFloat(lat.toFixed(2)) : null,
+      requestRateRps: hasMetrics ? parseFloat(rps.toFixed(2)) : null,
+      source: activeSource,
+      hasScrapeGap: !hasMetrics,
+    });
+
+    if (list.length > MAX_SAMPLES_PER_SERVICE) {
+      list.splice(0, list.length - MAX_SAMPLES_PER_SERVICE);
+    }
+    realSampleBuffer.set(svc, list);
+    updated = true;
+  }
+
+  if (updated) {
+    savePersistedPipelineSamples();
+  }
+}
+
+/**
+ * Returns real collected telemetry samples for the requested services over the specified time window.
+ * Zero Math.random() or synthetic data generation.
+ */
+export function generateTelemetrySamples(
+  services: string[] = [],
+  windowMinutes: number = 5,
+  _gapProbability: number = 0.0
+): RawTelemetrySample[] {
+  const cutoff = Date.now() - windowMinutes * 60 * 1000;
+  const result: RawTelemetrySample[] = [];
+
+  for (const serviceId of services) {
+    const history = realSampleBuffer.get(serviceId) || [];
+    const recent = history.filter((s) => s.timestampMs >= cutoff);
+    const effective = recent.length > 0 ? recent : history.slice(-15);
+    result.push(...effective);
+  }
+
+  return result.sort((a, b) => a.timestampMs - b.timestampMs);
 }
 
 export function alignTo5SecondGrid(rawSamples: RawTelemetrySample[], gridIntervalSeconds: number = 5): GridAlignedSample[] {

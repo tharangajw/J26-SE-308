@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -31,9 +31,9 @@ import {
   applyImputation,
   applyMinMaxNormalization,
   DEFAULT_NORMALIZATION_BOUNDS,
-  generateMockRawTelemetry
+  fetchRealTelemetrySamples
 } from './pipeline';
-import type { ImputationMethod, NormalizationBounds } from './types';
+import type { ImputationMethod, NormalizationBounds, RawTelemetrySample } from './types';
 
 const tooltipStyle = {
   backgroundColor: 'var(--color-surface)',
@@ -48,19 +48,52 @@ const axisStyle = {
   fontFamily: 'var(--font-mono)'
 };
 
-export const PipelineNormalization: React.FC = () => {
-  const [selectedService, setSelectedService] = useState<string>('api-gateway');
+interface PipelineNormalizationProps {
+  services?: string[];
+}
+
+export const PipelineNormalization: React.FC<PipelineNormalizationProps> = ({ services }) => {
+  const [rawData, setRawData] = useState<RawTelemetrySample[]>([]);
+  const [isFetching, setIsFetching] = useState<boolean>(false);
+
+  const serviceOptions = useMemo(() => {
+    const combined = new Set<string>([
+      ...(services || []),
+      ...rawData.map((r) => r.serviceId).filter(Boolean),
+    ]);
+    return Array.from(combined);
+  }, [services, rawData]);
+
+  const [selectedService, setSelectedService] = useState<string>(() => (services && services[0]) || '');
   const [imputationMethod, setImputationMethod] = useState<ImputationMethod>('linear_interpolation');
-  const [gapProbability, setGapProbability] = useState<number>(0.15);
+  const [gapProbability, setGapProbability] = useState<number>(0.0);
   const [activeStage, setActiveStage] = useState<'all' | 'raw' | 'grid' | 'imputed' | 'normalized'>('all');
   const [bounds, setBounds] = useState<NormalizationBounds>(DEFAULT_NORMALIZATION_BOUNDS);
-  const [seed, setSeed] = useState<number>(1);
 
-  // 1. Generate Raw Heterogeneous Telemetry Data
-  const rawData = useMemo(() => {
-    return generateMockRawTelemetry(['api-gateway', 'order-service', 'payment-service'], 6, gapProbability);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seed, gapProbability]);
+  useEffect(() => {
+    if (serviceOptions.length > 0 && (!selectedService || !serviceOptions.includes(selectedService))) {
+      setSelectedService(serviceOptions[0]);
+    }
+  }, [serviceOptions, selectedService]);
+
+  const loadLiveTelemetry = useCallback(async () => {
+    setIsFetching(true);
+    try {
+      const samples = await fetchRealTelemetrySamples(services || [], imputationMethod);
+      setRawData(samples);
+      if (!selectedService && samples.length > 0) {
+        setSelectedService(samples[0].serviceId);
+      }
+    } finally {
+      setIsFetching(false);
+    }
+  }, [services, imputationMethod, selectedService]);
+
+  useEffect(() => {
+    loadLiveTelemetry();
+    const timer = setInterval(loadLiveTelemetry, 5000);
+    return () => clearInterval(timer);
+  }, [loadLiveTelemetry]);
 
   // 2. Align to 5-Second Grid
   const gridAlignedData = useMemo(() => {
@@ -91,7 +124,7 @@ export const PipelineNormalization: React.FC = () => {
   }, [gridAlignedData, selectedService]);
 
   const handleRegenerate = () => {
-    setSeed((prev) => prev + 1);
+    loadLiveTelemetry();
   };
 
   return (
@@ -104,7 +137,7 @@ export const PipelineNormalization: React.FC = () => {
             <h2 className="text-lg font-semibold text-text-primary">Phase 2: Preprocessing & Normalization Pipeline</h2>
           </div>
           <p className="text-xs text-text-secondary">
-            Aligns heterogeneous metrics to a uniform 5-second grid, imputes missing scrapes, and normalizes values to 0.0 – 1.0.
+            Aligns live heterogeneous container metrics to a uniform 5-second grid, imputes missing scrapes, and normalizes values to 0.0 – 1.0.
           </p>
         </div>
 
@@ -112,9 +145,10 @@ export const PipelineNormalization: React.FC = () => {
           <button
             type="button"
             onClick={handleRegenerate}
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-secondary hover:text-text-primary"
+            disabled={isFetching}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-secondary hover:text-text-primary disabled:opacity-50"
           >
-            <RefreshCw className="h-3.5 w-3.5 text-brand-perf" /> Regenerate Scrape Stream
+            <RefreshCw className={`h-3.5 w-3.5 text-brand-perf ${isFetching ? 'animate-spin' : ''}`} /> Refresh Live Stream
           </button>
         </div>
       </div>
@@ -208,9 +242,9 @@ export const PipelineNormalization: React.FC = () => {
                 onChange={(e) => setSelectedService(e.target.value)}
                 className="rounded-md border border-border bg-surface-secondary/40 px-3 py-1 font-mono text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand-perf"
               >
-                <option value="api-gateway">api-gateway</option>
-                <option value="order-service">order-service</option>
-                <option value="payment-service">payment-service</option>
+                {serviceOptions.map((svc) => (
+                  <option key={svc} value={svc}>{svc}</option>
+                ))}
               </select>
             </div>
           </div>
