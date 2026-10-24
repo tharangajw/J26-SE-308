@@ -2,11 +2,20 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ZAxis
 } from 'recharts';
 import { Share2, Clock, GitCommit } from 'lucide-react';
-import { DependencyMap } from '../performace/DependencyMap';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
 export default function TracesDashboard({ data }: any) {
-  const traceData = data?.realtime?.traces?.samples ?? [];
+  const liveTraceData = data?.realtime?.traces?.samples ?? [];
+  const traceData = liveTraceData.length ? liveTraceData : Array.from({ length: 12 }, (_, index) => ({
+    id: `waiting-${index + 1}`,
+    time: Date.now() - (11 - index) * 5 * 60 * 1000,
+    duration: 0,
+    spans: 0,
+    isError: false,
+    service: 'waiting-for-jaeger',
+    operation: 'No live span received',
+  }));
+  const usingTracePreview = liveTraceData.length === 0;
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -77,11 +86,12 @@ export default function TracesDashboard({ data }: any) {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6">
+        <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Trace Durations (Last Hour)</CardTitle>
+              {usingTracePreview && <span className="text-[10px] font-medium uppercase tracking-wider text-amber-400">Waiting for Jaeger traces</span>}
               <div className="flex items-center gap-4 text-[11px] text-text-secondary">
                 <div className="flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-emerald-400" /> Success</div>
                 <div className="flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-rose-400" /> Error</div>
@@ -108,9 +118,6 @@ export default function TracesDashboard({ data }: any) {
           </CardContent>
         </Card>
 
-        <div className="lg:col-span-1">
-          <DependencyMap />
-        </div>
       </div>
 
       <Card className="overflow-hidden">

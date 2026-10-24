@@ -47,7 +47,7 @@ export interface ServiceAnomalyEvaluation {
 }
 
 const ANOMALY_BASE_URL = '/api/anomaly';
-const FALLBACK_ANOMALY_URL = 'http://localhost:8000';
+const FALLBACK_ANOMALY_URL = 'http://localhost:18002';
 
 async function fetchAnomalyJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;

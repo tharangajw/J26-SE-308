@@ -10,7 +10,7 @@ export const ScoreBreakdown: React.FC = () => {
   useEffect(() => {
     let mounted = true;
     const fetchLivePerf = async () => {
-      const urls = ['/api/anomaly/pscore/evaluate', 'http://localhost:8000/pscore/evaluate'];
+      const urls = ['/api/anomaly/pscore/evaluate', 'http://localhost:18002/pscore/evaluate'];
       for (const url of urls) {
         try {
           const res = await fetch(url);
