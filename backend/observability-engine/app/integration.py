@@ -107,7 +107,7 @@ def telemetry_gap() -> str | None:
     """Return the active research/demo telemetry gap, if any."""
     global _telemetry_gap
     with _lock:
-        if _telemetry_gap and time.time() >= _telemetry_gap["ends_at"]:
+        if _telemetry_gap and time.time() * 1000 >= _telemetry_gap["ends_at"]:
             _telemetry_gap = None
         return _telemetry_gap["fault_type"] if _telemetry_gap else None
 
@@ -116,7 +116,7 @@ def telemetry_experiment() -> dict[str, Any] | None:
     """Return the active experiment context without exposing internal state."""
     global _telemetry_gap
     with _lock:
-        if _telemetry_gap and time.time() >= _telemetry_gap["ends_at"]:
+        if _telemetry_gap and time.time() * 1000 >= _telemetry_gap["ends_at"]:
             _telemetry_gap = None
         return dict(_telemetry_gap) if _telemetry_gap else None
 
