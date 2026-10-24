@@ -1,4 +1,4 @@
-import type { FaultMetrics, MaturityLevel, RScoreRuleResult } from './types.ts';
+import type { MaturityLevel, RScoreRuleResult } from './types.ts';
 
 export const THRESHOLDS = {
   availabilityPercent: { min: 99.0, label: '>= 99.0%' },
@@ -11,7 +11,17 @@ export const THRESHOLDS = {
   failoverSuccessRate: { min: 100.0, label: '>= 100%' },
 } as const;
 
-export const POINTS_PER_RULE = 12.5;
+/** AHP principal-eigenvector weights, keyed to the engine's metric names. */
+export const RSCORE_WEIGHTS = {
+  availability: 0.2663,
+  failoverSuccess: 0.2411,
+  errorRate: 0.1486,
+  mttr: 0.1405,
+  latency: 0.0842,
+  restarts: 0.0541,
+  cpu: 0.0326,
+  memory: 0.0326,
+} as const;
 
 export function resolveMaturityLevel(score: number): MaturityLevel {
   if (score >= 87.5) return 'Optimized';
@@ -19,6 +29,8 @@ export function resolveMaturityLevel(score: number): MaturityLevel {
   if (score >= 50.0) return 'Developing';
   return 'Initial';
 }
+
+const clamp01 = (value: number) => Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
 
 export function evaluateRScoreRules(metrics: {
   availability: number;
@@ -30,83 +42,45 @@ export function evaluateRScoreRules(metrics: {
   latency: number;
   failoverSuccess: number;
 }): { rules: RScoreRuleResult[]; totalScore: number; maturity: MaturityLevel } {
-  const rules: RScoreRuleResult[] = [
-    {
-      rule: 'Availability',
-      variable: 'A',
-      threshold: THRESHOLDS.availabilityPercent.label,
-      actualValue: metrics.availability,
-      passed: metrics.availability >= THRESHOLDS.availabilityPercent.min,
-      points: 0,
-    },
-    {
-      rule: 'CPU',
-      variable: 'C',
-      threshold: THRESHOLDS.cpuPercent.label,
-      actualValue: metrics.cpu,
-      passed: metrics.cpu < THRESHOLDS.cpuPercent.max,
-      points: 0,
-    },
-    {
-      rule: 'Memory',
-      variable: 'M',
-      threshold: THRESHOLDS.memoryPercent.label,
-      actualValue: metrics.memory,
-      passed: metrics.memory < THRESHOLDS.memoryPercent.max,
-      points: 0,
-    },
-    {
-      rule: 'ErrorRate',
-      variable: 'E',
-      threshold: THRESHOLDS.errorRate.label,
-      actualValue: metrics.errorRate,
-      passed: metrics.errorRate < THRESHOLDS.errorRate.max,
-      points: 0,
-    },
-    {
-      rule: 'Restarts',
-      variable: 'R',
-      threshold: THRESHOLDS.totalRestarts.label,
-      actualValue: metrics.restarts,
-      passed: metrics.restarts < THRESHOLDS.totalRestarts.max,
-      points: 0,
-    },
-    {
-      rule: 'MTTR',
-      variable: 'T',
-      threshold: THRESHOLDS.mttrSeconds.label,
-      actualValue: metrics.mttr,
-      passed: metrics.mttr <= THRESHOLDS.mttrSeconds.max,
-      points: 0,
-    },
-    {
-      rule: 'Latency',
-      variable: 'L',
-      threshold: THRESHOLDS.avgLatencyMs.label,
-      actualValue: metrics.latency,
-      passed: metrics.latency < THRESHOLDS.avgLatencyMs.max,
-      points: 0,
-    },
-    {
-      rule: 'Failover',
-      variable: 'F',
-      threshold: THRESHOLDS.failoverSuccessRate.label,
-      actualValue: metrics.failoverSuccess,
-      passed: metrics.failoverSuccess >= THRESHOLDS.failoverSuccessRate.min,
-      points: 0,
-    },
+  // Normalize every metric to [0, 1], with 1 always representing better resilience.
+  // Thresholds serve as the reference bounds: reaching the good target yields 1;
+  // adverse metrics decline linearly to 0 as they reach/exceed their limit.
+  const normalized = {
+    availability: clamp01(metrics.availability / THRESHOLDS.availabilityPercent.min),
+    cpu: 1 - clamp01(metrics.cpu / THRESHOLDS.cpuPercent.max),
+    memory: 1 - clamp01(metrics.memory / THRESHOLDS.memoryPercent.max),
+    errorRate: 1 - clamp01(metrics.errorRate / THRESHOLDS.errorRate.max),
+    restarts: 1 - clamp01(metrics.restarts / THRESHOLDS.totalRestarts.max),
+    mttr: 1 - clamp01(metrics.mttr / THRESHOLDS.mttrSeconds.max),
+    latency: 1 - clamp01(metrics.latency / THRESHOLDS.avgLatencyMs.max),
+    failoverSuccess: clamp01(metrics.failoverSuccess / THRESHOLDS.failoverSuccessRate.min),
+  };
+
+  const definitions: Array<{ rule: RScoreRuleResult['rule']; variable: RScoreRuleResult['variable']; threshold: string; actualValue: number; key: keyof typeof RSCORE_WEIGHTS }> = [
+    { rule: 'Availability', variable: 'A', threshold: THRESHOLDS.availabilityPercent.label, actualValue: metrics.availability, key: 'availability' },
+    { rule: 'CPU', variable: 'C', threshold: THRESHOLDS.cpuPercent.label, actualValue: metrics.cpu, key: 'cpu' },
+    { rule: 'Memory', variable: 'M', threshold: THRESHOLDS.memoryPercent.label, actualValue: metrics.memory, key: 'memory' },
+    { rule: 'ErrorRate', variable: 'E', threshold: THRESHOLDS.errorRate.label, actualValue: metrics.errorRate, key: 'errorRate' },
+    { rule: 'Restarts', variable: 'R', threshold: THRESHOLDS.totalRestarts.label, actualValue: metrics.restarts, key: 'restarts' },
+    { rule: 'MTTR', variable: 'T', threshold: THRESHOLDS.mttrSeconds.label, actualValue: metrics.mttr, key: 'mttr' },
+    { rule: 'Latency', variable: 'L', threshold: THRESHOLDS.avgLatencyMs.label, actualValue: metrics.latency, key: 'latency' },
+    { rule: 'Failover', variable: 'F', threshold: THRESHOLDS.failoverSuccessRate.label, actualValue: metrics.failoverSuccess, key: 'failoverSuccess' },
   ];
 
-  let totalScore = 0;
-  for (const r of rules) {
-    if (r.passed) {
-      r.points = POINTS_PER_RULE;
-      totalScore += POINTS_PER_RULE;
-    }
-  }
-
-  totalScore = Math.min(100, Math.max(0, Math.round(totalScore * 10) / 10));
-  const maturity = resolveMaturityLevel(totalScore);
-
-  return { rules, totalScore, maturity };
+  const passes: Record<keyof typeof RSCORE_WEIGHTS, boolean> = {
+    availability: metrics.availability >= THRESHOLDS.availabilityPercent.min,
+    cpu: metrics.cpu < THRESHOLDS.cpuPercent.max,
+    memory: metrics.memory < THRESHOLDS.memoryPercent.max,
+    errorRate: metrics.errorRate < THRESHOLDS.errorRate.max,
+    restarts: metrics.restarts < THRESHOLDS.totalRestarts.max,
+    mttr: metrics.mttr <= THRESHOLDS.mttrSeconds.max,
+    latency: metrics.latency < THRESHOLDS.avgLatencyMs.max,
+    failoverSuccess: metrics.failoverSuccess >= THRESHOLDS.failoverSuccessRate.min,
+  };
+  const rules = definitions.map(({ rule, variable, threshold, actualValue, key }) => ({
+    rule, variable, threshold, actualValue, passed: passes[key],
+    points: normalized[key] * RSCORE_WEIGHTS[key] * 100,
+  }));
+  const totalScore = Math.round(rules.reduce((sum, rule) => sum + rule.points, 0) * 10) / 10;
+  return { rules, totalScore, maturity: resolveMaturityLevel(totalScore) };
 }

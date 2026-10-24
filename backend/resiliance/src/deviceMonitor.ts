@@ -60,6 +60,7 @@ export class DeviceMonitor {
   private currentAvgLatencyMs: number = 2.0;
   private currentAvailability: number = 100.0;
   private currentFailoverSuccessRate: number = 100.0;
+  
 
   // ── HTTP 5xx tracking (fed by server.ts on every request finish)
   private recentRequestsWindow: Array<{ timestamp: number; isError: boolean }> = [];
