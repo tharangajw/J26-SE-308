@@ -518,7 +518,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                         onInjectFault(f.id, activeTarget, settings.duration, settings.latencyMs, settings.errorRate, selectedEngine);
                       }}
                     >
-                      <Play size={14} fill="currentColor" /> {runningFault ? `FAULT ACTIVE · ${runningFault.remainingSec}s` : selectedEngine === 'Chaos Mesh' ? !chaosMeshTargets.length ? 'NO KUBERNETES POD TARGETS' : selectedTarget === 'all' && !selectedTargetSupported ? 'SELECT ONE POD TARGET' : !selectedTargetSupported ? 'NOT SUPPORTED BY CHAOS MESH' : 'INJECT CHAOS MESH FAULT' : !canInjectChaos ? 'CHECK TOKEN AND SERVICE TARGETS' : requiresSingleTarget && selectedTarget === 'all' ? 'SELECT ONE SERVICE TARGET' : !selectedTargetSupported ? 'SELECT SUPPORTED TARGET' : !composeFaultTypes.has(f.id) ? 'NOT SUPPORTED FOR COMPOSE TARGET' : 'INJECT REAL SERVICE FAULT'}
+                      <Play size={14} fill="currentColor" /> {runningFault ? `FAULT ACTIVE · ${runningFault.remainingSec}s` : selectedEngine === 'Chaos Mesh' ? !chaosMeshTargets.length ? 'NO KUBERNETES POD TARGETS' : selectedTarget === 'all' && !selectedTargetSupported ? 'SELECT ONE SERVICE TARGET' : !selectedTargetSupported ? 'NOT SUPPORTED BY CHAOS MESH' : 'INJECT CHAOS MESH FAULT' : !canInjectChaos ? 'CHECK TOKEN AND SERVICE TARGETS' : requiresSingleTarget && selectedTarget === 'all' ? 'SELECT ONE SERVICE TARGET' : !selectedTargetSupported ? 'SELECT SUPPORTED TARGET' : !composeFaultTypes.has(f.id) ? 'NOT SUPPORTED FOR COMPOSE TARGET' : 'INJECT REAL SERVICE FAULT'}
                     </button>
                   </div>
                 );
