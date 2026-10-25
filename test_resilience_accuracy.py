@@ -207,6 +207,12 @@ def run_synthetic_benchmark(total_trials=500):
     print(f"Scoring weights sum: {weight_sum:.4f} ({'PASS' if abs(weight_sum - 1.0) < 1e-9 else 'FAIL'})")
     print("Interpretation: agreement with the documented SLO rules on generated cases.")
     print("This is not measured accuracy on real service behavior.")
+    correct_count = sum(actual == predicted for actual, predicted in zip(y_true, y_pred))
+    print("-" * 55)
+    print("\nPlain explanation:")
+    print(f"->The engine correctly classified {correct_count} of {len(y_true)} generated cases ({summary['accuracy'] * 100:.2f}%) in this test.")
+    print("->Because these cases are computer-generated, this result does not prove the same accuracy on real microservices.")
+    print("-" * 55)
     return summary
 
 
