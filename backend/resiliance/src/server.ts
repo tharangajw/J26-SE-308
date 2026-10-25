@@ -10,6 +10,7 @@ import type { ChaosInjectRequest } from './types.ts';
 const PORT = Number(process.env.PORT ?? 3010);
 const GEMINI_INSIGHTS_TIMEOUT_MS = Number(process.env.GEMINI_INSIGHTS_TIMEOUT_MS ?? 7_000);
 const OPENROUTER_INSIGHTS_TIMEOUT_MS = Number(process.env.OPENROUTER_INSIGHTS_TIMEOUT_MS ?? 10_000);
+const resilienceEngineBaseUrl = (process.env.RESILIENCE_ENGINE_URL ?? 'http://localhost:8011/api/resilience/evaluate').replace(/\/api\/resilience\/evaluate\/?$/, '');
 const collector = new ResilienceCollector(
   process.env.PROMETHEUS_URL ?? 'http://localhost:9090',
   process.env.RESILIENCE_KUBERNETES_URL ?? 'http://localhost:8011/api/kubernetes/snapshot'
@@ -359,6 +360,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     // Polled by FaultToleranceDashboard.tsx (http://localhost:3010/api/resilience/score)
     if (pathname === '/api/resilience/score' && method === 'GET') {
       const data = await collector.collectTelemetry();
+      updateChaosHistory(data);
       return sendJson(res, 200, {
         timestamp: new Date().toISOString(),
         metrics: data.metrics,
@@ -393,7 +395,17 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     }
 
     // 3. Chaos injection endpoint (POST /api/chaos/inject)
+    if (pathname === '/api/chaos/targets' && method === 'GET') {
+      const response = await fetch(`${resilienceEngineBaseUrl}/api/chaos/targets`, { signal: AbortSignal.timeout(4000) });
+      const result = await response.json();
+      return sendJson(res, response.status, result);
+    }
+
     if (pathname === '/api/chaos/inject' && method === 'POST') {
+      const requestOrigin = req.headers.origin;
+      if (requestOrigin && !['http://localhost:5173', 'http://127.0.0.1:5173'].includes(requestOrigin)) {
+        return sendJson(res, 403, { error: 'Chaos injection is only allowed from the local dashboard.' });
+      }
       const body = await parseBody<ChaosInjectRequest>(req);
       const baseline = await collector.collectTelemetry();
       const replacedExperiments = chaosHistory.filter(item => item.status === 'RUNNING');
@@ -404,14 +416,44 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         }
         persistChaosHistory();
       }
-      const activeEvent = collector.injectChaos(
-        body.serviceId || 'gateway',
-        body.faultType || 'SERVICE_DOWN',
-        body.duration || 30,
-        body.latencyMs,
-        body.errorRate,
-        body.engine || 'Chaos Mesh'
-      );
+      let activeEvent;
+      try {
+        if (body.engine === 'Chaos Mesh') {
+          const [namespace, podName] = (body.serviceId || '').split('/', 2);
+          const allTargets = body.serviceId === 'all';
+          if (!allTargets && (!namespace || !podName)) throw new Error('Select a Kubernetes Pod target for Chaos Mesh.');
+          const response = await fetch(`${resilienceEngineBaseUrl}/api/chaos/experiments`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-chaos-token': process.env.CORE_CHAOS_TOKEN ?? '' },
+            body: JSON.stringify({ namespace, podName: allTargets ? 'all' : podName, faultType: body.faultType, duration: body.duration, latencyMs: body.latencyMs, errorRate: body.errorRate }),
+            signal: AbortSignal.timeout(6000)
+          });
+          const experiment = await response.json() as { detail?: string; name?: string; kind?: string; namespace?: string; podName?: string; targetName?: string; faultType?: string; duration?: number };
+          if (!response.ok) throw new Error(experiment.detail ?? 'Chaos Mesh injection failed.');
+          activeEvent = {
+            serviceId: body.serviceId,
+            serviceName: experiment.targetName ?? `${experiment.namespace}/${experiment.podName}`,
+            faultType: body.faultType || 'SERVICE_DOWN',
+            injectedAt: Date.now(),
+            durationSec: body.duration || 15,
+            status: `Running Chaos Mesh ${experiment.kind} experiment`,
+            engine: 'Chaos Mesh',
+            experimentName: experiment.name,
+            latencyMs: body.latencyMs,
+            errorRatePercent: body.errorRate,
+            kubernetesLogs: [{ timestamp: new Date().toLocaleTimeString(), level: 'WARN', source: 'Chaos Mesh', message: `Created ${experiment.kind} ${experiment.namespace}/${experiment.name} targeting pod ${experiment.podName}.` }],
+            metricsSnapshot: { preChaosAvailability: baseline.metrics.availability, postChaosAvailability: baseline.metrics.availability, errorRateSpike: body.faultType === 'API_ERROR' ? body.errorRate || 35 : 0 },
+            selfHealingValidation: { podRestarted: false, replicaReplaced: false, hpaTriggered: false, circuitBreakerTripped: false, validationStatus: 'VALIDATING' }
+          };
+          collector.registerChaosMeshExperiment(activeEvent);
+        } else {
+          activeEvent = await collector.injectCoreChaos(
+            body.serviceId || 'gateway', body.faultType || 'SERVICE_DOWN', body.duration || 30, body.latencyMs, body.errorRate
+          );
+        }
+      } catch (error) {
+        return sendJson(res, 400, { error: error instanceof Error ? error.message : 'Could not inject the requested fault.' });
+      }
       const experiment: ChaosExperimentRecord = {
         experimentName: activeEvent.experimentName,
         serviceId: activeEvent.serviceId,
@@ -429,17 +471,22 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       chaosHistory.push(experiment);
       persistChaosHistory();
       updateChaosHistory(await collector.collectTelemetry());
-      console.log(`[Chaos] Injected ${body.faultType} on ${body.serviceId} via ${body.engine || 'Chaos Mesh'}`);
+      console.log(`[Chaos] Injected ${body.faultType} on ${body.serviceId} via ${body.engine ?? 'Docker Compose'}`);
       return sendJson(res, 200, {
         success: true,
-        message: `Injected fault ${body.faultType} on service ${body.serviceId}`,
+        message: `Injected fault ${body.faultType} on service ${body.serviceId} via ${body.engine ?? 'Docker Compose'}`,
         event: activeEvent
       });
     }
 
     // 4. Clear all chaos faults (POST /api/chaos/clear)
     if (pathname === '/api/chaos/clear' && method === 'POST') {
-      collector.clearChaos();
+      const requestOrigin = req.headers.origin;
+      if (requestOrigin && !['http://localhost:5173', 'http://127.0.0.1:5173'].includes(requestOrigin)) {
+        return sendJson(res, 403, { error: 'Chaos controls are only allowed from the local dashboard.' });
+      }
+      await collector.clearChaos();
+      await fetch(`${resilienceEngineBaseUrl}/api/chaos/experiments`, { method: 'DELETE', headers: { 'x-chaos-token': process.env.CORE_CHAOS_TOKEN ?? '' }, signal: AbortSignal.timeout(5000) }).catch(() => undefined);
       updateChaosHistory(await collector.collectTelemetry());
       console.log('[Chaos] Cleared all active faults and restored baseline telemetry');
       return sendJson(res, 200, {
@@ -450,10 +497,14 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
     // 5. Heal individual service (POST /api/resilience/heal)
     if (pathname === '/api/resilience/heal' && method === 'POST') {
+      const requestOrigin = req.headers.origin;
+      if (requestOrigin && !['http://localhost:5173', 'http://127.0.0.1:5173'].includes(requestOrigin)) {
+        return sendJson(res, 403, { error: 'Chaos controls are only allowed from the local dashboard.' });
+      }
       const body = await parseBody<{ serviceId?: string }>(req);
       const serviceId = body.serviceId || 'all';
       const experimentsToClose = chaosHistory.filter(item => item.status === 'RUNNING' && (serviceId === 'all' || item.serviceId === serviceId));
-      collector.healService(serviceId);
+      await collector.healService(serviceId);
       if (experimentsToClose.length) {
         const after = await collector.collectTelemetry();
         for (const experiment of experimentsToClose) {

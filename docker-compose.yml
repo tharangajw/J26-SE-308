@@ -27,6 +27,7 @@ services:
     container_name: pscore-resilience-engine
     environment:
       KUBERNETES_URL: http://host.docker.internal:8001
+      CHAOS_CONTROL_TOKEN: ${CHAOS_CONTROL_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -46,12 +47,15 @@ services:
     container_name: pscore-resilience-api
     ports:
       # Expose the API at http://localhost:3010.
-      - "3010:3010"
+      - "127.0.0.1:3010:3010"
     environment:
       PORT: 3010
       RESILIENCE_ENGINE_URL: http://resilience-engine:8011/api/resilience/evaluate
       RESILIENCE_KUBERNETES_URL: http://resilience-engine:8011/api/kubernetes/snapshot
       PROMETHEUS_URL: http://prometheus:9090
+      CORE_PROMETHEUS_URL: http://host.docker.internal:9090
+      CORE_PRODUCT_HOST: host.docker.internal
+      CORE_CHAOS_TOKEN: ${CHAOS_CONTROL_TOKEN:-}
       FRONTEND_HEALTH_URL: http://frontend:3000
       # Compose reads these variables from the project-root .env file.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-${VITE_GEMINI_API_KEY:-}}

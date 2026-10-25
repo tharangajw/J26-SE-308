@@ -6,7 +6,6 @@ import {
   Radio
 } from 'lucide-react';
 import {
-  mockFaultToleranceServices,
   mockFaultTypes,
   mockInitialFaultMetrics,
   mockDefaultCardSettings,
@@ -22,9 +21,10 @@ import {
   type RecentActivity,
   type AiFailurePrediction,
   type KubernetesChaosLog,
+  type KubernetesValidationSnapshot,
   mockTelemetrySources
 } from '../../data/mockData';
-import { ChaosEngineeringSuite, type KubernetesValidationSnapshot } from './ChaosEngineeringSuite';
+import { ChaosEngineeringSuite } from './ChaosEngineeringSuite';
 import { TelemetryTrends } from './TelemetryTrends';
 import { ResilienceOverview } from './ResilienceOverview';
 import './FaultToleranceDashboard.css';
@@ -37,7 +37,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
   const [isSimulation, setIsSimulation] = useState(true);
   const [metrics, setMetrics] = useState<FaultMetrics>(mockInitialFaultMetrics);
   const [history, setHistory] = useState<HistoryPoint[]>(generateInitialHistory());
-  const [services, setServices] = useState<Service[]>(mockFaultToleranceServices);
+  const [services, setServices] = useState<Service[]>([]);
   const [mainViewMode, setMainViewMode] = useState<'overview' | 'telemetry' | 'chaos'>(standaloneChaos ? 'chaos' : 'overview');
 
   useEffect(() => {
@@ -61,8 +61,9 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
   });
 
   const [deviceHardware, setDeviceHardware] = useState<any>(null);
-  const [kubernetesConnected, setKubernetesConnected] = useState(false);
+  const [coreProductConnected, setCoreProductConnected] = useState(false);
   const [kubernetesValidation, setKubernetesValidation] = useState<KubernetesValidationSnapshot | null>(null);
+  const [kubernetesConnected, setKubernetesConnected] = useState(false);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
@@ -111,11 +112,20 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
         const res = await fetch('http://localhost:3010/api/resilience/score');
         if (res.ok) {
           const data = await res.json();
+          setCoreProductConnected(Boolean(data.sources?.coreProductPrometheus));
           setKubernetesConnected(Boolean(data.sources?.kubernetes));
           setKubernetesValidation(data.kubernetesValidation ?? null);
           setMetrics(data.metrics);
           if (data.services && data.services.length > 0) {
-            setServices(data.services);
+            setServices(data.services.map((service: Omit<Service, 'status'> & { status: 'HEALTHY' | 'DEGRADED' | 'OFFLINE' }) => ({
+              ...service,
+              status: service.status === 'HEALTHY' ? 'ONLINE' : service.status,
+              faultType: service.faultType ?? null,
+              port: service.port ?? null,
+              restarts: service.restarts ?? null
+            })));
+          } else {
+            setServices([]);
           }
           if (data.aiPrediction) {
             setAiPrediction(data.aiPrediction);
@@ -133,6 +143,8 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
               recoveryTime: data.activeChaos.metricsSnapshot?.mttrObservedSec ? `${data.activeChaos.metricsSnapshot.mttrObservedSec}s` : undefined,
               engine: data.activeChaos.engine,
               experimentName: data.activeChaos.experimentName,
+              latencyMs: data.activeChaos.latencyMs,
+              errorRatePercent: data.activeChaos.errorRatePercent,
               kubernetesLogs: data.activeChaos.kubernetesLogs,
               metricsSnapshot: data.activeChaos.metricsSnapshot,
               selfHealingValidation: data.activeChaos.selfHealingValidation
@@ -161,8 +173,8 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
         }
       } catch {
         setIsSimulation(true);
-        setKubernetesConnected(false);
-        setKubernetesValidation(null);
+        setCoreProductConnected(false);
+        setServices([]);
       }
     };
     checkBackend();
@@ -218,7 +230,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
       let totalRestarts = 0;
 
       currentServices.forEach(s => {
-        totalRestarts += s.restarts;
+        totalRestarts += s.restarts ?? 0;
 
         if (s.status === 'OFFLINE') {
           baseLatency += 1200;
@@ -387,7 +399,22 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
     return () => clearInterval(timer);
   }, []);
 
-  const healService = (serviceId: string) => {
+  const healService = async (serviceId: string, backendAlreadyCleared = false) => {
+    if (!isSimulation && !backendAlreadyCleared) {
+      try {
+        const response = await fetch('http://localhost:3010/api/resilience/heal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serviceId })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `Recovery failed (${response.status}).`);
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Could not clear the service fault.');
+        return;
+      }
+    }
+
     if (serviceId === 'all') {
       setServices(prev => prev.map(s => ({ ...s, status: 'ONLINE', faultType: null })));
       setActiveFaults([]);
@@ -416,11 +443,52 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
     duration = 15, 
     latencyMs = 2500, 
     errorRate = 35,
-    engine: 'Chaos Mesh' = 'Chaos Mesh'
+    engine: 'Docker Compose' | 'Chaos Mesh' = 'Docker Compose'
   ) => {
     const faultMeta = mockFaultTypes.find(f => f.id === fType) || mockFaultTypes[0];
     const now = Date.now();
     const endTime = now + duration * 1000;
+
+    if (!isSimulation) {
+      try {
+        const resp = await fetch('http://localhost:3010/api/chaos/inject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serviceId: target, faultType: fType, duration, latencyMs, errorRate, engine })
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.error || `Fault injection failed (${resp.status}).`);
+        const event = result.event;
+        setActiveFaults(prev => [...prev.filter(fault => fault.targetId !== target), {
+          id: `${target}-${fType}-${now}`,
+          targetId: target,
+          faultType: fType,
+          faultName: faultMeta.name,
+          badgeClass: faultMeta.badgeClass,
+          duration,
+          endTime,
+          remainingSec: duration
+        }]);
+        setActiveChaosEvent({
+          service: event.serviceName,
+          targetId: event.serviceId,
+          time: new Date(event.injectedAt).toLocaleTimeString(),
+          type: event.faultType,
+          status: event.status,
+          engine: event.engine,
+          experimentName: event.experimentName,
+          latencyMs: event.latencyMs,
+          errorRatePercent: event.errorRatePercent,
+          kubernetesLogs: event.kubernetesLogs,
+          metricsSnapshot: event.metricsSnapshot,
+          selfHealingValidation: event.selfHealingValidation
+        });
+        logActivity('INJECT', `${engine}: ${faultMeta.name}`, `Target: ${event.serviceName} | Duration: ${duration}s`, 'danger');
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Could not inject the fault.');
+      }
+      return;
+    }
 
     logActivity('INJECT', `Chaos Mesh: ${faultMeta.name}`, `Target: ${target === 'all' ? 'Cluster Wide' : target} | Duration: ${duration}s`, 'danger');
 
@@ -500,6 +568,8 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
               status: resData.event.status,
               engine: resData.event.engine,
               experimentName: resData.event.experimentName,
+              latencyMs: resData.event.latencyMs,
+              errorRatePercent: resData.event.errorRatePercent,
               kubernetesLogs: resData.event.kubernetesLogs,
               metricsSnapshot: resData.event.metricsSnapshot,
               selfHealingValidation: resData.event.selfHealingValidation
@@ -516,7 +586,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
         ...s,
         status: s.id === 'gateway' ? 'OFFLINE' : 'DEGRADED',
         faultType: s.id === 'gateway' ? 'SERVICE_DOWN' : 'API_ERROR',
-        restarts: s.restarts + 1
+        restarts: (s.restarts ?? 0) + 1
       })));
     } else {
       setServices(prev => prev.map(s => {
@@ -525,7 +595,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
             ...s,
             status: fType === 'SERVICE_DOWN' ? 'OFFLINE' : 'DEGRADED',
             faultType: fType,
-            restarts: fType === 'SERVICE_DOWN' ? s.restarts + 1 : s.restarts
+            restarts: fType === 'SERVICE_DOWN' ? (s.restarts ?? 0) + 1 : s.restarts
           };
         }
         return s;
@@ -536,21 +606,24 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
   const clearAllChaos = async () => {
     if (!isSimulation) {
       try {
-        await fetch('http://localhost:3010/api/chaos/clear', {
+        const response = await fetch('http://localhost:3010/api/chaos/clear', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         });
-      } catch (err) {
-        console.error('Failed to clear backend chaos:', err);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `Recovery failed (${response.status}).`);
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Could not clear active faults.');
+        return;
       }
     }
 
-    healService('all');
+    await healService('all', !isSimulation);
     setActiveChaosEvent(null);
   };
 
   const resetMetrics = () => {
-    setServices(mockFaultToleranceServices);
+    setServices([]);
     setHistory(generateInitialHistory());
     setActiveChaosEvent(null);
     setActiveFaults([]);
@@ -688,11 +761,13 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
         {mainViewMode === 'overview' && (
           <ResilienceOverview 
             metrics={metrics}
+            kubernetesValidation={kubernetesValidation}
+            kubernetesConnected={kubernetesConnected}
             aiPrediction={aiPrediction}
             activeFaults={activeFaults}
             activeChaosEvent={activeChaosEvent}
-            kubernetesConnected={kubernetesConnected}
-            kubernetesValidation={kubernetesValidation}
+            coreProductConnected={coreProductConnected}
+            services={services}
             activities={activities}
             activityFilter={activityFilter}
             filteredActivities={filteredActivities}
@@ -714,8 +789,9 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
             services={services}
             activeFaults={activeFaults}
             activeChaosEvent={activeChaosEvent}
-            kubernetesConnected={kubernetesConnected}
+            coreProductConnected={coreProductConnected}
             kubernetesValidation={kubernetesValidation}
+            kubernetesConnected={kubernetesConnected}
             cardSettings={cardSettings}
             onInjectFault={injectChaosFault}
             onHealService={healService}

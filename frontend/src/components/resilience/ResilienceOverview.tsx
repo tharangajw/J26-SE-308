@@ -8,16 +8,19 @@ import type {
   FaultMetrics, AiFailurePrediction, ActiveFault, ActiveChaosEvent,
   RecentActivity
 } from '../../data/mockData';
-import type { KubernetesValidationSnapshot } from './ChaosEngineeringSuite';
+import type { Service } from '../../data/mockData';
+import type { KubernetesValidationSnapshot } from '../../data/mockData';
 import './ResilienceOverview.css';
 
 interface ResilienceOverviewProps {
   metrics: FaultMetrics;
+  kubernetesValidation: KubernetesValidationSnapshot | null;
+  kubernetesConnected: boolean;
   aiPrediction: AiFailurePrediction;
   activeFaults: ActiveFault[];
   activeChaosEvent: ActiveChaosEvent | null;
-  kubernetesConnected: boolean;
-  kubernetesValidation: KubernetesValidationSnapshot | null;
+  coreProductConnected: boolean;
+  services: Service[];
   activities: RecentActivity[];
   activityFilter: 'ALL' | 'INJECT' | 'HEAL' | 'ALERT';
   filteredActivities: RecentActivity[];
@@ -29,11 +32,13 @@ interface ResilienceOverviewProps {
 
 export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
   metrics,
+  kubernetesValidation,
+  kubernetesConnected,
   aiPrediction,
   activeFaults,
   activeChaosEvent,
-  kubernetesConnected,
-  kubernetesValidation,
+  coreProductConnected,
+  services,
   activities,
   activityFilter,
   filteredActivities,
@@ -56,6 +61,27 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
       default: return 'badge-initial';
     }
   };
+
+  const coreServiceNames = new Set(['api-gateway', 'book-service', 'user-service', 'order-service']);
+  const coreServices = services.filter(service => coreServiceNames.has(service.name));
+  const coreHealthyCount = coreServices.filter(service => service.status === 'ONLINE').length;
+  const observedProcessRestarts = coreServices.reduce((total, service) => total + (service.restarts ?? 0), 0);
+  const observedRecoveries = coreServices.reduce((total, service) => total + (service.recoveriesObserved ?? 0), 0);
+  const hasProcessRestartMetrics = coreServices.some(service => service.restarts !== null);
+  const isMeshActive = activeChaosEvent?.engine === 'Chaos Mesh';
+  const meshFault = activeChaosEvent?.type;
+  const coreDesired = kubernetesValidation?.desiredReplicas ?? 0;
+  const coreReady = kubernetesValidation?.readyReplicas ?? 0;
+  const meshAvailability = coreDesired > 0 ? Number(((coreReady / coreDesired) * 100).toFixed(2)) : metrics.availability;
+  const displayMetrics = isMeshActive ? {
+    ...metrics,
+    availability: ['SERVICE_DOWN', 'POD_RESTART'].includes(meshFault ?? '') && coreDesired > 0 ? Math.min(metrics.availability, meshAvailability) : metrics.availability,
+    latency: meshFault === 'LATENCY' ? Math.max(metrics.latency, activeChaosEvent?.latencyMs ?? 0) : metrics.latency,
+    errorRate: meshFault === 'API_ERROR' ? Math.max(metrics.errorRate, activeChaosEvent?.errorRatePercent ?? 35) : metrics.errorRate,
+    cpu: meshFault === 'HIGH_CPU' ? Math.max(metrics.cpu, 90) : metrics.cpu,
+    restarts: meshFault === 'POD_RESTART' && kubernetesValidation ? kubernetesValidation.podRestartCount : metrics.restarts,
+    failoverSuccess: ['SERVICE_DOWN', 'POD_RESTART'].includes(meshFault ?? '') && coreDesired > 0 ? Number(((coreReady / coreDesired) * 100).toFixed(0)) : metrics.failoverSuccess,
+  } : metrics;
 
   return (
     <>
@@ -116,42 +142,42 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
         <div className="glass-card rules-card">
           <h2><CheckCircle size={16} className="card-title-icon" /> Resilience Metric Thresholds</h2>
           <div className="rules-list">
-            <div className={`rule-item ${metrics.availability >= 99.0 ? 'passed' : 'failed'}`}>
+            <div className={`rule-item ${displayMetrics.availability >= 99.0 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Availability &gt;= 99.0%</span>
               <span className="rule-points">+26.63 pts</span>
             </div>
-            <div className={`rule-item ${metrics.cpu < 70 ? 'passed' : 'failed'}`}>
+            <div className={`rule-item ${displayMetrics.cpu < 70 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">CPU Avg Load &lt; 70%</span>
               <span className="rule-points">+3.26 pts</span>
             </div>
-            <div className={`rule-item ${metrics.memory < 75 ? 'passed' : 'failed'}`}>
+            <div className={`rule-item ${displayMetrics.memory < 75 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Memory Avg Load &lt; 75%</span>
               <span className="rule-points">+3.26 pts</span>
             </div>
-            <div className={`rule-item ${metrics.latency < 50 ? 'passed' : 'failed'}`}>
+            <div className={`rule-item ${displayMetrics.latency < 50 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Response Time &lt; 50ms</span>
               <span className="rule-points">+8.42 pts</span>
             </div>
-            <div className={`rule-item ${metrics.errorRate < 1.0 ? 'passed' : 'failed'}`}>
+            <div className={`rule-item ${displayMetrics.errorRate < 1.0 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Request Error Rate &lt; 1.0%</span>
               <span className="rule-points">+14.86 pts</span>
             </div>
-            <div className={`rule-item ${metrics.restarts < 2 ? 'passed' : 'failed'}`}>
+            <div className={`rule-item ${displayMetrics.restarts < 2 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Pod Restart Count &lt; 2</span>
               <span className="rule-points">+5.41 pts</span>
             </div>
-            <div className={`rule-item ${metrics.mttr <= 15 ? 'passed' : 'failed'}`}>
+            <div className={`rule-item ${displayMetrics.mttr <= 15 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">MTTR &lt;= 15s</span>
               <span className="rule-points">+14.05 pts</span>
             </div>
-            <div className={`rule-item ${metrics.failoverSuccess >= 100 ? 'passed' : 'failed'}`}>
+            <div className={`rule-item ${displayMetrics.failoverSuccess >= 100 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />
               <span className="rule-desc">Failover Success &gt;= 100%</span>
               <span className="rule-points">+24.11 pts</span>
@@ -218,83 +244,88 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
       </section>
 
       {/* Telemetry Metrics Cards Grid */}
+      {isMeshActive && (
+        <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 12px' }}>
+          Chaos Mesh values use Kubernetes core-product Pods: readiness and restarts are observed; CPU, latency, and HTTP 500 values show the configured injection. Live CPU and memory usage need the Kubernetes Metrics API. MTTR is based on observed recovery.
+        </p>
+      )}
       <section className="metrics-grid">
-        <div className={`glass-card metric-item ${metrics.cpu >= 70 ? 'card-breached' : ''}`}>
+        <div className={`glass-card metric-item ${displayMetrics.cpu >= 70 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Cpu size={18} className={metrics.cpu >= 70 ? 'text-danger' : 'text-primary'} />
+            <Cpu size={18} className={displayMetrics.cpu >= 70 ? 'text-danger' : 'text-primary'} />
             <span>CPU Usage</span>
           </div>
-          <div className={`metric-value ${metrics.cpu >= 70 ? 'fail-val' : ''}`}>{metrics.cpu}%</div>
-          <div className={`metric-status ${metrics.cpu >= 70 ? 'status-breached' : ''}`}>Target &lt; 70%</div>
+          <div className={`metric-value ${displayMetrics.cpu >= 70 ? 'fail-val' : ''}`}>{displayMetrics.cpu}%</div>
+          <div className={`metric-status ${displayMetrics.cpu >= 70 ? 'status-breached' : ''}`}>Target &lt; 70%{isMeshActive && meshFault === 'HIGH_CPU' ? ' · Chaos Mesh load target' : ''}</div>
         </div>
 
-        <div className={`glass-card metric-item ${metrics.memory >= 75 ? 'card-breached' : ''}`}>
+        <div className={`glass-card metric-item ${displayMetrics.memory >= 75 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <HardDrive size={18} className={metrics.memory >= 75 ? 'text-danger' : 'text-accent'} />
+            <HardDrive size={18} className={displayMetrics.memory >= 75 ? 'text-danger' : 'text-accent'} />
             <span>Memory Usage</span>
           </div>
-          <div className={`metric-value ${metrics.memory >= 75 ? 'fail-val' : ''}`}>{metrics.memory}%</div>
-          <div className={`metric-status ${metrics.memory >= 75 ? 'status-breached' : ''}`}>Target &lt; 75%</div>
+          <div className={`metric-value ${displayMetrics.memory >= 75 ? 'fail-val' : ''}`}>{displayMetrics.memory}%</div>
+          <div className={`metric-status ${displayMetrics.memory >= 75 ? 'status-breached' : ''}`}>Target &lt; 75%{isMeshActive && meshFault === 'HIGH_MEMORY' ? ' · requires Kubernetes Metrics API' : ''}</div>
         </div>
 
-        <div className={`glass-card metric-item ${metrics.availability < 99.0 ? 'card-breached' : ''}`}>
+        <div className={`glass-card metric-item ${displayMetrics.availability < 99.0 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <CheckCircle size={18} className={metrics.availability < 99.0 ? 'text-danger' : 'text-success'} />
+            <CheckCircle size={18} className={displayMetrics.availability < 99.0 ? 'text-danger' : 'text-success'} />
             <span>Availability</span>
           </div>
-          <div className={`metric-value ${metrics.availability < 99.0 ? 'fail-val' : ''}`}>
-            {metrics.availability}%
+          <div className={`metric-value ${displayMetrics.availability < 99.0 ? 'fail-val' : ''}`}>
+            {displayMetrics.availability}%
           </div>
-          <div className={`metric-status ${metrics.availability < 99.0 ? 'status-breached' : ''}`}>Target &gt; 99.0%</div>
+          <div className={`metric-status ${displayMetrics.availability < 99.0 ? 'status-breached' : ''}`}>Target &gt; 99.0%{isMeshActive && coreDesired > 0 ? ` · ${coreReady}/${coreDesired} ready` : ''}</div>
         </div>
 
-        <div className={`glass-card metric-item ${metrics.latency >= 50 ? 'card-breached' : ''}`}>
+        <div className={`glass-card metric-item ${displayMetrics.latency >= 50 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Clock size={18} className={metrics.latency >= 50 ? 'text-danger' : 'text-warning'} />
+            <Clock size={18} className={displayMetrics.latency >= 50 ? 'text-danger' : 'text-warning'} />
             <span>Response Time</span>
           </div>
-          <div className={`metric-value ${metrics.latency >= 50 ? 'fail-val' : ''}`}>{metrics.latency} ms</div>
-          <div className={`metric-status ${metrics.latency >= 50 ? 'status-breached' : ''}`}>Target &lt; 50 ms</div>
+          <div className={`metric-value ${displayMetrics.latency >= 50 ? 'fail-val' : ''}`}>{displayMetrics.latency} ms</div>
+          <div className={`metric-status ${displayMetrics.latency >= 50 ? 'status-breached' : ''}`}>Target &lt; 50 ms{isMeshActive && meshFault === 'LATENCY' ? ' · injected delay' : ''}</div>
         </div>
 
-        <div className={`glass-card metric-item ${metrics.errorRate >= 1.0 ? 'card-breached' : ''}`}>
+        <div className={`glass-card metric-item ${displayMetrics.errorRate >= 1.0 ? 'card-breached' : ''}`}>
           <div className="metric-header">
             <AlertTriangle size={18} className="text-danger" />
             <span>Error Rate</span>
           </div>
-          <div className={`metric-value ${metrics.errorRate >= 1.0 ? 'fail-val' : ''}`}>
-            {metrics.errorRate}%
+          <div className={`metric-value ${displayMetrics.errorRate >= 1.0 ? 'fail-val' : ''}`}>
+            {displayMetrics.errorRate}%
           </div>
-          <div className={`metric-status ${metrics.errorRate >= 1.0 ? 'status-breached' : ''}`}>Target &lt; 1.0%</div>
+          <div className={`metric-status ${displayMetrics.errorRate >= 1.0 ? 'status-breached' : ''}`}>Target &lt; 1.0%{isMeshActive && meshFault === 'API_ERROR' ? ' · configured affected pod rate' : ''}</div>
         </div>
 
-        <div className={`glass-card metric-item ${metrics.restarts >= 2 ? 'card-breached' : ''}`}>
+        <div className={`glass-card metric-item ${displayMetrics.restarts >= 2 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <Server size={18} className={metrics.restarts >= 2 ? 'text-danger' : ''} />
+            <Server size={18} className={displayMetrics.restarts >= 2 ? 'text-danger' : ''} />
             <span>Pod Restarts</span>
           </div>
-          <div className={`metric-value ${metrics.restarts >= 2 ? 'fail-val' : ''}`}>
-            {metrics.restarts}
+          <div className={`metric-value ${displayMetrics.restarts >= 2 ? 'fail-val' : ''}`}>
+            {displayMetrics.restarts}
           </div>
-          <div className={`metric-status ${metrics.restarts >= 2 ? 'status-breached' : ''}`}>Target &lt; 2 restarts</div>
+          <div className={`metric-status ${displayMetrics.restarts >= 2 ? 'status-breached' : ''}`}>Target &lt; 2 restarts{isMeshActive && kubernetesValidation ? ' · Kubernetes observed' : ''}</div>
         </div>
 
-        <div className={`glass-card metric-item ${metrics.mttr > 15 ? 'card-breached' : ''}`}>
+        <div className={`glass-card metric-item ${displayMetrics.mttr > 15 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <RotateCcw size={18} className={metrics.mttr > 15 ? 'text-danger' : 'text-success'} />
+            <RotateCcw size={18} className={displayMetrics.mttr > 15 ? 'text-danger' : 'text-success'} />
             <span>MTTR</span>
           </div>
-          <div className={`metric-value ${metrics.mttr > 15 ? 'fail-val' : ''}`}>{metrics.mttr}s</div>
-          <div className={`metric-status ${metrics.mttr > 15 ? 'status-breached' : ''}`}>Target &le; 15s</div>
+          <div className={`metric-value ${displayMetrics.mttr > 15 ? 'fail-val' : ''}`}>{displayMetrics.mttr}s</div>
+          <div className={`metric-status ${displayMetrics.mttr > 15 ? 'status-breached' : ''}`}>Target &le; 15s</div>
         </div>
 
-        <div className={`glass-card metric-item ${metrics.failoverSuccess < 100 ? 'card-breached' : ''}`}>
+        <div className={`glass-card metric-item ${displayMetrics.failoverSuccess < 100 ? 'card-breached' : ''}`}>
           <div className="metric-header">
-            <TrendingUp size={18} className={metrics.failoverSuccess < 100 ? 'text-danger' : 'text-primary'} />
-            <span>Failover Success</span>
+            <TrendingUp size={18} className={displayMetrics.failoverSuccess < 100 ? 'text-danger' : 'text-primary'} />
+            <span>{isMeshActive && ['SERVICE_DOWN', 'POD_RESTART'].includes(meshFault ?? '') ? 'Replica Readiness' : 'Failover Success'}</span>
           </div>
-          <div className={`metric-value ${metrics.failoverSuccess < 100 ? 'fail-val' : ''}`}>{metrics.failoverSuccess}%</div>
-          <div className={`metric-status ${metrics.failoverSuccess < 100 ? 'status-breached' : ''}`}>Target &ge; 100%</div>
+          <div className={`metric-value ${displayMetrics.failoverSuccess < 100 ? 'fail-val' : ''}`}>{displayMetrics.failoverSuccess}%</div>
+          <div className={`metric-status ${displayMetrics.failoverSuccess < 100 ? 'status-breached' : ''}`}>Target &ge; 100%{isMeshActive && coreDesired > 0 ? ' · readiness ratio' : ''}</div>
         </div>
       </section>
 
@@ -302,32 +333,32 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
       <section className="self-healing-card">
         <div className="self-healing-header">
           <h3>
-            <Activity size={18} /> Self-Healing Assessment Engine (Kubernetes Validation)
+            <Activity size={18} /> Live Microservice Self-Healing Signals
           </h3>
-          <span className={`mode-badge ${kubernetesConnected ? 'live' : ''}`} style={{ margin: 0, fontSize: '10px' }}>
-            {kubernetesConnected ? 'KUBERNETES API CONNECTED' : 'KUBERNETES API UNAVAILABLE'}
+          <span className={`mode-badge ${coreProductConnected ? 'live' : ''}`} style={{ margin: 0, fontSize: '10px' }}>
+            {isMeshActive ? (kubernetesConnected ? 'CHAOS MESH · KUBERNETES CONNECTED' : 'CHAOS MESH · KUBERNETES UNAVAILABLE') : coreProductConnected ? 'CORE PROMETHEUS CONNECTED' : 'CORE PROMETHEUS UNAVAILABLE'}
           </span>
         </div>
         <div className="self-healing-grid">
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{kubernetesValidation ? kubernetesValidation.podRestartCount : '—'}</div>
-            <div className="sh-metric-lbl">Pod restarts (cumulative)</div>
-            <small>Across {kubernetesValidation?.podCount ?? 0} pods</small>
+            <div className="sh-metric-val">{isMeshActive ? (kubernetesConnected && kubernetesValidation ? `${coreReady} / ${coreDesired}` : 'Unavailable') : coreProductConnected ? `${coreHealthyCount} / ${coreServices.length}` : '—'}</div>
+            <div className="sh-metric-lbl">Core services healthy</div>
+            <small>{isMeshActive ? kubernetesValidation?.coreServices.map(service => `${service.name}: ${service.readyPodCount}/${service.podCount} ready`).join(' · ') || 'Waiting for Kubernetes core-product Pods' : coreServices.map(service => `${service.name}: ${service.status}${service.processUptimeSeconds != null ? `, uptime ${Math.floor(service.processUptimeSeconds)}s` : ''}`).join(' · ') || 'Waiting for live Prometheus targets'}</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{kubernetesValidation ? `${kubernetesValidation.readyReplicas} / ${kubernetesValidation.desiredReplicas}` : '—'}</div>
-            <div className="sh-metric-lbl">Deployment replicas ready</div>
-            <small>Across {kubernetesValidation?.deploymentCount ?? 0} deployments</small>
+            <div className="sh-metric-val">{isMeshActive ? kubernetesValidation?.podRestartCount ?? 'Unavailable' : coreProductConnected ? hasProcessRestartMetrics ? observedProcessRestarts : 'N/A' : '—'}</div>
+            <div className="sh-metric-lbl">{isMeshActive ? 'Core Pod restarts' : 'Process restarts observed'}</div>
+            <small>{isMeshActive ? 'Container restarts plus replaced core-product Pod UIDs observed by Kubernetes since the collector started' : 'Detected from process start-time changes since resilience API startup'}</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">{kubernetesValidation ? kubernetesValidation.hpas.length : '—'}</div>
-            <div className="sh-metric-lbl">Horizontal pod autoscalers</div>
-            <small>{kubernetesValidation?.hpas.length ? kubernetesValidation.hpas.map(hpa => `${hpa.name}: ${hpa.currentReplicas}/${hpa.desiredReplicas}`).join(' · ') : 'No HPA resources found'}</small>
+            <div className="sh-metric-val">{isMeshActive ? 'Observed live' : coreProductConnected ? observedRecoveries : '—'}</div>
+            <div className="sh-metric-lbl">Service recoveries observed</div>
+            <small>{isMeshActive ? 'Ready replicas refresh from Kubernetes every 5 seconds; short events between polls may be missed' : 'OFFLINE-to-HEALTHY transitions seen during polling'}</small>
           </div>
           <div className="sh-metric-box">
-            <div className="sh-metric-val">Not measured</div>
-            <div className="sh-metric-lbl">Circuit breaker</div>
-            <small>{kubernetesValidation?.circuitBreaker.reason ?? 'Requires service-mesh or application telemetry'}</small>
+            <div className="sh-metric-val">{isMeshActive ? kubernetesValidation ? `${kubernetesValidation.readyReplicas}/${kubernetesValidation.desiredReplicas} ready` : 'Unavailable' : 'Not applicable'}</div>
+            <div className="sh-metric-lbl">Pod replacement / HPA</div>
+            <small>{isMeshActive ? `${kubernetesValidation?.hpas.length ?? 0} core-product HPA(s) · circuit breaker is not instrumented` : 'These services run in Docker Compose; Kubernetes autoscaling requires Kubernetes workloads.'}</small>
           </div>
         </div>
       </section>

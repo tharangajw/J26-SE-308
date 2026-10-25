@@ -18,7 +18,8 @@ import {
   type Service,
   type CardSetting,
   type ActiveFault,
-  type ActiveChaosEvent
+  type ActiveChaosEvent,
+  type KubernetesValidationSnapshot
 } from '../../data/mockData';
 import './ChaosEngineeringSuite.css';
 
@@ -26,8 +27,9 @@ interface ChaosEngineeringSuiteProps {
   services: Service[];
   activeFaults: ActiveFault[];
   activeChaosEvent: ActiveChaosEvent | null;
-  kubernetesConnected: boolean;
+  coreProductConnected: boolean;
   kubernetesValidation: KubernetesValidationSnapshot | null;
+  kubernetesConnected: boolean;
   cardSettings: Record<string, CardSetting>;
   onInjectFault: (
     faultType: string,
@@ -35,32 +37,11 @@ interface ChaosEngineeringSuiteProps {
     duration: number,
     latencyMs: number,
     errorRate: number,
-    engine?: 'Chaos Mesh'
+    engine?: 'Docker Compose' | 'Chaos Mesh'
   ) => void;
   onHealService: (serviceId: string) => void;
   onClearAllChaos: () => void;
   onUpdateCardSetting: (faultId: string, key: keyof CardSetting, value: string | number) => void;
-}
-
-export interface KubernetesValidationSnapshot {
-  podCount: number;
-  podRestartCount: number;
-  deploymentCount: number;
-  desiredReplicas: number;
-  readyReplicas: number;
-  hpas: Array<{
-    name: string;
-    namespace: string;
-    currentReplicas: number;
-    desiredReplicas: number;
-    currentCpuPercent: number | null;
-    targetCpuPercent: number | null;
-  }>;
-  circuitBreaker: {
-    configured: false;
-    status: 'NOT_MEASURED';
-    reason: string;
-  };
 }
 
 interface ChaosExperimentRecord {
@@ -80,28 +61,86 @@ interface ChaosExperimentRecord {
   availabilityAfter?: number;
 }
 
+interface ChaosMeshTarget {
+  id: string;
+  namespace: string;
+  podName: string;
+  name: string;
+  status: string;
+}
+
 const faultLabels: Record<string, string> = {
   HIGH_CPU: 'CPU Stress', HIGH_MEMORY: 'Memory Pressure', CASCADING_FAILURE: 'Cascading Outage',
-  API_ERROR: 'API Error Spike', LATENCY: 'Network Latency', SERVICE_DOWN: 'Service Outage', RATE_LIMIT: 'Rate Limit'
+  API_ERROR: 'API Error Spike', LATENCY: 'Network Latency', SERVICE_DOWN: 'Service Outage', RATE_LIMIT: 'Rate Limit',
+  POD_RESTART: 'Pod Restart'
 };
 
 export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
   services,
   activeFaults,
   activeChaosEvent,
-  kubernetesConnected,
+  coreProductConnected,
   kubernetesValidation,
+  kubernetesConnected,
   cardSettings,
   onInjectFault,
   onHealService,
   onClearAllChaos,
   onUpdateCardSetting
 }) => {
-  const selectedEngine = 'Chaos Mesh' as const;
+  const [selectedEngine, setSelectedEngine] = useState<'Docker Compose' | 'Chaos Mesh'>('Chaos Mesh');
+  const canInjectChaos = services.some(service => service.chaosSupported === true && service.status !== 'OFFLINE');
+  const coreServiceNames = new Set(['api-gateway', 'book-service', 'user-service', 'order-service']);
+  const coreServices = services.filter(service => coreServiceNames.has(service.name));
+  const displayedServices: Service[] = selectedEngine === 'Chaos Mesh'
+    ? (kubernetesConnected && kubernetesValidation
+      ? kubernetesValidation.corePods.map(pod => ({
+        id: pod.id,
+        name: pod.name,
+        type: 'Kubernetes Pod',
+        status: pod.chaosFaultActive || pod.phase !== 'Running' ? 'OFFLINE' : pod.ready ? 'ONLINE' : 'DEGRADED',
+        faultType: null,
+        cpu: 0,
+        memory: 0,
+        latency: 0,
+        errorRate: 0,
+        restarts: pod.restartCount,
+        port: pod.port,
+        chaosSupported: true,
+      }))
+      : [])
+    : services;
+  const coreHealthyCount = coreServices.filter(service => service.status === 'ONLINE').length;
+  const observedProcessRestarts = coreServices.reduce((total, service) => total + (service.restarts ?? 0), 0);
+  const observedRecoveries = coreServices.reduce((total, service) => total + (service.recoveriesObserved ?? 0), 0);
+  const hasProcessRestartMetrics = coreServices.some(service => service.restarts !== null);
+  const isMeshActive = activeChaosEvent?.engine === 'Chaos Mesh';
+  const composeFaultTypes = new Set(['SERVICE_DOWN', 'API_ERROR', 'LATENCY', 'RATE_LIMIT', 'HIGH_CPU', 'HIGH_MEMORY', 'CASCADING_FAILURE']);
   const [activeTab, setActiveTab] = useState<'EXPERIMENTS' | 'K8S_LOGS' | 'SELF_HEALING_AUDIT' | 'HISTORY'>('EXPERIMENTS');
   const [experimentHistory, setExperimentHistory] = useState<ChaosExperimentRecord[]>([]);
   const [historyError, setHistoryError] = useState('');
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [chaosMeshTargets, setChaosMeshTargets] = useState<ChaosMeshTarget[]>([]);
+  const [chaosMeshError, setChaosMeshError] = useState('');
+
+  useEffect(() => {
+    if (selectedEngine !== 'Chaos Mesh') return;
+    let active = true;
+    fetch('http://localhost:3010/api/chaos/targets')
+      .then(async response => {
+        const result = await response.json() as { targets?: ChaosMeshTarget[]; error?: string };
+        if (!response.ok) throw new Error(result.error || `Kubernetes target request failed (${response.status}).`);
+        if (!active) return;
+        setChaosMeshTargets(result.targets ?? []);
+        setChaosMeshError(result.error || ((result.targets ?? []).length === 0
+          ? 'No running core-product microservice Pods found in Kubernetes. Deploy api-gateway, book-service, order-service, and user-service to Kubernetes; Docker Compose services are not Chaos Mesh targets.'
+          : ''));
+      })
+      .catch(error => {
+        if (active) setChaosMeshError(error instanceof Error ? error.message : 'Unable to load Kubernetes pod targets.');
+      });
+    return () => { active = false; };
+  }, [selectedEngine]);
 
   useEffect(() => {
     let active = true;
@@ -137,21 +176,41 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
             <div>
               <h2 style={{ margin: 0, fontSize: '18px' }}>Chaos Engineering Fault Injection Suite</h2>
               <p style={{ margin: '4px 0 0 0', color: '#94a3b8', fontSize: '12px' }}>
-                Automated fault injection validated via <strong>Chaos Mesh</strong>, monitored by <strong>Prometheus &amp; Grafana</strong>
+                Docker Compose service fault injection, monitored by <strong>Prometheus &amp; Grafana</strong>
               </p>
             </div>
           </div>
 
-          {/* Chaos Engine Badge */}
-          <div className="chaos-engine-selector-box" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.3)', padding: '6px 12px', borderRadius: '10px', border: '1px solid rgba(244,63,94,0.3)' }}>
+          <div className="chaos-engine-selector-box" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(0,0,0,0.3)', padding: '6px 12px', borderRadius: '10px', border: '1px solid rgba(244,63,94,0.3)' }}>
             <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Chaos Framework:
             </span>
-            <span style={{ padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, background: 'linear-gradient(135deg, #f43f5e, #e11d48)', color: '#fff', border: '1px solid #f43f5e' }}>
-              Chaos Mesh
-            </span>
+            {(['Chaos Mesh', 'Docker Compose'] as const).map(engine => (
+              <button
+                key={engine}
+                type="button"
+                aria-pressed={selectedEngine === engine}
+                onClick={() => setSelectedEngine(engine)}
+                style={{
+                  padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                  background: selectedEngine === engine ? 'linear-gradient(135deg, #f43f5e, #e11d48)' : 'rgba(148,163,184,0.12)',
+                  color: '#fff', border: `1px solid ${selectedEngine === engine ? '#f43f5e' : 'rgba(148,163,184,0.3)'}`,
+                  cursor: 'pointer'
+                }}
+              >
+                {engine}
+              </button>
+            ))}
           </div>
         </div>
+
+        {selectedEngine === 'Chaos Mesh' && (
+          <div role="status" style={{ margin: '-10px 0 18px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)', color: '#fbbf24', fontSize: '12px' }}>
+            {chaosMeshError || (chaosMeshTargets.length
+              ? `Connected to Kubernetes: ${chaosMeshTargets.length} running pod target(s). Cluster-wide outage and latency are available; pod restart, HTTP 500, CPU stress, and memory stress target one pod.`
+              : 'Chaos Mesh targets Kubernetes Pods. Ensure the cluster is connected and Chaos Mesh PodChaos, NetworkChaos, StressChaos, and (for HTTP 500) HTTPChaos CRDs are installed.')}
+          </div>
+        )}
 
         {/* Telemetry & Observability Pipeline Indicator */}
         <div 
@@ -351,7 +410,25 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
             {/* Self-Contained Fault Cards Grid */}
             <div className="fault-cards-studio-grid">
               {mockFaultTypes.map(f => {
-                const settings = cardSettings[f.id] || { target: 'gateway', duration: 15, latencyMs: 2500, errorRate: 35 };
+                const settings = cardSettings[f.id] || { target: 'all', duration: 15, latencyMs: 2500, errorRate: 35 };
+                const selectedTarget = settings.target === 'all'
+                  || services.some(service => service.id === settings.target)
+                  || chaosMeshTargets.some(target => target.id === settings.target)
+                  ? settings.target
+                  : 'all';
+                const meshTarget = chaosMeshTargets.find(target => target.id === settings.target) ?? chaosMeshTargets[0];
+                const activeTarget = selectedEngine === 'Chaos Mesh'
+                  ? selectedTarget === 'all' ? 'all' : meshTarget?.id ?? ''
+                  : selectedTarget;
+                const requiresSingleTarget = ['HIGH_CPU', 'HIGH_MEMORY', 'CASCADING_FAILURE', 'POD_RESTART'].includes(f.id);
+                const selectedTargetSupported = selectedEngine === 'Chaos Mesh'
+                  ? selectedTarget === 'all'
+                    ? chaosMeshTargets.length > 0 && ['SERVICE_DOWN', 'LATENCY'].includes(f.id)
+                    : Boolean(meshTarget) && ['SERVICE_DOWN', 'POD_RESTART', 'API_ERROR', 'LATENCY', 'HIGH_CPU', 'HIGH_MEMORY'].includes(f.id)
+                  : selectedTarget === 'all'
+                    ? canInjectChaos && !requiresSingleTarget
+                    : services.some(service => service.id === selectedTarget && service.chaosSupported === true && service.status !== 'OFFLINE');
+                const runningFault = activeFaults.find(fault => fault.targetId === activeTarget && fault.faultType === f.id);
 
                 return (
                   <div key={f.id} className="fault-card-standalone">
@@ -369,12 +446,19 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                         <label>Target Microservice:</label>
                         <select
                           className="chaos-select-sm"
-                          value={settings.target}
+                          data-engine={selectedEngine}
+                          value={activeTarget}
                           onChange={e => onUpdateCardSetting(f.id, 'target', e.target.value)}
                         >
+                          {!activeTarget && <option value="">No supported target available</option>}
+                          {selectedEngine === 'Chaos Mesh' && chaosMeshTargets.map(target => (
+                            <option key={target.id} value={target.id}>{target.name} — {target.namespace}/{target.podName} ({target.status})</option>
+                          ))}
                           <option value="all">⚡ ALL MICROSERVICES (Cluster Wide)</option>
                           {services.map(s => (
-                            <option key={s.id} value={s.id}>{s.name} (Port :{s.port})</option>
+                            <option key={s.id} value={s.id} hidden={selectedEngine === 'Chaos Mesh'}>
+                              {s.name}{s.port ? ` (Port ${s.port})` : ''} — {s.status}
+                            </option>
                           ))}
                         </select>
                       </div>
@@ -410,7 +494,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
 
                       {f.id === 'API_ERROR' && (
                         <div className="fc-group">
-                          <label>API Error Rate Spike: <strong>{settings.errorRate}%</strong></label>
+                          <label>{selectedEngine === 'Chaos Mesh' ? 'Affected Pod Percentage' : 'API Error Rate Spike'}: <strong>{settings.errorRate}%</strong></label>
                           <input
                             type="range"
                             min="10"
@@ -427,9 +511,14 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                     {/* Inject Button */}
                     <button
                       className="btn-trigger-chaos-card"
-                      onClick={() => onInjectFault(f.id, settings.target, settings.duration, settings.latencyMs, settings.errorRate, selectedEngine)}
+                      disabled={Boolean(runningFault) || !selectedTargetSupported || (selectedEngine === 'Docker Compose' && !composeFaultTypes.has(f.id))}
+                      onClick={() => {
+                        if (selectedEngine === 'Docker Compose' && selectedTarget === 'all' && !window.confirm(`Inject ${f.name} into all supported microservices for ${settings.duration} seconds?`)) return;
+                        if (selectedEngine === 'Chaos Mesh' && activeTarget === 'all' && !window.confirm(`Inject ${f.name} into all ${chaosMeshTargets.length} core-product Pods for ${settings.duration} seconds?`)) return;
+                        onInjectFault(f.id, activeTarget, settings.duration, settings.latencyMs, settings.errorRate, selectedEngine);
+                      }}
                     >
-                      <Play size={14} fill="currentColor" /> INJECT VIA CHAOS MESH
+                      <Play size={14} fill="currentColor" /> {runningFault ? `FAULT ACTIVE · ${runningFault.remainingSec}s` : selectedEngine === 'Chaos Mesh' ? !chaosMeshTargets.length ? 'NO KUBERNETES POD TARGETS' : selectedTarget === 'all' && !selectedTargetSupported ? 'SELECT ONE POD TARGET' : !selectedTargetSupported ? 'NOT SUPPORTED BY CHAOS MESH' : 'INJECT CHAOS MESH FAULT' : !canInjectChaos ? 'CHECK TOKEN AND SERVICE TARGETS' : requiresSingleTarget && selectedTarget === 'all' ? 'SELECT ONE SERVICE TARGET' : !selectedTargetSupported ? 'SELECT SUPPORTED TARGET' : !composeFaultTypes.has(f.id) ? 'NOT SUPPORTED FOR COMPOSE TARGET' : 'INJECT REAL SERVICE FAULT'}
                     </button>
                   </div>
                 );
@@ -445,11 +534,11 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Terminal size={18} className="text-primary" />
                 <h3 style={{ margin: 0, fontSize: '14px', color: '#f8fafc' }}>
-                  Live Host Telemetry &amp; Chaos Mesh Event Stream
+                  Live Service Telemetry &amp; Docker Compose Fault Event Stream
                 </h3>
               </div>
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                Sources: <code>Chaos Mesh Real-Engine</code> · <code>Host Hardware Monitor</code> · <code>Live Probe Engine</code>
+                Sources: <code>Docker Compose fault middleware</code> · <code>Prometheus</code> · <code>Live probe engine</code>
               </span>
             </div>
 
@@ -461,7 +550,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                   if (log.source === 'Kubernetes') { badgeBg = 'rgba(16, 185, 129, 0.15)'; badgeColor = '#6ee7b7'; }
                   if (log.source === 'Prometheus') { badgeBg = 'rgba(245, 158, 11, 0.15)'; badgeColor = '#fcd34d'; }
                   if (log.source === 'Grafana') { badgeBg = 'rgba(168, 85, 247, 0.15)'; badgeColor = '#e9d5ff'; }
-                  if (log.source === 'Chaos Mesh') { badgeBg = 'rgba(244, 63, 94, 0.15)'; badgeColor = '#fda4af'; }
+                  if (log.source === 'Chaos Mesh' || log.source === 'Docker Compose') { badgeBg = 'rgba(244, 63, 94, 0.15)'; badgeColor = '#fda4af'; }
 
                   return (
                     <div 
@@ -504,79 +593,79 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
               <div>
                 <h3 style={{ margin: 0, fontSize: '16px', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <ShieldCheck size={20} className="text-success" />
-                  Self-Healing Assessment Engine (Kubernetes Validation)
+                  Live Microservice Self-Healing Signals
                 </h3>
                 <p style={{ margin: '4px 0 0 0', color: '#94a3b8', fontSize: '12px' }}>
-                  Evaluates how autonomously Kubernetes responds to faults (Pod auto-restart, Replica replacement, Auto-scaling, Circuit breaker)
+                  {isMeshActive ? 'Uses Kubernetes-observed core-product Pod readiness and restart counts while the Chaos Mesh experiment is active.' : 'Uses Prometheus-discovered core-product services; Kubernetes-only pod and HPA results are not mixed into these values.'}
                 </p>
               </div>
 
-              <div style={{ background: kubernetesConnected ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)', border: `1px solid ${kubernetesConnected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`, padding: '6px 14px', borderRadius: '8px' }}>
-                <span style={{ fontSize: '11px', color: kubernetesConnected ? '#6ee7b7' : '#fcd34d', fontWeight: 700 }}>
-                  KUBERNETES API: {kubernetesConnected ? 'CONNECTED' : 'NOT CONNECTED'}
+              <div style={{ background: coreProductConnected ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)', border: `1px solid ${coreProductConnected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`, padding: '6px 14px', borderRadius: '8px' }}>
+                <span style={{ fontSize: '11px', color: coreProductConnected ? '#6ee7b7' : '#fcd34d', fontWeight: 700 }}>
+                  {isMeshActive ? `KUBERNETES: ${kubernetesConnected ? 'CONNECTED' : 'NOT CONNECTED'}` : `CORE PROMETHEUS: ${coreProductConnected ? 'CONNECTED' : 'NOT CONNECTED'}`}
                 </span>
               </div>
             </div>
 
             <p style={{ margin: '0 0 16px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>
-              {kubernetesConnected
-                ? 'Live pod restart totals, deployment replica readiness, and HPA status are read from the Kubernetes API. Restart totals are cumulative; create a fault and compare the live values. Circuit-breaker results need a mesh or application metrics source.'
-                : 'No Kubernetes API connection is available. The current Docker stack reports host and application telemetry; Kubernetes recovery checks cannot be validated.'}
+              {isMeshActive && kubernetesValidation
+                ? `Kubernetes core-product Pod state refreshes every 5 seconds. Restarts are container restart counters; ready/desired replicas show current availability. CPU and memory usage require the Kubernetes Metrics API.`
+                : coreProductConnected
+                ? 'Service health is refreshed every 5 seconds from the core product Prometheus targets. Process restarts are detected from process_start_time_seconds since this resilience API started; recoveries count observed OFFLINE-to-HEALTHY transitions.'
+                : 'Core product Prometheus is unavailable. Start its four services and Prometheus to show live microservice signals. Pod replacement and HPA require running these services as Kubernetes workloads.'}
             </p>
 
             {/* Validation Checklist Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '20px' }}>
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Pod Auto-Restart</span>
+                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Core Microservice Health</span>
                   <Activity size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {kubernetesValidation ? `${kubernetesValidation.podRestartCount} restarts` : kubernetesConnected ? 'Loading…' : 'Unavailable'}
+                  {isMeshActive ? kubernetesValidation ? `${kubernetesValidation.readyReplicas} / ${kubernetesValidation.desiredReplicas} healthy` : 'Unavailable' : coreProductConnected ? `${coreHealthyCount} / ${coreServices.length} healthy` : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Cumulative across {kubernetesValidation?.podCount ?? 0} cluster pods
+                  {isMeshActive ? kubernetesValidation?.coreServices.map(service => `${service.name}: ${service.readyPodCount}/${service.podCount} ready`).join(' · ') || 'Waiting for Kubernetes core-product Pods' : coreServices.length ? coreServices.map(service => `${service.name}: ${service.status}${service.processUptimeSeconds != null ? `, uptime ${Math.floor(service.processUptimeSeconds)}s` : ''}`).join(' · ') : 'Core product services discovered from Prometheus'}
                 </div>
               </div>
 
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Replica Replacement</span>
+                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>App Process Restarts</span>
                   <Activity size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {kubernetesValidation ? `${kubernetesValidation.readyReplicas} / ${kubernetesValidation.desiredReplicas} ready` : kubernetesConnected ? 'Loading…' : 'Unavailable'}
+                  {isMeshActive ? kubernetesValidation ? `${kubernetesValidation.podRestartCount} observed` : 'Unavailable' : !coreProductConnected ? 'Unavailable' : hasProcessRestartMetrics ? `${observedProcessRestarts} observed` : 'Metrics unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  Across {kubernetesValidation?.deploymentCount ?? 0} deployments; delete a managed pod to observe replacement
+                  {isMeshActive ? 'Container restarts and replaced Pod identities observed for the four core-product services since the collector started.' : 'Based on app process start-time changes since the resilience API started; not a lifetime Docker restart counter.'}
                 </div>
               </div>
 
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>HPA Auto-Scaling</span>
+                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Service Recovery Events</span>
                   <Activity size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '15px', fontWeight: 700, color: '#f8fafc' }}>
-                  {!kubernetesConnected ? 'Unavailable' : !kubernetesValidation ? 'Loading…' : kubernetesValidation.hpas.length ? `${kubernetesValidation.hpas.length} HPA(s)` : 'No HPAs found'}
+                  {isMeshActive ? kubernetesConnected ? 'Live Kubernetes state' : 'Unavailable' : coreProductConnected ? `${observedRecoveries} observed` : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', lineHeight: 1.5 }}>
-                  {kubernetesValidation?.hpas.length
-                    ? kubernetesValidation.hpas.map(hpa => `${hpa.namespace}/${hpa.name}: ${hpa.currentReplicas} current / ${hpa.desiredReplicas} desired${hpa.currentCpuPercent != null && hpa.targetCpuPercent != null ? ` · CPU ${hpa.currentCpuPercent}% / ${hpa.targetCpuPercent}%` : ''}`).join(' | ')
-                    : 'Requires an HPA resource and metrics-server to report scaling activity.'}
+                  {isMeshActive ? 'Ready replicas refresh every 5 seconds; short outages between polls may not be counted.' : 'Count of OFFLINE-to-HEALTHY service transitions observed during polling; short outages between polls may not be counted.'}
                 </div>
               </div>
 
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Circuit Breaker</span>
+                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Kubernetes-Only Actions</span>
                   <ShieldCheck size={16} className="text-text-muted" />
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
-                  {kubernetesConnected ? 'Not configured' : 'Unavailable'}
+                  {isMeshActive ? kubernetesValidation ? `${kubernetesValidation.readyReplicas}/${kubernetesValidation.desiredReplicas} replicas ready` : 'Unavailable' : coreProductConnected ? 'Not applicable' : 'Unavailable'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                  {kubernetesValidation?.circuitBreaker.reason ?? 'Requires service-mesh or application circuit-breaker telemetry'}
+                  {isMeshActive ? `${kubernetesValidation?.hpas.length ?? 0} core-product HPA(s); circuit-breaker metrics are not instrumented.` : 'Pod replacement and HPA do not apply to Docker Compose services; circuit-breaker metrics are not instrumented in the core product.'}
                 </div>
               </div>
             </div>
@@ -658,14 +747,16 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
         {activeTab !== 'HISTORY' && <>
         {/* Microservice Health Grid */}
         <h3 className="section-subheading" style={{ marginTop: '24px' }}>Services Cluster Health</h3>
+        {selectedEngine === 'Chaos Mesh' && displayedServices.length === 0 && <p className="empty-services-message">No Kubernetes core-product Pods found. Deploy the services to Kubernetes and make sure the Kubernetes API is connected.</p>}
+        {selectedEngine === 'Docker Compose' && displayedServices.length === 0 && <p className="empty-services-message">No live service targets found. Start the core product and its Prometheus service on port 9090.</p>}
         <div className="services-grid">
-          {services.map(s => {
+          {displayedServices.map(s => {
             const isOffline = s.status === 'OFFLINE';
             const isDegraded = s.status === 'DEGRADED';
             return (
               <div key={s.id} className={`service-item-card ${s.status.toLowerCase()}`}>
                 <div className="svc-header">
-                  <span className="svc-port">:{s.port}</span>
+                  <span className="svc-port">{s.port ? `:${s.port}` : 'PORT —'}</span>
                   <span className={`svc-indicator ${s.status.toLowerCase()}`}></span>
                 </div>
                 <h3>{s.name}</h3>
@@ -673,7 +764,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                 <div className="svc-stats">
                   <div className="stat-sub">
                     <span>Restarts:</span>
-                    <strong>{s.restarts}</strong>
+                    <strong>{s.restarts ?? 'N/A'}</strong>
                   </div>
                   <div className="stat-sub">
                     <span>Status:</span>
@@ -684,7 +775,9 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                 </div>
 
                 <div className="action-container">
-                  {isOffline || isDegraded ? (
+                  {s.chaosSupported === false ? (
+                    <span className="chaos-unavailable">Prometheus monitoring only. Set the shared token and rebuild both projects to enable HTTP fault injection.</span>
+                  ) : isOffline || isDegraded ? (
                     <button className="btn-heal-card" onClick={() => onHealService(s.id)}>
                       Trigger Self-Healing
                     </button>
