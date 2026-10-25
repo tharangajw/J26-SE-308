@@ -101,6 +101,7 @@ export const DataPipelineOutputs: React.FC = () => {
         const q = `service_id=${encodeURIComponent(targetSvc)}&imputation=${encodeURIComponent(method)}`;
         const urls = [
           `/api/anomaly/pipeline/process?${q}`,
+          `http://localhost:8000/pipeline/process?${q}`,
           `http://localhost:18002/pipeline/process?${q}`,
         ];
         let result: PythonPipelineResponse | null = null;

@@ -367,6 +367,7 @@ export const PerformanceDimensionPage: React.FC = () => {
       }
       const urls = [
         `/api/anomaly/pscore/evaluate${qs}`,
+        `http://localhost:8000/pscore/evaluate${qs}`,
         `http://localhost:18002/pscore/evaluate${qs}`
       ];
       let payload: PythonPScoreResponse | null = null;
