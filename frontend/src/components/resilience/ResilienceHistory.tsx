@@ -80,16 +80,33 @@ export const ResilienceHistory: React.FC = () => {
   const [records, setRecords] = useState<HistoryRecord[]>([]);
   const [totalRecords, setTotalRecords] = useState(0);
   const [experiments, setExperiments] = useState<ChaosExperiment[]>([]);
+  const [totalExperiments, setTotalExperiments] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<'ALL' | 'HEALTHY' | 'WARNING' | 'CRITICAL'>('ALL');
   const [chartMode, setChartMode] = useState<'rscore' | 'metrics' | 'rules'>('rscore');
+  const [historyLimit, setHistoryLimit] = useState(100);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   useEffect(() => {
     let active = true;
+    if (startDate && endDate && startDate > endDate) {
+      setRecords([]);
+      setError('Start date must be on or before the end date.');
+      setLoading(false);
+      return () => { active = false; };
+    }
     const loadHistory = async () => {
       try {
-        const response = await fetch('http://localhost:3010/api/resilience/history?limit=500');
+        const params = new URLSearchParams({ limit: String(historyLimit) });
+        if (startDate) params.set('from', new Date(`${startDate}T00:00:00`).toISOString());
+        if (endDate) {
+          const exclusiveEnd = new Date(`${endDate}T00:00:00`);
+          exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
+          params.set('to', exclusiveEnd.toISOString());
+        }
+        const response = await fetch(`http://localhost:3010/api/resilience/history?${params}`);
         if (!response.ok) throw new Error(`History request failed (${response.status}).`);
         const data = await response.json() as { history?: HistoryRecord[]; count?: number };
         if (active) {
@@ -111,16 +128,27 @@ export const ResilienceHistory: React.FC = () => {
     void loadHistory();
     const timer = window.setInterval(loadHistory, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, []);
+  }, [historyLimit, startDate, endDate]);
 
   useEffect(() => {
     let active = true;
     const loadExperiments = async () => {
       try {
-        const response = await fetch('http://localhost:3010/api/resilience/chaos-history');
+        const params = new URLSearchParams({ limit: String(historyLimit) });
+        if (startDate) params.set('from', new Date(`${startDate}T00:00:00`).toISOString());
+        if (endDate) {
+          const exclusiveEnd = new Date(`${endDate}T00:00:00`);
+          exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
+          params.set('to', exclusiveEnd.toISOString());
+        }
+        const response = await fetch(`http://localhost:3010/api/resilience/chaos-history?${params}`);
         if (!response.ok) return;
-        const data = await response.json() as { experiments?: ChaosExperiment[] };
-        if (active) setExperiments(Array.isArray(data.experiments) ? data.experiments : []);
+        const data = await response.json() as { experiments?: ChaosExperiment[]; count?: number };
+        if (active) {
+          const loadedExperiments = Array.isArray(data.experiments) ? data.experiments : [];
+          setExperiments(loadedExperiments);
+          setTotalExperiments(Number.isFinite(data.count) ? Number(data.count) : loadedExperiments.length);
+        }
       } catch {
         // Retry on the next poll if the resilience backend is restarting.
       }
@@ -128,7 +156,7 @@ export const ResilienceHistory: React.FC = () => {
     void loadExperiments();
     const timer = window.setInterval(loadExperiments, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, []);
+  }, [historyLimit, startDate, endDate]);
 
   const chartRows = useMemo(() => records.map(record => ({
     ...record,
@@ -141,7 +169,7 @@ export const ResilienceHistory: React.FC = () => {
   const average = records.length ? (records.reduce((sum, row) => sum + row.score, 0) / records.length).toFixed(1) : '—';
   const best = records.length ? Math.max(...records.map(row => row.score)) : '—';
   const worst = records.length ? Math.min(...records.map(row => row.score)) : '—';
-  const chaosSamples = experiments.length;
+  const chaosSamples = totalExperiments;
 
   const exportCsv = () => {
     const header = 'Timestamp,R-Score,Maturity,Availability,CPU,Memory,Error Rate,Restarts,MTTR,Latency,Failover,Active Chaos';
@@ -163,11 +191,27 @@ export const ResilienceHistory: React.FC = () => {
           <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-orange-400 to-amber-400 flex items-center gap-3">
             <Shield className="w-7 h-7 text-rose-400" /> R-Score Full History
           </h1>
-          <p className="text-sm text-slate-400 mt-1">Showing the latest 500 resilience snapshots; refreshes every 30 seconds.</p>
+          <p className="text-sm text-slate-400 mt-1">Filter saved R-Score snapshots by date and limit.</p>
         </div>
-        <button onClick={exportCsv} disabled={!records.length} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg hover:bg-rose-500/20 disabled:opacity-40">
-          <Download className="w-4 h-4" /> Export CSV
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-slate-400">
+            From
+            <input type="date" value={startDate} max={endDate || undefined} onChange={event => { setLoading(true); setStartDate(event.target.value); }} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-400">
+            To
+            <input type="date" value={endDate} min={startDate || undefined} onChange={event => { setLoading(true); setEndDate(event.target.value); }} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-400">
+            Load latest
+            <select value={historyLimit} onChange={event => { setLoading(true); setHistoryLimit(Number(event.target.value)); }} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200">
+              {[100, 250, 500].map(limit => <option key={limit} value={limit}>{limit}</option>)}
+            </select>
+          </label>
+          <button onClick={exportCsv} disabled={!records.length} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg hover:bg-rose-500/20 disabled:opacity-40">
+            <Download className="w-4 h-4" /> Export Loaded CSV
+          </button>
+        </div>
       </div>
       <div className="text-xs text-slate-500 mb-4">Showing {records.length} of {totalRecords} recorded snapshots</div>
       {loading && <p className="text-sm text-slate-400 mb-4">Loading R-Score history…</p>}
@@ -176,7 +220,7 @@ export const ResilienceHistory: React.FC = () => {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Avg R-Score', value: average, sub: 'All recorded snapshots', icon: <BarChart2 className="w-5 h-5 text-rose-400" /> },
+          { label: 'Avg R-Score', value: average, sub: 'Loaded snapshots', icon: <BarChart2 className="w-5 h-5 text-rose-400" /> },
           { label: 'Best Score', value: String(best), sub: 'Peak resilience', icon: <TrendingUp className="w-5 h-5 text-emerald-400" /> },
           { label: 'Lowest Score', value: String(worst), sub: 'Minimum recorded', icon: <TrendingDown className="w-5 h-5 text-amber-400" /> },
           { label: 'Chaos Experiments', value: String(chaosSamples), sub: 'Recorded injections', icon: <Flame className="w-5 h-5 text-orange-400" /> }
@@ -189,7 +233,7 @@ export const ResilienceHistory: React.FC = () => {
       <div className="bg-slate-900/60 border border-slate-700/60 rounded-xl p-5 mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
           <h2 className="text-base font-bold text-slate-200 flex items-center gap-2"><Flame className="w-5 h-5 text-orange-400" /> Chaos Experiment Results</h2>
-          <span className="text-xs text-slate-500">{experiments.length} experiments</span>
+          <span className="text-xs text-slate-500">Showing {experiments.length} of {totalExperiments} matching experiments</span>
         </div>
         <p className="text-xs text-slate-500 mb-4">Shows the injected duration, latency and error-rate settings, plus measured R-Score and system metrics before, during, and after each experiment.</p>
         {experiments.length === 0 ? <p className="text-sm text-slate-400">No backend-recorded chaos experiments yet. Inject a fault from the Chaos Engineering page to start this history.</p> : (

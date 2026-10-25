@@ -114,7 +114,7 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
 
         {/* Rule Engine Breakdown */}
         <div className="glass-card rules-card">
-          <h2><CheckCircle size={16} className="card-title-icon" /> AHP Metric Weights</h2>
+          <h2><CheckCircle size={16} className="card-title-icon" /> Resilience Metric Thresholds</h2>
           <div className="rules-list">
             <div className={`rule-item ${metrics.availability >= 99.0 ? 'passed' : 'failed'}`}>
               <CheckCircle size={14} className="rule-icon" />

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Shield, Zap, Activity, Cpu, HardDrive, Clock, 
-  AlertTriangle, RotateCcw, CheckCircle, Server, 
-  Database, TrendingUp, Flame, RefreshCw,
+  Shield, Zap, Activity, RotateCcw, Server,
+  Database, TrendingUp, RefreshCw,
   Sparkles, X, Brain, Trash2, History,
   Radio
 } from 'lucide-react';
@@ -28,7 +27,6 @@ import {
 import { ChaosEngineeringSuite, type KubernetesValidationSnapshot } from './ChaosEngineeringSuite';
 import { TelemetryTrends } from './TelemetryTrends';
 import { ResilienceOverview } from './ResilienceOverview';
-import { calculateResilienceScore } from './rScore';
 import './FaultToleranceDashboard.css';
 
 interface FaultToleranceDashboardProps {
@@ -146,9 +144,9 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
           if (data.metrics) {
             setHistory(prev => {
               const next = [...prev];
-              if (next.length >= 60) next.shift();
+              if (next.length >= 5000) next.shift();
               next.push({
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                timestamp: new Date().toISOString(),
                 cpu: data.metrics.cpu ?? 0,
                 memory: data.metrics.memory ?? 0,
                 latency: data.metrics.latency ?? 0,
@@ -172,9 +170,40 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch('http://localhost:3010/api/resilience/history?limit=100000')
+      .then(async response => {
+        if (!response.ok) throw new Error('Unable to load saved telemetry history.');
+        return response.json() as Promise<{ history?: Array<{
+          timestamp: string;
+          cpu: number;
+          memory: number;
+          latency: number;
+          errorRate: number;
+          availability: number;
+          score: number;
+        }> }>;
+      })
+      .then(data => {
+        if (cancelled || !Array.isArray(data.history)) return;
+        setHistory(data.history.map(point => ({
+          timestamp: point.timestamp,
+          cpu: point.cpu,
+          memory: point.memory,
+          latency: point.latency,
+          errorRate: point.errorRate,
+          availability: point.availability,
+          score: point.score
+        })));
+      })
+      .catch(error => console.warn('Could not load saved resilience history:', error));
+    return () => { cancelled = true; };
+  }, []);
+
   // Main Simulation Loop driven by mock telemetry engine
   useEffect(() => {
-    const runSimulationStep = () => {
+    const runSimulationStep = async () => {
       if (!simulationRef.current || !autoRefresh) return;
 
       const currentServices = servicesRef.current;
@@ -253,26 +282,29 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
       const failoverSuccess = (offlineCount > 0 || degradedCount > 0) ? (offlineCount > 1 ? 65 : 80) : 100;
       const simulatedMttr = (offlineCount > 0 || degradedCount > 0) ? 18 : 12;
 
-      const score = calculateResilienceScore({
-        availability, cpu: avgCpu, memory: avgMem, errorRate: avgErrorRate,
-        restarts: totalRestarts, mttr: simulatedMttr, latency: avgLatency, failoverSuccess,
-      });
-
-      const rules = {
-        availability: availability >= 99.0,
-        cpu: avgCpu < 70,
-        memory: avgMem < 75,
-        latency: avgLatency < 50,
-        errorRate: avgErrorRate < 1.0,
-        restarts: totalRestarts < 2,
-        mttr: simulatedMttr <= 15,
-        failover: failoverSuccess >= 100
-      };
-
-      let maturity: FaultMetrics['maturity'] = 'Initial';
-      if (score >= 87.5) maturity = 'Optimized';
-      else if (score >= 75) maturity = 'Mature';
-      else if (score >= 50) maturity = 'Developing';
+      let evaluation: { totalScore: number; maturity: FaultMetrics['maturity'] };
+      try {
+        const response = await fetch('http://localhost:3010/api/resilience/evaluate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            availability,
+            cpu: avgCpu,
+            memory: avgMem,
+            errorRate: avgErrorRate,
+            restarts: totalRestarts,
+            mttr: simulatedMttr,
+            latency: avgLatency,
+            failoverSuccess,
+          }),
+        });
+        if (!response.ok) return;
+        evaluation = await response.json();
+      } catch {
+        return;
+      }
+      const score = evaluation.totalScore;
+      const maturity = evaluation.maturity;
 
       // Dynamic AI Failure Prediction Engine
       const activeFList = activeFaultsRef.current;
@@ -525,102 +557,6 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
     logActivity('SYSTEM', 'Telemetry System Reset', 'Reset all telemetry stream metrics and cluster service state to default baseline.', 'info');
   };
 
-  const generateAiRecommendations = (m: FaultMetrics, activeF: ActiveFault[]): AiRecommendation[] => {
-    const recs: AiRecommendation[] = [];
-
-    if (activeF.length > 0) {
-      activeF.forEach(f => {
-        if (f.faultType === 'LATENCY') {
-          recs.push({
-            level: 'critical',
-            icon: 'Clock',
-            title: `Network Latency Injection Detected on ${f.targetId}`,
-            detail: `High latency delays API response times. Client requests will time out.`,
-            action: 'Enable API response caching (Redis), optimize connection pooling, and tune circuit breaker latency thresholds.'
-          });
-        } else if (f.faultType === 'API_ERROR') {
-          recs.push({
-            level: 'critical',
-            icon: 'AlertTriangle',
-            title: `API 500 Error Spike Active on ${f.targetId}`,
-            detail: `Internal server errors injected. Upstream clients are receiving failed responses.`,
-            action: 'Implement retry policies with exponential backoff and activate fallback static responses.'
-          });
-        } else if (f.faultType === 'HIGH_CPU') {
-          recs.push({
-            level: 'critical',
-            icon: 'Cpu',
-            title: `CPU Burn / Stress Active on ${f.targetId}`,
-            detail: `Target node CPU usage is forced above 90%. System compute bottlenecks are throttling throughput.`,
-            action: 'Trigger Horizontal Pod Autoscaler (HPA), scale out replicas, and inspect high CPU thread traces.'
-          });
-        } else if (f.faultType === 'HIGH_MEMORY') {
-          recs.push({
-            level: 'critical',
-            icon: 'HardDrive',
-            title: `High RAM Pressure Active on ${f.targetId}`,
-            detail: `Memory usage exceeds 90%. Danger of Kubernetes OOMKilled container restarts.`,
-            action: 'Increase container memory limits in Helm/K8s manifests and run heap memory leak profiler.'
-          });
-        } else if (f.faultType === 'RATE_LIMIT') {
-          recs.push({
-            level: 'warning',
-            icon: 'ShieldAlert',
-            title: `HTTP 429 Rate Limiting Active`,
-            detail: `Throttling requests on ${f.targetId}. Clients receive HTTP 429 Too Many Requests.`,
-            action: 'Implement client-side sliding window rate limiters and prioritize high-priority API tokens.'
-          });
-        } else if (f.faultType === 'CASCADING_FAILURE') {
-          recs.push({
-            level: 'critical',
-            icon: 'Flame',
-            title: `Cascading Multi-Service Outage In Progress`,
-            detail: `Multiple microservices failing in sequence. Cascading failure degrades overall SLA availability.`,
-            action: 'Activate Bulkhead pattern to isolate failing services and prevent outage propagation across API gateway.'
-          });
-        }
-      });
-    }
-
-    if (m.availability < 99.0) {
-      recs.push({
-        level: 'critical',
-        icon: 'ShieldAlert',
-        title: 'Availability Below SLA Target (99.0%)',
-        detail: `Current availability is ${m.availability}%. SLA threshold violated.`,
-        action: 'Inspect load balancer routing rules and verify health check endpoints.'
-      });
-    }
-
-    if (m.cpu >= 70) {
-      recs.push({
-        level: 'warning',
-        icon: 'TrendingUp',
-        title: 'Elevated Cluster CPU Utilization',
-        detail: `Average CPU utilization is at ${m.cpu}%. Exceeds 70% threshold.`,
-        action: 'Consider auto-scaling pod count or optimizing hot code paths.'
-      });
-    }
-
-    if (m.score === 100 && activeF.length === 0) {
-      recs.push({
-        level: 'info',
-        icon: 'CheckCircle',
-        title: 'System Operating at Maximum Resilience',
-        detail: 'All 5 resilience scoring rules are currently satisfied (+100 pts).',
-        action: 'Execute scheduled chaos experiments using the Fault Injection Cards below.'
-      });
-    }
-
-    return recs.length > 0 ? recs : [{
-      level: 'info',
-      icon: 'CheckCircle',
-      title: 'All Systems Stable',
-      detail: 'No active anomalies detected.',
-      action: 'Continue monitoring real-time metrics.'
-    }];
-  };
-
   const handleOpenAiPanel = async () => {
     setAiPanelOpen(true);
     setAiLoading(true);
@@ -820,7 +756,6 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
                 <div className="ai-loading">
                   <div className="ai-loading-orb"></div>
                   <p>Generating recommendations from live system metrics...</p>
-                  <span>Trying Gemini first; OpenRouter is used automatically if Gemini is unavailable.</span>
                 </div>
               ) : aiError ? (
                 <div className="ai-loading">
@@ -829,7 +764,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
                 </div>
               ) : (
                 <div className="ai-recs-list">
-                  {aiFallbackReason && <p className="ai-rec-detail">Gemini was unavailable; OpenRouter provided these recommendations. </p>}
+                  {aiFallbackReason && <p className="ai-rec-detail">{aiProviderUsed} provided these recommendations.</p>}
                   {aiRecommendations.map((rec, i) => {
                     return (
                       <div key={i} className={`ai-rec-card ai-rec-${rec.level}`}>

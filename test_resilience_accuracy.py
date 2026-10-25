@@ -1,12 +1,10 @@
 """Benchmark the resilience engine's threshold rules with synthetic scenarios.
 
-Requires Node.js 22+ with native TypeScript type stripping enabled.
+Uses the Python resilience calculation module directly.
 Run from the repository root: python test_resilience_accuracy.py
 """
 
-import json
 import random
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -14,16 +12,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-SCORER = ROOT / "backend" / "resiliance" / "src" / "rScore.ts"
-NODE_EVALUATOR = r"""
-import { pathToFileURL } from 'node:url';
-let input = '';
-for await (const chunk of process.stdin) input += chunk;
-const { evaluateRScoreRules } = await import(pathToFileURL(process.argv[1]).href);
-const scenarios = JSON.parse(input);
-const output = scenarios.map(metrics => evaluateRScoreRules(metrics));
-process.stdout.write(JSON.stringify(output));
-"""
+ENGINE_PATH = ROOT / "backend" / "resilience-engine"
+sys.path.insert(0, str(ENGINE_PATH))
+
+from app.calculations import evaluate_resilience
 
 
 BASELINE = {
@@ -78,26 +70,8 @@ def build_scenarios(repeats=25):
 def main():
     scenarios, labels, categories = build_scenarios()
     start = time.perf_counter()
-    try:
-        result = subprocess.run(
-            ["node", "--experimental-strip-types", "--input-type=module", "-e", NODE_EVALUATOR, str(SCORER)],
-            input=json.dumps(scenarios),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except FileNotFoundError:
-        print("Node.js was not found. Install Node.js 22 or newer and try again.", file=sys.stderr)
-        return 1
-    except subprocess.CalledProcessError as error:
-        print(error.stderr.strip() or "Could not run the resilience scorer.", file=sys.stderr)
-        return 1
-
+    outputs = [evaluate_resilience(scenario) for scenario in scenarios]
     elapsed_ms = (time.perf_counter() - start) * 1000
-    outputs = json.loads(result.stdout)
-    if len(outputs) != len(labels):
-        print("The resilience scorer returned an unexpected number of results.", file=sys.stderr)
-        return 1
 
     predictions = [int(any(not rule["passed"] for rule in output["rules"])) for output in outputs]
     tp = sum(actual == 1 and predicted == 1 for actual, predicted in zip(labels, predictions))
@@ -123,7 +97,7 @@ def main():
     print(f"Recall:      {recall * 100:.2f}%")
     print(f"Specificity: {specificity * 100:.2f}%")
     print(f"F1-score:    {f1 * 100:.2f}%")
-    print(f"\nReal-time execution duration: {elapsed_ms:.2f} ms (includes Node startup)")
+    print(f"\nCalculation duration: {elapsed_ms:.2f} ms (Python scoring module)")
     print("\nResults by scenario:")
     for category in dict.fromkeys(categories):
         indexes = [i for i, name in enumerate(categories) if name == category]

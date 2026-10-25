@@ -20,6 +20,25 @@ services:
       - pscore-net
 
   # R-Score API for resilience telemetry, chaos experiments, and AI insights.
+  resilience-engine:
+    build:
+      context: ./backend/resilience-engine
+      dockerfile: Dockerfile
+    container_name: pscore-resilience-engine
+    environment:
+      KUBERNETES_URL: http://host.docker.internal:8001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8011:8011"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8011/health', timeout=1)"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    networks:
+      - pscore-net
+
   resilience-api:
     build:
       context: ./backend/resiliance
@@ -30,12 +49,12 @@ services:
       - "3010:3010"
     environment:
       PORT: 3010
+      RESILIENCE_ENGINE_URL: http://resilience-engine:8011/api/resilience/evaluate
+      RESILIENCE_KUBERNETES_URL: http://resilience-engine:8011/api/kubernetes/snapshot
       PROMETHEUS_URL: http://prometheus:9090
-      # Requires kubectl proxy on the host at port 8001 to reach Kubernetes.
-      KUBERNETES_URL: http://host.docker.internal:8001
       FRONTEND_HEALTH_URL: http://frontend:3000
       # Compose reads these variables from the project-root .env file.
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-${VITE_GEMINI_API_KEY:-}}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-4o-mini}
@@ -49,6 +68,9 @@ services:
       - resilience-data:/app/data
     networks:
       - pscore-net
+    depends_on:
+      resilience-engine:
+        condition: service_healthy
 
   prometheus:
     image: prom/prometheus:v2.45.0

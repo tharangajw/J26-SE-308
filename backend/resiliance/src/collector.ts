@@ -1,8 +1,8 @@
 import { spawn, ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { FaultMetrics, Service, ActiveChaosEvent, SelfHealingMetrics, DeviceHardwareInfo, AiFailurePrediction, KubernetesChaosLog, KubernetesValidationSnapshot } from './types.ts';
-import { evaluateRScoreRules } from './rScore.ts';
+import type { FaultMetrics, Service, ActiveChaosEvent, SelfHealingMetrics, DeviceHardwareInfo, AiFailurePrediction, KubernetesChaosLog, KubernetesValidationSnapshot, RScoreRuleResult } from './types.ts';
+import { evaluateResilience } from './resilienceEngine.ts';
 import { DeviceMonitor } from './deviceMonitor.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,7 +18,7 @@ interface RawPromResult {
 
 export class ResilienceCollector {
   private prometheusUrl: string;
-  private k8sUrl: string;
+  private kubernetesSnapshotUrl: string;
   private deviceMonitor: DeviceMonitor;
   private activeChaosProcess: ChildProcess | null = null;
 
@@ -37,11 +37,11 @@ export class ResilienceCollector {
 
   constructor(
     prometheusUrl: string = process.env.PROMETHEUS_URL ?? 'http://localhost:9090',
-    k8sUrl: string = process.env.KUBERNETES_URL ?? 'http://localhost:8001',
+    kubernetesSnapshotUrl: string = process.env.RESILIENCE_KUBERNETES_URL ?? 'http://localhost:8011/api/kubernetes/snapshot',
     serverPort: number = 3010
   ) {
     this.prometheusUrl = prometheusUrl;
-    this.k8sUrl = k8sUrl;
+    this.kubernetesSnapshotUrl = kubernetesSnapshotUrl;
     this.deviceMonitor = new DeviceMonitor(serverPort);
   }
 
@@ -64,62 +64,6 @@ export class ResilienceCollector {
     } catch {
       return null;
     }
-  }
-
-  private async queryKubernetes(pathname: string): Promise<any | null> {
-    try {
-      const response = await fetch(`${this.k8sUrl}${pathname}`, {
-        signal: AbortSignal.timeout(1200)
-      });
-      if (!response.ok) return null;
-      return await response.json();
-    } catch {
-      return null;
-    }
-  }
-
-  private async collectKubernetesValidation(): Promise<KubernetesValidationSnapshot | null> {
-    const [podsResponse, deploymentsResponse, hpasResponse] = await Promise.all([
-      this.queryKubernetes('/api/v1/pods?limit=500'),
-      this.queryKubernetes('/apis/apps/v1/deployments?limit=500'),
-      this.queryKubernetes('/apis/autoscaling/v2/horizontalpodautoscalers?limit=500')
-    ]);
-    if (!podsResponse && !deploymentsResponse && !hpasResponse) return null;
-
-    const pods = Array.isArray(podsResponse?.items) ? podsResponse.items : [];
-    const deployments = Array.isArray(deploymentsResponse?.items) ? deploymentsResponse.items : [];
-    const hpaItems = Array.isArray(hpasResponse?.items) ? hpasResponse.items : [];
-    const hpas = hpaItems.map((hpa: any) => {
-      const cpuMetric = hpa.status?.currentMetrics?.find((metric: any) => metric.resource?.name === 'cpu');
-      const cpuTarget = hpa.spec?.metrics?.find((metric: any) => metric.resource?.name === 'cpu');
-      return {
-        name: String(hpa.metadata?.name ?? 'unnamed'),
-        namespace: String(hpa.metadata?.namespace ?? 'default'),
-        currentReplicas: Number(hpa.status?.currentReplicas ?? 0),
-        desiredReplicas: Number(hpa.status?.desiredReplicas ?? hpa.spec?.minReplicas ?? 0),
-        currentCpuPercent: Number.isFinite(Number(cpuMetric?.resource?.current?.averageUtilization))
-          ? Number(cpuMetric.resource.current.averageUtilization) : null,
-        targetCpuPercent: Number.isFinite(Number(cpuTarget?.resource?.target?.averageUtilization))
-          ? Number(cpuTarget.resource.target.averageUtilization) : null
-      };
-    });
-
-    return {
-      podCount: pods.length,
-      podRestartCount: pods.reduce((total: number, pod: any) => total +
-        (Array.isArray(pod.status?.containerStatuses)
-          ? pod.status.containerStatuses.reduce((sum: number, container: any) => sum + Number(container.restartCount ?? 0), 0)
-          : 0), 0),
-      deploymentCount: deployments.length,
-      desiredReplicas: deployments.reduce((total: number, deployment: any) => total + Number(deployment.spec?.replicas ?? 0), 0),
-      readyReplicas: deployments.reduce((total: number, deployment: any) => total + Number(deployment.status?.readyReplicas ?? 0), 0),
-      hpas,
-      circuitBreaker: {
-        configured: false,
-        status: 'NOT_MEASURED',
-        reason: 'Connect a service-mesh or application circuit-breaker metrics source to measure this result.'
-      }
-    };
   }
 
   // Inject a chaos fault via Chaos Mesh
@@ -387,6 +331,7 @@ export class ResilienceCollector {
   // Primary real-time telemetry extraction method
   public async collectTelemetry(): Promise<{
     metrics: FaultMetrics;
+    rules: RScoreRuleResult[];
     services: Service[];
     selfHealing: SelfHealingMetrics;
     activeChaos: ActiveChaosEvent | null;
@@ -413,12 +358,16 @@ export class ResilienceCollector {
     let isK8sUp = false;
     let kubernetesValidation: KubernetesValidationSnapshot | null = null;
     try {
-      const k8sRes = await fetch(`${this.k8sUrl}/api/v1/namespaces/default/pods?limit=1`, {
-        signal: AbortSignal.timeout(300)
+      const k8sRes = await fetch(this.kubernetesSnapshotUrl, {
+        signal: AbortSignal.timeout(2500)
       });
       if (k8sRes.ok) {
-        isK8sUp = true;
-        kubernetesValidation = await this.collectKubernetesValidation();
+        const snapshot = await k8sRes.json() as {
+          connected?: boolean;
+          validation?: KubernetesValidationSnapshot | null;
+        };
+        isK8sUp = snapshot.connected === true;
+        kubernetesValidation = snapshot.validation ?? null;
       }
     } catch {
       isK8sUp = false;
@@ -492,7 +441,7 @@ export class ResilienceCollector {
     }
 
     // 6. Evaluate R-Score rules based on the REAL device data
-    const { totalScore, maturity } = evaluateRScoreRules({
+    const evaluation = await evaluateResilience({
       availability,
       cpu,
       memory,
@@ -512,8 +461,8 @@ export class ResilienceCollector {
       restarts,
       mttr,
       failoverSuccess,
-      score: totalScore,
-      maturity
+      score: evaluation.totalScore,
+      maturity: evaluation.maturity
     };
 
     // Self-healing percentages need observed recovery events; host health is not evidence of recovery.
@@ -550,6 +499,7 @@ export class ResilienceCollector {
 
     return {
       metrics,
+      rules: evaluation.rules,
       services: this.services,
       selfHealing,
       kubernetesValidation,

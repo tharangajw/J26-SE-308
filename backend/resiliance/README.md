@@ -38,11 +38,12 @@ $$R\text{-Score} = 12.5A + 12.5C + 12.5M + 12.5E + 12.5R + 12.5T + 12.5L + 12.5F
 ## ðŸš€ Getting Started
 
 ### Prerequisites
-- Node.js `v22+` or `v24+` (supports native `--experimental-strip-types` without compilation or third-party packages)
+- Docker Compose (recommended)
+- Node.js `v22+` or `v24+` and Python 3.12+ for local development
 
 ### Running the Backend
 
-Set `GEMINI_API_KEY` in the backend process environment to enable Gemini insights. Optionally set `GEMINI_MODEL` (defaults to `gemini-3.8-flash`). To use OpenRouter when Gemini is unavailable, also set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` (defaults to `openai/gpt-4o-mini`). Gemini and OpenRouter insight timeouts default to 7 and 10 seconds; set `GEMINI_INSIGHTS_TIMEOUT_MS` and `OPENROUTER_INSIGHTS_TIMEOUT_MS` to adjust them. Keep both keys out of frontend environment variables and source control.
+R-Score calculation is provided by the Python service in `backend/resilience-engine`. Start both services locally, or use Docker Compose. Set `GEMINI_API_KEY` to enable Gemini insights. Optionally set `GEMINI_MODEL` (defaults to `gemini-3.8-flash`). To use OpenRouter when Gemini is unavailable, also set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` (defaults to `openai/gpt-4o-mini`). Gemini and OpenRouter insight timeouts default to 7 and 10 seconds; set `GEMINI_INSIGHTS_TIMEOUT_MS` and `OPENROUTER_INSIGHTS_TIMEOUT_MS` to adjust them. Keep both keys out of frontend environment variables and source control.
 
 ```bash
 cd backend/resiliance
@@ -51,6 +52,8 @@ cd backend/resiliance
 # Optional model: $env:OPENROUTER_MODEL = "openai/gpt-4o-mini"
 npm start
 ```
+
+In another terminal, start the Python calculator from `backend/resilience-engine` with `uvicorn app.main:app --host 0.0.0.0 --port 8011`.
 
 With Docker Compose, set `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, and optionally `OPENROUTER_MODEL` in the repository-root `.env` file, then rebuild the resilience service:
 

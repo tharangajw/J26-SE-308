@@ -4,7 +4,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ResilienceCollector } from './collector.ts';
-import { evaluateRScoreRules } from './rScore.ts';
+import { evaluateResilience } from './resilienceEngine.ts';
 import type { ChaosInjectRequest } from './types.ts';
 
 const PORT = Number(process.env.PORT ?? 3010);
@@ -12,7 +12,7 @@ const GEMINI_INSIGHTS_TIMEOUT_MS = Number(process.env.GEMINI_INSIGHTS_TIMEOUT_MS
 const OPENROUTER_INSIGHTS_TIMEOUT_MS = Number(process.env.OPENROUTER_INSIGHTS_TIMEOUT_MS ?? 10_000);
 const collector = new ResilienceCollector(
   process.env.PROMETHEUS_URL ?? 'http://localhost:9090',
-  process.env.KUBERNETES_URL ?? 'http://localhost:8001'
+  process.env.RESILIENCE_KUBERNETES_URL ?? 'http://localhost:8011/api/kubernetes/snapshot'
 );
 
 // History buffer
@@ -359,22 +359,11 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     // Polled by FaultToleranceDashboard.tsx (http://localhost:3010/api/resilience/score)
     if (pathname === '/api/resilience/score' && method === 'GET') {
       const data = await collector.collectTelemetry();
-      const { rules } = evaluateRScoreRules({
-        availability: data.metrics.availability,
-        cpu: data.metrics.cpu,
-        memory: data.metrics.memory,
-        errorRate: data.metrics.errorRate,
-        restarts: data.metrics.restarts,
-        mttr: data.metrics.mttr,
-        latency: data.metrics.latency,
-        failoverSuccess: data.metrics.failoverSuccess,
-      });
-
       return sendJson(res, 200, {
         timestamp: new Date().toISOString(),
         metrics: data.metrics,
         services: data.services,
-        rules,
+        rules: data.rules,
         selfHealing: data.selfHealing,
         kubernetesValidation: data.kubernetesValidation,
         activeChaos: data.activeChaos,
@@ -382,6 +371,20 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         aiPrediction: data.aiPrediction,
         sources: data.sources
       });
+    }
+
+    if (pathname === '/api/resilience/evaluate' && method === 'POST') {
+      const metrics = await parseBody<{
+        availability: number;
+        cpu: number;
+        memory: number;
+        errorRate: number;
+        restarts: number;
+        mttr: number;
+        latency: number;
+        failoverSuccess: number;
+      }>(req);
+      return sendJson(res, 200, await evaluateResilience(metrics));
     }
 
     // Generate on demand from a fresh engine snapshot (never expose the Gemini key to the browser).
@@ -470,16 +473,59 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     // 6. Resilience history (GET /api/resilience/history)
     if (pathname === '/api/resilience/history' && method === 'GET') {
       const requestedLimit = Number.parseInt(url.searchParams.get('limit') ?? '500', 10);
-      const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 500;
+      const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100000) : 500;
+      const fromValue = url.searchParams.get('from');
+      const toValue = url.searchParams.get('to');
+      const fromTime = fromValue ? Date.parse(fromValue) : Number.NEGATIVE_INFINITY;
+      const toTime = toValue ? Date.parse(toValue) : Number.POSITIVE_INFINITY;
+      if ((fromValue && !Number.isFinite(fromTime)) || (toValue && !Number.isFinite(toTime)) || fromTime > toTime) {
+        return sendJson(res, 400, { error: 'Invalid history date range.' });
+      }
+      const hasDateFilter = Boolean(fromValue || toValue);
+      const matchingHistory = hasDateFilter
+        ? historyBuffer.filter(record => {
+            const timestamp = Date.parse(record.timestamp);
+            return Number.isFinite(timestamp) && timestamp >= fromTime && timestamp < toTime;
+          })
+        : historyBuffer;
+      const availableHistory = matchingHistory.slice(-limit);
+      const maxPoints = 2500;
+      const recentPoints = Math.min(720, maxPoints, availableHistory.length);
+      const olderHistory = availableHistory.slice(0, availableHistory.length - recentPoints);
+      const olderPointLimit = maxPoints - recentPoints;
+      const sampledOlderHistory = olderHistory.length > olderPointLimit
+        ? Array.from({ length: olderPointLimit }, (_, index) =>
+            olderHistory[Math.floor(index * (olderHistory.length - 1) / (olderPointLimit - 1))])
+        : olderHistory;
+      const history = [...sampledOlderHistory, ...availableHistory.slice(-recentPoints)];
       return sendJson(res, 200, {
-        count: historyBuffer.length,
-        returned: Math.min(historyBuffer.length, limit),
-        history: historyBuffer.slice(-limit)
+        count: matchingHistory.length,
+        returned: history.length,
+        sampled: history.length < availableHistory.length,
+        history
       });
     }
 
     if (pathname === '/api/resilience/chaos-history' && method === 'GET') {
-      return sendJson(res, 200, { count: chaosHistory.length, experiments: chaosHistory });
+      const requestedLimit = Number.parseInt(url.searchParams.get('limit') ?? '500', 10);
+      const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 5000) : 500;
+      const fromValue = url.searchParams.get('from');
+      const toValue = url.searchParams.get('to');
+      const fromTime = fromValue ? Date.parse(fromValue) : Number.NEGATIVE_INFINITY;
+      const toTime = toValue ? Date.parse(toValue) : Number.POSITIVE_INFINITY;
+      if ((fromValue && !Number.isFinite(fromTime)) || (toValue && !Number.isFinite(toTime)) || fromTime > toTime) {
+        return sendJson(res, 400, { error: 'Invalid chaos history date range.' });
+      }
+      const matchingExperiments = (fromValue || toValue)
+        ? chaosHistory.filter(experiment => {
+            const timestamp = Date.parse(experiment.injectedAt);
+            return Number.isFinite(timestamp) && timestamp >= fromTime && timestamp < toTime;
+          })
+        : chaosHistory;
+      return sendJson(res, 200, {
+        count: matchingExperiments.length,
+        experiments: matchingExperiments.slice(-limit)
+      });
     }
 
     // Route not found
