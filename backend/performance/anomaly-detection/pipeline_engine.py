@@ -29,7 +29,7 @@ class LiveTelemetryPipelineEngine:
 
     # Performs HTTP GET requests with fallback hosts (localhost, container hostname, 127.0.0.1)
     # to reliably retrieve JSON payloads from the telemetry collector daemon.
-    def _fetch_json(self, path: str, timeout: float = 8.0) -> Optional[Dict[str, Any]]:
+    def _fetch_json(self, path: str, timeout: float = 1.5) -> Optional[Dict[str, Any]]:
         urls = [
             f"http://localhost:8787{path}",
             f"{self.collector_url}{path}",

@@ -32,7 +32,9 @@ import {
   ExternalLink,
   Info,
   Calculator,
-  Code2
+  Code2,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -58,6 +60,9 @@ import {
   PerformanceScenarioInjector,
   type PerformanceScenarioId
 } from '../components/performace/PerformanceScenarioInjector';
+import {
+  MultiPillarMaturityCard
+} from '../components/performace/MultiPillarMaturityCard';
 import {
   ReportService
 } from '../services/reportService';
@@ -660,6 +665,91 @@ export const PerformanceDimensionPage: React.FC = () => {
       };
     }
 
+    if (activeScenario === 'TRAFFIC_SPIKE') {
+      return {
+        engine: 'Simulated Scenario: 200 VU Traffic Spike Burst (Level 1 Outlier Anomaly)',
+        evaluatedAt: Date.now() / 1000,
+        evaluationLatencyMs: 22.4,
+        overallPScore: 38.2,
+        maturityTier: {
+          level: 1,
+          tier: 'Level 1: Foundational (Unoptimized / High Risk)',
+          shortLabel: 'Level 1: Foundational',
+          summary: 'Severe 200 VU concurrent spike burst; CPU reaches 94%, P95 latency spikes to 185ms, triggering ML outlier alert.'
+        },
+        weights: data?.weights || { drift: 0.4, fanout: 0.4, anomaly: 0.2 },
+        ahpValidation: data?.ahpValidation,
+        clusterSubScores: {
+          driftHealthScore: 35.0,
+          fanOutHealthScore: 42.0,
+          anomalyHealthScore: 28.0,
+          avgDriftPenalty: 0.65,
+          avgFanOutPenalty: 0.58,
+          avgAnomalyPenalty: 0.72,
+          avgApdexScore: 0.540,
+          avgTailLatencyRatio: 3.25
+        },
+        pScoreHistory: data?.pScoreHistory,
+        recommendations: data?.recommendations || [],
+        serviceEvaluations: [
+          {
+            serviceId: 'order-service-1',
+            hasTelemetry: true,
+            pScore: 34.8,
+            maturityTier: { level: 1, tier: 'Level 1: Foundational', shortLabel: 'Level 1', summary: 'Spike Anomaly Detected' },
+            apdexAndTail: { apdexScore: 0.485, apdexRating: 'POOR', tailLatencyRatio: 3.45, apdexThresholdMs: 50 },
+            signals: {
+              driftScore: 0.78,
+              driftLevel: 'CRITICAL',
+              liveP95LatencyMs: 185.0,
+              historicalBaselineMs: 22.0,
+              fanOutScore: 0.62,
+              fanOutLevel: 'HIGH',
+              directFanOutCount: 4,
+              maxDependencyDepth: 3,
+              executionPattern: 'SEQUENTIAL_N_PLUS_1' as const,
+              sequentialRatio: 0.85,
+              isApiGateway: false,
+              attenuationFactor: 1.0,
+              anomalyScore: 0.82,
+              isAnomaly: true,
+              prefiltered: false,
+              featureAttributions: { cpuPercent: 42, memoryPercent: 28, latencyPercent: 25, errorPercent: 5, dominantDriver: 'CPU Saturation Surge' }
+            },
+            penalties: { driftPenaltyPts: 31.2, fanOutPenaltyPts: 24.8, anomalyPenaltyPts: 16.4, totalPenaltyPts: 72.4 },
+            rawMetrics: { cpuUsageMillicores: 940, memoryUsageMB: 480, avgResponseTimeMs: 110.0, p95LatencyMs: 185.0, p99LatencyMs: 638.0, rps: 210.0 }
+          },
+          {
+            serviceId: 'payment-service-1',
+            hasTelemetry: true,
+            pScore: 41.5,
+            maturityTier: { level: 2, tier: 'Level 2: Developing', shortLabel: 'Level 2', summary: 'High Latency' },
+            apdexAndTail: { apdexScore: 0.595, apdexRating: 'POOR', tailLatencyRatio: 3.05, apdexThresholdMs: 50 },
+            signals: {
+              driftScore: 0.65,
+              driftLevel: 'HIGH',
+              liveP95LatencyMs: 142.0,
+              historicalBaselineMs: 24.0,
+              fanOutScore: 0.45,
+              fanOutLevel: 'MEDIUM',
+              directFanOutCount: 2,
+              maxDependencyDepth: 2,
+              executionPattern: 'PARALLEL_CONCURRENT' as const,
+              sequentialRatio: 0.0,
+              isApiGateway: false,
+              attenuationFactor: 1.0,
+              anomalyScore: 0.74,
+              isAnomaly: true,
+              prefiltered: false,
+              featureAttributions: { cpuPercent: 38, memoryPercent: 32, latencyPercent: 25, errorPercent: 5, dominantDriver: 'RAM Footprint Spurt' }
+            },
+            penalties: { driftPenaltyPts: 26.0, fanOutPenaltyPts: 18.0, anomalyPenaltyPts: 14.8, totalPenaltyPts: 58.8 },
+            rawMetrics: { cpuUsageMillicores: 880, memoryUsageMB: 420, avgResponseTimeMs: 85.0, p95LatencyMs: 142.0, p99LatencyMs: 433.0, rps: 180.0 }
+          }
+        ]
+      };
+    }
+
     return data;
   }, [data, activeScenario]);
 
@@ -917,6 +1007,27 @@ export const PerformanceDimensionPage: React.FC = () => {
             Calculation Logic
           </Link>
 
+          {/* Feature D: Research Benchmark Export Buttons */}
+          <a
+            href="/api/anomaly/export/research-benchmarks?format=csv"
+            download="pscore_research_benchmarks.csv"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 px-3 py-2 text-xs font-semibold text-sky-400 shadow-sm transition-all"
+            title="Download Evaluated Cluster Benchmark Metrics as CSV for Research Papers"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            Export CSV
+          </a>
+
+          <a
+            href="/api/anomaly/export/research-benchmarks?format=json"
+            download="pscore_research_benchmarks.json"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 px-3 py-2 text-xs font-semibold text-purple-400 shadow-sm transition-all"
+            title="Download Comprehensive Structured JSON Benchmark Bundle"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export JSON
+          </a>
+
           <Link
             to={`/reports/summary?service=${encodeURIComponent(
               (selectedServiceFilter !== 'ALL' ? selectedServiceFilter : null) ||
@@ -929,7 +1040,7 @@ export const PerformanceDimensionPage: React.FC = () => {
             title="Download 1-Page Plain Language Executive Summary PDF"
           >
             <FileText className="h-3.5 w-3.5" />
-            📄 Summary PDF (1 Page)
+            📄 Summary PDF
           </Link>
 
           <Link
@@ -944,15 +1055,26 @@ export const PerformanceDimensionPage: React.FC = () => {
             title="Download 4-Page Comprehensive Engineering Audit PDF"
           >
             <FileText className="h-3.5 w-3.5" />
-            🔧 Technical PDF (4 Pages)
+            🔧 Technical PDF
           </Link>
         </div>
       </div>
 
-      {/* Live Performance Scenario Injector */}
+      {/* Feature A: Live Performance Scenario Injector with Direct Load Triggering */}
       <PerformanceScenarioInjector
         activeScenario={activeScenario}
         onSelectScenario={setActiveScenario}
+        onRefreshLive={fetchCompositePScore}
+      />
+
+      {/* Feature B: Enterprise Multi-Pillar Maturity Aggregator Card */}
+      <MultiPillarMaturityCard
+        serviceId={
+          (selectedServiceFilter !== 'ALL' ? selectedServiceFilter : null) ||
+          TelemetryService.getActiveService() ||
+          data?.serviceEvaluations?.[0]?.serviceId ||
+          'order-service-1'
+        }
       />
 
       {/* Layer 1: Executive Hero Card (5-Second Glance) */}

@@ -129,7 +129,7 @@ class PScoreAndRecommendationEngine:
 
         return self.pscore_history
 
-    def _fetch_json(self, path: str, timeout: float = 8.0) -> Optional[Dict[str, Any]]:
+    def _fetch_json(self, path: str, timeout: float = 1.5) -> Optional[Dict[str, Any]]:
         urls = [
             f"http://localhost:8787{path}",
             f"{self.collector_url}{path}",
