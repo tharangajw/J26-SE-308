@@ -42,12 +42,20 @@ $$R\text{-Score} = 12.5A + 12.5C + 12.5M + 12.5E + 12.5R + 12.5T + 12.5L + 12.5F
 
 ### Running the Backend
 
-Set `GEMINI_API_KEY` in the backend process environment to enable Gemini insights. Optionally set `GEMINI_MODEL` (defaults to `gemini-3.8-flash`). Keep the key out of frontend environment variables and source control.
+Set `GEMINI_API_KEY` in the backend process environment to enable Gemini insights. Optionally set `GEMINI_MODEL` (defaults to `gemini-3.8-flash`). To use OpenRouter when Gemini is unavailable, also set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` (defaults to `openai/gpt-4o-mini`). Gemini and OpenRouter insight timeouts default to 7 and 10 seconds; set `GEMINI_INSIGHTS_TIMEOUT_MS` and `OPENROUTER_INSIGHTS_TIMEOUT_MS` to adjust them. Keep both keys out of frontend environment variables and source control.
 
 ```bash
 cd backend/resiliance
 # PowerShell: $env:GEMINI_API_KEY = "your-key"
+# Optional fallback: $env:OPENROUTER_API_KEY = "your-key"
+# Optional model: $env:OPENROUTER_MODEL = "openai/gpt-4o-mini"
 npm start
+```
+
+With Docker Compose, set `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, and optionally `OPENROUTER_MODEL` in the repository-root `.env` file, then rebuild the resilience service:
+
+```bash
+docker compose up --build -d resilience-api
 ```
 
 The service runs on **`http://localhost:3010`**.

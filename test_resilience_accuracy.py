@@ -9,6 +9,7 @@ import random
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -109,21 +110,26 @@ def main():
     specificity = tn / (tn + fp) if tn + fp else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
-    print("RESILIENCE COMPONENT - THRESHOLD ACCURACY BENCHMARK")
+    print("-" * 55)
+    print("REAL-TIME RESILIENCE COMPONENT ACCURACY CHECK")
+    print("-" * 55)
+    print(f"\nChecked at: {datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')}")
+    
+    print("Evaluation mode: synthetic threshold scenarios")
     print(f"Scenarios: {total} ({total - sum(labels)} healthy, {sum(labels)} fault-injected)")
-    print(f"Confusion matrix: TP={tp}, TN={tn}, FP={fp}, FN={fn}")
+    print(f"\nConfusion matrix: TP={tp}, TN={tn}, FP={fp}, FN={fn}")
     print(f"Accuracy:    {(tp + tn) / total * 100:.2f}%")
     print(f"Precision:   {precision * 100:.2f}%")
     print(f"Recall:      {recall * 100:.2f}%")
     print(f"Specificity: {specificity * 100:.2f}%")
     print(f"F1-score:    {f1 * 100:.2f}%")
-    print(f"Run time:    {elapsed_ms:.2f} ms (includes Node startup)")
+    print(f"\nReal-time execution duration: {elapsed_ms:.2f} ms (includes Node startup)")
     print("\nResults by scenario:")
     for category in dict.fromkeys(categories):
         indexes = [i for i, name in enumerate(categories) if name == category]
         correct = sum(labels[i] == predictions[i] for i in indexes)
         print(f"  {category:<20} {correct}/{len(indexes)} correct ({correct / len(indexes) * 100:.1f}%)")
-    print("\nThis measures synthetic threshold-rule checks, not production predictive accuracy.")
+    print("\nAccuracy is measured on synthetic scenarios; it is not live production accuracy.")
     return 0
 
 

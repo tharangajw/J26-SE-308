@@ -19,7 +19,7 @@ services:
     networks:
       - pscore-net
 
-  # R-Score API for resilience telemetry, chaos experiments, and Gemini insights.
+  # R-Score API for resilience telemetry, chaos experiments, and AI insights.
   resilience-api:
     build:
       context: ./backend/resiliance
@@ -37,6 +37,10 @@ services:
       # Compose reads these variables from the project-root .env file.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      GEMINI_INSIGHTS_TIMEOUT_MS: ${GEMINI_INSIGHTS_TIMEOUT_MS:-7000}
+      OPENROUTER_INSIGHTS_TIMEOUT_MS: ${OPENROUTER_INSIGHTS_TIMEOUT_MS:-10000}
     extra_hosts:
       # Resolve host.docker.internal from this container.
       - "host.docker.internal:host-gateway"

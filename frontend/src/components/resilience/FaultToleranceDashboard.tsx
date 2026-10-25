@@ -72,6 +72,8 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
   const [aiRecommendations, setAiRecommendations] = useState<AiRecommendation[]>([]);
   const [aiError, setAiError] = useState('');
   const [aiGeneratedAt, setAiGeneratedAt] = useState<string | null>(null);
+  const [aiProviderUsed, setAiProviderUsed] = useState('Gemini');
+  const [aiFallbackReason, setAiFallbackReason] = useState('');
 
   const simulationRef = useRef(isSimulation);
   simulationRef.current = isSimulation;
@@ -624,6 +626,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
     setAiLoading(true);
     setAiError('');
     setAiRecommendations([]);
+    setAiFallbackReason('');
     try {
       const response = await fetch('http://localhost:3010/api/resilience/insights', {
         method: 'POST',
@@ -633,7 +636,9 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
       if (!response.ok) throw new Error(data.error || `Insight request failed (${response.status}).`);
       setAiRecommendations(data.recommendations);
       setAiGeneratedAt(data.generatedAt || new Date().toISOString());
-      logActivity('AI_RECOMMEND', 'Gemini AI Insights', `Analysed the live engine snapshot and generated ${data.recommendations.length} recommendations.`, 'info');
+      setAiProviderUsed(data.provider || 'Gemini');
+      setAiFallbackReason(data.fallbackReason || '');
+      logActivity('AI_RECOMMEND', `${data.provider || 'Gemini'} AI Insights`, `Analysed the live engine snapshot and generated ${data.recommendations.length} recommendations.`, 'info');
     } catch (error) {
       setAiError(error instanceof Error ? error.message : 'Unable to generate Gemini insights.');
     } finally {
@@ -802,7 +807,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
                 <Brain size={20} className="ai-brain-icon" />
                 <div>
                   <h2>AI Resilience Advisor</h2>
-                  <p>Gemini analysis of the latest resilience engine telemetry</p>
+                  <p>Analysis of the latest resilience engine telemetry</p>
                 </div>
               </div>
               <button className="ai-close-btn" onClick={() => setAiPanelOpen(false)}>
@@ -814,8 +819,8 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
               {aiLoading ? (
                 <div className="ai-loading">
                   <div className="ai-loading-orb"></div>
-                  <p>Analysing system metrics &amp; chaos patterns...</p>
-                  <span>Evaluating fault tolerance playbooks</span>
+                  <p>Generating recommendations from live system metrics...</p>
+                  <span>Trying Gemini first; OpenRouter is used automatically if Gemini is unavailable.</span>
                 </div>
               ) : aiError ? (
                 <div className="ai-loading">
@@ -824,6 +829,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
                 </div>
               ) : (
                 <div className="ai-recs-list">
+                  {aiFallbackReason && <p className="ai-rec-detail">Gemini was unavailable; OpenRouter provided these recommendations. </p>}
                   {aiRecommendations.map((rec, i) => {
                     return (
                       <div key={i} className={`ai-rec-card ai-rec-${rec.level}`}>
@@ -850,7 +856,7 @@ export const FaultToleranceDashboard: React.FC<FaultToleranceDashboardProps> = (
               <button className="btn-ai-refresh" onClick={handleOpenAiPanel}>
                 <RefreshCw size={13} /> Refresh Analysis
               </button>
-              <span>{aiGeneratedAt ? `Gemini snapshot ${new Date(aiGeneratedAt).toLocaleTimeString()}` : 'Uses a fresh engine snapshot'}</span>
+              <span>{aiGeneratedAt ? `${aiProviderUsed} snapshot ${new Date(aiGeneratedAt).toLocaleTimeString()}` : 'Uses a fresh engine snapshot'}</span>
             </div>
           </div>
         </div>
