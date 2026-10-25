@@ -131,9 +131,9 @@ class PScoreAndRecommendationEngine:
 
     def _fetch_json(self, path: str, timeout: float = 1.5) -> Optional[Dict[str, Any]]:
         urls = [
+            f"http://127.0.0.1:8787{path}",
             f"http://localhost:8787{path}",
             f"{self.collector_url}{path}",
-            f"http://127.0.0.1:8787{path}",
         ]
         for url in urls:
             try:

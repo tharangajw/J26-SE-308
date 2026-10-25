@@ -2,6 +2,8 @@ import os
 import time
 import io
 import csv
+import json
+import socket
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -342,7 +344,9 @@ def evaluate_composite_pscore(
     and generates closed-loop remediation projections.
     """
     req_list = (
-        [s.strip() for s in services.split(",") if s.strip()] if services else None
+        [s.strip() for s in services.split(",") if s.strip()]
+        if services
+        else discover_live_cluster_services()
     )
     custom_weights = {"drift": w_drift, "fanout": w_fanout, "anomaly": w_anomaly}
     pairwise_judgments = None
@@ -351,6 +355,84 @@ def evaluate_composite_pscore(
     return pscore_engine.evaluate_cluster_pscore(
         req_list, latest_telemetry, custom_weights, pairwise_judgments
     )
+
+
+def discover_live_cluster_services() -> List[str]:
+    """
+    Cloud-Native Dynamic Service Discovery:
+    Discovers all running microservices directly from the Docker Engine daemon socket
+    and Telemetry Collector health cache without any hardcoded service names.
+    Any newly launched container is picked up automatically in real-time.
+    """
+    found = set()
+
+    # 1. Query Docker Engine Socket (/var/run/docker.sock) for live running containers (<50ms)
+    docker_socket_path = "/var/run/docker.sock"
+    if os.path.exists(docker_socket_path):
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            s.connect(docker_socket_path)
+            s.sendall(b"GET /containers/json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            resp = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                resp += chunk
+            s.close()
+            if b"\r\n\r\n" in resp:
+                _, body = resp.split(b"\r\n\r\n", 1)
+                chunks = []
+                while body:
+                    idx = body.find(b"\r\n")
+                    if idx == -1:
+                        break
+                    size_str = body[:idx].split(b";")[0].strip()
+                    if not size_str:
+                        break
+                    size = int(size_str, 16)
+                    if size == 0:
+                        break
+                    chunks.append(body[idx + 2 : idx + 2 + size])
+                    body = body[idx + 2 + size + 2 :]
+                raw_json = b"".join(chunks).decode("utf-8", errors="ignore")
+                containers = json.loads(raw_json)
+                infra_keywords = {
+                    "mongo", "pscore", "telemetry", "prometheus",
+                    "jaeger", "loki", "grafana", "cadvisor", "node-exporter", "alertmanager"
+                }
+                for c in containers:
+                    for n in c.get("Names", []):
+                        clean = n.lstrip("/").replace("rp-core-product-", "")
+                        if not any(k in clean.lower() for k in infra_keywords):
+                            found.add(clean)
+        except Exception:
+            pass
+
+    # 2. Query Telemetry Collector health cache for actively scraped services
+    try:
+        data = pscore_engine._fetch_json("/health", timeout=0.3)
+        if data and isinstance(data, dict):
+            svcs = (
+                data.get("lastCollectedServices")
+                or data.get("applicationServices")
+                or data.get("requestedServices")
+                or data.get("services")
+            )
+            if svcs and isinstance(svcs, list):
+                for s in svcs:
+                    if isinstance(s, str) and s.strip():
+                        found.add(s.strip())
+    except Exception:
+        pass
+
+    # 3. Query in-memory live telemetry registry
+    for s in latest_telemetry.keys():
+        if s and isinstance(s, str):
+            found.add(s.strip())
+
+    return sorted(list(found))
 
 
 # Feature A: UI-Triggered Live Load Test Injector
@@ -365,29 +447,16 @@ def trigger_load_test(
     if services:
         target_list = [s.strip() for s in services.split(",") if s.strip()]
     else:
-        # Dynamically discover active running services from Telemetry Collector
-        target_list = []
-        try:
-            disc = pscore_engine._fetch_json("/api/telemetry/discover", timeout=1.0)
-            if disc and isinstance(disc, dict):
-                app_svcs = disc.get("applicationServices") or disc.get("allServices")
-                if app_svcs and isinstance(app_svcs, list):
-                    target_list = [s for s in app_svcs if isinstance(s, str) and s.strip()]
-        except Exception:
-            pass
+        target_list = discover_live_cluster_services()
 
-        # Fallback to active services currently registered in latest_telemetry
-        if not target_list and latest_telemetry:
-            target_list = list(latest_telemetry.keys())
-
-        # Final fallback to verified active cluster microservices
-        if not target_list:
-            target_list = [
-                "gateway-1",
-                "order-service-1",
-                "user-service-1",
-                "book-service-1",
-            ]
+    if not target_list:
+        return {
+            "status": "WARNING",
+            "mode": mode,
+            "servicesUpdated": [],
+            "message": "No active application microservices were detected in the cluster.",
+            "results": {}
+        }
 
     now = time.time()
     results = {}
@@ -432,13 +501,28 @@ def trigger_load_test(
     }
 
 
+# Returns dynamically discovered microservices currently active in the cluster without hardcoding.
+@app.get("/cluster/services")
+def get_cluster_services():
+    services = discover_live_cluster_services()
+    return {
+        "status": "SUCCESS",
+        "count": len(services),
+        "services": services,
+    }
+
+
 # Feature B: Live Cross-Pillar Multi-Dimension Maturity Aggregator
 # Combines live Performance (P-Score), Resilience (R-Score), Observability (O-Score),
 # and Architecture (C-Score) metrics into an enterprise multi-pillar maturity index.
 @app.get("/composite/multi-pillar")
 def get_multi_pillar_maturity(
-    service_id: str = Query("order-service-1", description="Target microservice ID"),
+    service_id: Optional[str] = Query(None, description="Target microservice ID"),
 ):
+    if not service_id:
+        active = discover_live_cluster_services()
+        service_id = active[0] if active else "order-service-1"
+
     # 1. Compute P-Score
     cluster_eval = pscore_engine.evaluate_cluster_pscore([service_id], latest_telemetry)
     svc_evals = cluster_eval.get("serviceEvaluations") or []

@@ -219,11 +219,8 @@ export const FanOutAnalysisPage: React.FC = () => {
           ...(activeFromStore ? [activeFromStore] : []),
           ...collected,
           ...customServices,
-          'user-service-1',
-          'order-service-1',
-          'book-service-1',
-          'gateway-1',
-        ]));
+          ...(discovered?.applicationServices || []),
+        ])).filter(Boolean);
 
         const queryParam = encodeURIComponent(candidateServices.join(','));
         let response: Response;

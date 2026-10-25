@@ -217,6 +217,35 @@ export class TelemetryService {
   }> {
     const storedCollected = this.getCollectedServices();
 
+    // Query FastAPI Anomaly / Performance Engine dynamic Docker discovery endpoint first (<50ms)
+    const fastApiUrls = [
+      '/api/anomaly/cluster/services',
+      'http://localhost:8000/cluster/services',
+    ];
+    for (const url of fastApiUrls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const body = await res.json();
+          if (body && Array.isArray(body.services) && body.services.length > 0) {
+            const discoveredServices: string[] = body.services;
+            const combined = Array.from(new Set([...storedCollected, ...discoveredServices]));
+            return {
+              prometheusJobs: [],
+              jaegerServices: [],
+              dockerContainers: discoveredServices,
+              lastCollectedServices: combined,
+              applicationServices: combined,
+              infrastructureServices: [],
+              allServices: combined,
+            };
+          }
+        }
+      } catch {
+        // continue to collector fallback
+      }
+    }
+
     const collectorUrls = [
       '/api/telemetry/discovered-services',
       'http://localhost:8787/api/telemetry/discovered-services',

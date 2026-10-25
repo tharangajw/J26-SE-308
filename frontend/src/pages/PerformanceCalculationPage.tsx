@@ -152,7 +152,7 @@ export const PerformanceCalculationPage: React.FC = () => {
       {/* Top Flow Stepper Header */}
       <PerformanceFlowHeader
         currentStep="pscore"
-        services={['order-service-1', 'book-service-1', 'user-service-1']}
+        services={TelemetryService.getCollectedServices()}
         selectedService={TelemetryService.getActiveService()}
       />
 
