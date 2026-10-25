@@ -1,3 +1,4 @@
+# Computes weighted resilience scores and evaluates configured SLO thresholds.
 from typing import Any
 
 THRESHOLDS = {
@@ -34,10 +35,12 @@ RULES = (
 )
 
 
+# Restricts a normalized metric value to the inclusive zero-to-one range.
 def _clamp01(value: float) -> float:
     return min(1.0, max(0.0, value))
 
 
+# Converts raw resilience metrics into normalized weighted-score inputs.
 def _normalise(metrics: dict[str, float]) -> dict[str, float]:
     return {
         "availability": _clamp01(metrics["availability"] / 99.0),
@@ -51,6 +54,7 @@ def _normalise(metrics: dict[str, float]) -> dict[str, float]:
     }
 
 
+# Maps an R-Score value to its resilience maturity category.
 def resolve_maturity(score: float) -> str:
     if score >= 87.5:
         return "Optimized"
@@ -61,6 +65,7 @@ def resolve_maturity(score: float) -> str:
     return "Initial"
 
 
+# Evaluates metric thresholds and returns the weighted score and maturity level.
 def evaluate_resilience(metrics: Any) -> dict[str, Any]:
     values = metrics.model_dump() if hasattr(metrics, "model_dump") else dict(metrics)
     normalized = _normalise(values)

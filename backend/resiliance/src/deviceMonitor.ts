@@ -1,3 +1,4 @@
+// Monitors host and service health signals used by the resilience dashboard.
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { exec } from 'node:child_process';
@@ -84,6 +85,7 @@ export class DeviceMonitor {
   private probeTimer: NodeJS.Timeout | null = null;
   private netstatTimer: NodeJS.Timeout | null = null;
 
+  // Initializes device metrics and starts periodic host monitoring.
   constructor(_serverPort: number = 3010) {
     this.prevCpuTimes = os.cpus().map(c => ({ ...c.times }));
     this.sampleDeviceMemory();
@@ -96,6 +98,7 @@ export class DeviceMonitor {
 
   private isCpuSamplingInProgress: boolean = false;
 
+  // Samples CPU utilization from operating-system counters.
   private async sampleDeviceCpu(): Promise<void> {
     // 1. Immediate OS CPU delta sampling
     const currentCpus = os.cpus();
@@ -156,6 +159,7 @@ export class DeviceMonitor {
   // Memory
   // ══════════════════════════════════════════════════════════════════════════
 
+  // Calculates current memory utilization from total and free system memory.
   private sampleDeviceMemory(): void {
     const total = os.totalmem();
     const free  = os.freemem();
@@ -168,10 +172,7 @@ export class DeviceMonitor {
   // Multi-endpoint Availability, Latency, Failover, MTTR
   // ══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Fires one probe round against all PROBE_ENDPOINTS in parallel.
-   * Results feed the rolling window that drives all 4 real-time metrics.
-   */
+  // Probes all configured endpoints and updates availability, latency, failover, and recovery metrics.
   private async performLiveProbe(): Promise<void> {
     const settled = await Promise.allSettled(
       PROBE_ENDPOINTS.map(ep => this.probeEndpoint(ep.url, ep.label))
@@ -225,7 +226,7 @@ export class DeviceMonitor {
     }
   }
 
-  /** HTTP-fetch one endpoint with a hard 800 ms timeout. */
+  // Checks one endpoint with a timeout and records its availability and latency.
   private async probeEndpoint(url: string, label: string): Promise<ProbeResult> {
     const start = performance.now();
     let success = false;
@@ -254,11 +255,7 @@ export class DeviceMonitor {
   // Real OS Error Rate — Windows `netstat -s -p TCP` delta
   // ══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Reads cumulative TCP segment / retransmit counters from Windows netstat.
-   * Computes the DELTA between successive readings to get a real-time
-   * retransmit ratio (proxy for network-level error rate).
-   */
+  // Calculates a network error-rate estimate from successive TCP retransmit counters.
   private async sampleOsErrorRate(): Promise<void> {
     try {
       const { stdout } = await execAsync('netstat -s -p TCP', { timeout: 3000 });
@@ -287,7 +284,7 @@ export class DeviceMonitor {
     }
   }
 
-  /** Blend HTTP 5xx rate with OS TCP retransmit rate; take whichever is higher. */
+  // Combines the HTTP error rate and TCP retransmit rate using the higher value.
   private getBlendedErrorRate(): number {
     let httpRate = 0.0;
     if (this.recentRequestsWindow.length >= 5) {
@@ -303,7 +300,7 @@ export class DeviceMonitor {
   // Public API — called by server.ts / collector.ts
   // ══════════════════════════════════════════════════════════════════════════
 
-  /** Record each incoming HTTP request for the 5xx error rate computation. */
+  // Records request errors and response duration for rolling telemetry metrics.
   public recordRequest(isError: boolean = false, durationMs?: number): void {
     const now = Date.now();
     this.recentRequestsWindow.push({ timestamp: now, isError });
@@ -321,7 +318,7 @@ export class DeviceMonitor {
     }
   }
 
-  /** Called by chaos injection to manually mark a fault start. */
+  // Marks the start of an injected fault for recovery-time and failover tracking.
   public recordFaultStart(): void {
     if (this.failureStartTimestamp === null) {
       this.failureStartTimestamp = Date.now();
@@ -333,7 +330,7 @@ export class DeviceMonitor {
     );
   }
 
-  /** Called when chaos is cleared; computes and stores one real MTTR sample. */
+  // Records a completed recovery and updates the observed mean recovery time.
   public recordFaultRecovered(): number {
     if (this.failureStartTimestamp !== null) {
       const recSec = parseFloat(
@@ -358,7 +355,7 @@ export class DeviceMonitor {
     return this.currentMttr;
   }
 
-  /** Return a complete real-time snapshot of all 8 device metrics. */
+  // Returns the current host telemetry snapshot used by the resilience engine.
   public getRealMetrics(): RealDeviceMetrics {
     this.sampleDeviceMemory(); // always read fresh RAM
     return {
@@ -373,7 +370,7 @@ export class DeviceMonitor {
     };
   }
 
-  /** Return static host hardware identity info. */
+  // Returns host identity and hardware capacity information.
   public getHardwareInfo(): DeviceHardwareInfo {
     const total = os.totalmem();
     const free  = os.freemem();
@@ -396,6 +393,7 @@ export class DeviceMonitor {
   // Background timers
   // ══════════════════════════════════════════════════════════════════════════
 
+  // Starts recurring CPU, memory, endpoint, and TCP error-rate sampling.
   private startBackgroundSampling(): void {
     this.sampleDeviceCpu();
     this.sampleDeviceMemory();
@@ -420,6 +418,7 @@ export class DeviceMonitor {
     this.sampleOsErrorRate().catch(() => {});
   }
 
+  // Stops all recurring device-monitor sampling timers.
   public stop(): void {
     if (this.sampleTimer)  clearInterval(this.sampleTimer);
     if (this.probeTimer)   clearInterval(this.probeTimer);

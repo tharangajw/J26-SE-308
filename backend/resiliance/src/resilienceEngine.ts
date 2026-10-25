@@ -1,3 +1,4 @@
+// Calculates resilience scores and evaluates service metrics against configured thresholds.
 import type { FaultMetrics, RScoreRuleResult } from './types.ts';
 
 type ResilienceScoreInput = Pick<FaultMetrics,
@@ -12,6 +13,7 @@ export interface ResilienceEvaluation {
 
 const engineUrl = process.env.RESILIENCE_ENGINE_URL ?? 'http://localhost:8011/api/resilience/evaluate';
 
+// Sends metrics to the Python engine and returns its score and threshold results.
 export async function evaluateResilience(metrics: ResilienceScoreInput): Promise<ResilienceEvaluation> {
   const response = await fetch(engineUrl, {
     method: 'POST',

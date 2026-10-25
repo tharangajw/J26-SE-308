@@ -1,3 +1,4 @@
+# Validates the resilience metric payload accepted by the API.
 from pydantic import BaseModel, ConfigDict, Field
 
 

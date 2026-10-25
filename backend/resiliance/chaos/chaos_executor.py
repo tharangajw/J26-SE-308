@@ -21,6 +21,7 @@ import platform
 
 stop_event = threading.Event()
 
+# Emits a timestamped JSON log event for the chaos experiment stream.
 def emit_log(level: str, source: str, message: str):
     """Prints a structured log line that collector.ts parses in real time."""
     now_str = time.strftime("%H:%M:%S")
@@ -33,6 +34,7 @@ def emit_log(level: str, source: str, message: str):
     }
     print(f"CHAOS_STREAM_EVENT:{json.dumps(payload)}", flush=True)
 
+# Generates CPU work on one worker thread for the requested duration.
 def cpu_burner(duration_sec, thread_idx):
     """Generates real CPU load across processor cores."""
     end_time = time.time() + duration_sec
@@ -41,6 +43,7 @@ def cpu_burner(duration_sec, thread_idx):
         _ = [x ** 2 for x in range(2500)]
         cycle += 1
 
+# Runs bounded multi-threaded CPU stress and reports experiment completion.
 def run_real_cpu_stress(duration_sec, num_threads=None):
     """Spawns real worker threads to consume CPU load and emits real progress."""
     if num_threads is None:
@@ -69,6 +72,7 @@ def run_real_cpu_stress(duration_sec, num_threads=None):
     
     emit_log("INFO", "Chaos Mesh", f"CPU stress threads successfully joined and released host cores.")
 
+# Allocates bounded memory pressure and releases it after the experiment.
 def run_real_memory_stress(duration_sec, target_mb=1000):
     """Allocates real memory buffers in RAM to trigger memory pressure."""
     chunks = []
@@ -95,6 +99,7 @@ def run_real_memory_stress(duration_sec, target_mb=1000):
         del chunks
         emit_log("INFO", "Chaos Mesh", f"Memory buffers freed. Host RAM garbage collection triggered.")
 
+# Runs a local latency probe for the configured target and duration.
 def run_real_latency_probe(target_port=3010, delay_ms=2500, duration_sec=15):
     """Measures real socket latency under artificial delay."""
     emit_log("INFO", "Chaos Mesh", f"Initiating network socket probe against 127.0.0.1:{target_port} with {delay_ms}ms target latency...")
@@ -114,6 +119,7 @@ def run_real_latency_probe(target_port=3010, delay_ms=2500, duration_sec=15):
         time.sleep(1.0)
     return samples
 
+# Parses the fault arguments and dispatches the requested chaos workload.
 def main():
     if len(sys.argv) < 3:
         print(json.dumps({

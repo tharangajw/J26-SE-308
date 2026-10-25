@@ -1,3 +1,4 @@
+// Collects resilience telemetry and coordinates Docker Compose and Chaos Mesh experiments.
 import { spawn, ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +36,7 @@ export class ResilienceCollector {
   private activeChaos: ActiveChaosEvent | null = null;
   private chaosTimeout: NodeJS.Timeout | null = null;
 
+  // Initializes the Prometheus, Kubernetes, and host monitoring clients.
   constructor(
     prometheusUrl: string = process.env.PROMETHEUS_URL ?? 'http://localhost:9090',
     kubernetesSnapshotUrl: string = process.env.RESILIENCE_KUBERNETES_URL ?? 'http://localhost:8011/api/kubernetes/snapshot',
@@ -47,11 +49,12 @@ export class ResilienceCollector {
     this.deviceMonitor = new DeviceMonitor(serverPort);
   }
 
+  // Returns the host monitor used to record and read device metrics.
   public getDeviceMonitor(): DeviceMonitor {
     return this.deviceMonitor;
   }
 
-  // Helper to query Prometheus PromQL endpoint if Prometheus is running
+  // Queries Prometheus for one value and returns null when it is unavailable.
   private async queryPrometheus(query: string): Promise<number | null> {
     try {
       const url = `${this.prometheusUrl}/api/v1/query?query=${encodeURIComponent(query)}`;
@@ -68,6 +71,7 @@ export class ResilienceCollector {
     }
   }
 
+  // Discovers core-product services from active Prometheus scrape targets.
   private async discoverCoreServices(): Promise<Service[]> {
     try {
       const response = await fetch(`${this.corePrometheusUrl}/api/v1/targets?state=active`, {
@@ -118,6 +122,7 @@ export class ResilienceCollector {
     }
   }
 
+  // Counts observed transitions from offline to healthy for a core service.
   private trackCoreServiceHealth(id: string, status: Service['status']): number {
     const previous = this.coreServiceHealth.get(id);
     let recoveries = this.coreServiceRecoveries.get(id) ?? 0;
@@ -129,6 +134,7 @@ export class ResilienceCollector {
     return recoveries;
   }
 
+  // Reads process uptime and detects restarts from process start-time changes.
   private async readCoreProcessMetrics(port: number, id: string): Promise<{ restarts: number | null; uptimeSeconds: number | null }> {
     try {
       const response = await fetch(`http://${this.coreProductHost}:${port}/metrics`, {
@@ -150,6 +156,7 @@ export class ResilienceCollector {
     }
   }
 
+  // Checks whether a core service accepts authenticated Compose chaos controls.
   private async isCoreChaosTarget(port: number | null): Promise<boolean> {
     if (!this.coreChaosToken || !port || port < 1024 || port > 49151) return false;
     try {
@@ -165,6 +172,7 @@ export class ResilienceCollector {
     }
   }
 
+  // Injects a time-limited fault into supported Docker Compose services.
   public async injectCoreChaos(
     targetId: string,
     faultType: string,
@@ -251,6 +259,7 @@ export class ResilienceCollector {
     return this.activeChaos;
   }
 
+  // Clears the active Docker Compose fault from one core service.
   private async clearCoreServiceFault(service: Service): Promise<void> {
     const port = service.port;
     if (!port || !this.coreChaosToken) return;
@@ -261,7 +270,7 @@ export class ResilienceCollector {
     }).catch(() => undefined);
   }
 
-  // Inject a chaos fault via Chaos Mesh
+  // Registers a Chaos Mesh experiment and schedules its automatic cleanup.
   public registerChaosMeshExperiment(event: ActiveChaosEvent): void {
     if (this.chaosTimeout) clearTimeout(this.chaosTimeout);
     this.activeChaos = event;
@@ -269,6 +278,7 @@ export class ResilienceCollector {
     this.chaosTimeout = setTimeout(() => { void this.clearChaos(); }, event.durationSec * 1000);
   }
 
+  // Applies a Chaos Mesh fault to services and records its telemetry context.
   public injectChaos(
     targetId: string,
     faultType: string,
@@ -430,7 +440,7 @@ export class ResilienceCollector {
     return this.activeChaos;
   }
 
-  // Clear chaos and heal (Kubernetes Autonomous Recovery)
+  // Stops active chaos, clears faults, and records the recovery outcome.
   public async clearChaos(): Promise<void> {
     if (this.chaosTimeout) {
       clearTimeout(this.chaosTimeout);
@@ -506,6 +516,7 @@ export class ResilienceCollector {
   }
 
   // Heal an individual service
+  // Heals one service or the full cluster and closes matching experiments.
   public async healService(targetId: string): Promise<void> {
     if (targetId === 'all') {
       await this.clearChaos();
@@ -539,6 +550,7 @@ export class ResilienceCollector {
   }
 
   // Primary real-time telemetry extraction method
+  // Collects live host, Prometheus, Kubernetes, and active-fault metrics.
   public async collectTelemetry(): Promise<{
     metrics: FaultMetrics;
     rules: RScoreRuleResult[];

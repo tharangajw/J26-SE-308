@@ -1,3 +1,4 @@
+// Defines shared TypeScript data contracts for resilience metrics, services, and experiments.
 export type MaturityLevel = 'Initial' | 'Developing' | 'Mature' | 'Optimized';
 
 export interface FaultMetrics {

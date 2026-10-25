@@ -1,3 +1,4 @@
+# Reads Kubernetes health data and manages authorized Chaos Mesh experiments.
 import json
 import os
 import re
@@ -26,6 +27,7 @@ class KubernetesConnectionError(Exception):
     pass
 
 
+# Retrieves and decodes a JSON response from the Kubernetes API proxy.
 def _get_json(path: str) -> dict[str, Any]:
     request = Request(f"{KUBERNETES_URL}{path}", headers={"Accept": "application/json"})
     try:
@@ -41,6 +43,7 @@ def _get_json(path: str) -> dict[str, Any]:
         raise KubernetesConnectionError(f"Cannot read Kubernetes API at {KUBERNETES_URL}.") from error
 
 
+# Sends an authenticated JSON request through the Kubernetes API proxy.
 def _request_json(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
     data = json.dumps(body).encode() if body is not None else None
     request = Request(
@@ -59,6 +62,7 @@ def _request_json(method: str, path: str, body: dict[str, Any] | None = None) ->
         raise KubernetesConnectionError(f"Cannot reach Kubernetes API at {KUBERNETES_URL}.") from error
 
 
+# Lists running application Pods that can be targeted by Chaos Mesh.
 def get_chaos_targets() -> dict[str, Any]:
     try:
         crds = _get_json("/apis/chaos-mesh.org/v1alpha1")
@@ -95,6 +99,7 @@ def get_chaos_targets() -> dict[str, Any]:
         return {"connected": False, "ready": False, "targets": [], "error": str(error)}
 
 
+# Validates a requested fault and creates its Chaos Mesh custom resource.
 def create_chaos_experiment(payload: dict[str, Any]) -> dict[str, Any]:
     namespace = str(payload.get("namespace", ""))
     pod_name = str(payload.get("podName", ""))
@@ -170,6 +175,7 @@ def create_chaos_experiment(payload: dict[str, Any]) -> dict[str, Any]:
     return {"name": name, "namespace": namespace, "podName": pod_name, "targetName": "All Microservices" if all_targets else None, "kind": kind, "faultType": fault_type, "duration": duration}
 
 
+# Deletes dashboard-managed Chaos Mesh experiments from the cluster.
 def clear_chaos_experiments() -> dict[str, Any]:
     cleared = 0
     for kind in ("podchaos", "networkchaos", "stresschaos", "httpchaos"):
@@ -187,6 +193,7 @@ def clear_chaos_experiments() -> dict[str, Any]:
     return {"cleared": cleared}
 
 
+# Collects core-product Pod, deployment, restart, and HPA health data.
 def get_cluster_snapshot() -> dict[str, Any]:
     try:
         pods_response = _get_json("/api/v1/pods?limit=500")
@@ -195,6 +202,7 @@ def get_cluster_snapshot() -> dict[str, Any]:
     except KubernetesConnectionError as error:
         return {"connected": False, "validation": None, "error": str(error)}
 
+    # Identifies which core-product service owns a Kubernetes resource.
     def core_service_for(resource: dict[str, Any]) -> str | None:
         metadata = resource.get("metadata", {})
         identifiers = {str(metadata.get("name", "")).lower()}
