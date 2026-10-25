@@ -1,9 +1,10 @@
 import { SharedMaturityPayload } from './types';
 
+// API contract adapter transforming local P-Score results into the shared cross-pillar
+// maturity schema (combining Performance, Resilience, Observability, and Architecture).
 export class MaturityEvaluationApiContract {
-  /**
-   * Formats local P-Score calculation into the shared multi-dimension maturity engine schema.
-   */
+  // Formats service metrics and computes a weighted composite maturity score
+  // across all 4 pillars (P-Score 35%, R-Score 25%, O-Score 25%, A-Score 15%).
   public formatSharedMaturityPayload(
     serviceId: string,
     pScore: number,

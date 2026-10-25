@@ -3,11 +3,16 @@ from typing import List, Dict, Any
 from imputer import TelemetryImputer
 from normalizer import TelemetryNormalizer
 
+# Orchestrates raw snapshot ingestion, time-series alignment, missing-data imputation,
+# and feature normalization into a structured Pandas DataFrame.
 class DataPipelineEngine:
+    # Initializes imputer and normalizer components used throughout the pipeline.
     def __init__(self):
         self.imputer = TelemetryImputer()
         self.normalizer = TelemetryNormalizer()
 
+    # Transforms a list of raw telemetry snapshots into a cleaned, time-aligned, and normalized DataFrame
+    # ready for downstream statistical analysis and machine learning inference.
     def process_raw_snapshots(self, snapshots: List[Dict[str, Any]]) -> pd.DataFrame:
         if not snapshots:
             return pd.DataFrame()

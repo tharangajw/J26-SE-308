@@ -2,12 +2,11 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any
 
+# Normalizes disparate telemetry units (CPU millicores, RAM megabytes, latency milliseconds, RPS)
+# into a standardized [0.0, 1.0] interval using predetermined Kubernetes operational bounds.
 class TelemetryNormalizer:
-    """
-    Normalizes mixed unit telemetry (millicores, MB, ms, RPS) to a standardized 0-1 scale.
-    """
+    # Defines standard production min-max bounding thresholds for container workloads.
     def __init__(self):
-        # Domain bounds based on typical Kubernetes microservice resource limits
         self.bounds = {
             'cpu_millicores': {'min': 0.0, 'max': 2000.0},
             'memory_mb': {'min': 0.0, 'max': 4096.0},
@@ -17,7 +16,8 @@ class TelemetryNormalizer:
             'rps': {'min': 0.0, 'max': 2000.0}
         }
 
-    def normalize_feature(self, value: float, feature_name: string if False else str) -> float:
+    # Scales an individual metric value using Min-Max scaling and clamps the result between 0.0 and 1.0.
+    def normalize_feature(self, value: float, feature_name: str) -> float:
         if feature_name not in self.bounds:
             return min(1.0, max(0.0, value))
         
@@ -30,6 +30,7 @@ class TelemetryNormalizer:
         norm_val = (value - f_min) / (f_max - f_min)
         return float(np.clip(norm_val, 0.0, 1.0))
 
+    # Iterates over a telemetry record dictionary and creates normalized companion fields for numeric entries.
     def normalize_record(self, record: Dict[str, Any]) -> Dict[str, float]:
         normalized = {}
         for k, v in record.items():

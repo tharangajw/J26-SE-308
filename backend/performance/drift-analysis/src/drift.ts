@@ -1,15 +1,17 @@
 import { HistoricalDeploymentPoint, DriftAnalysisResult, DriftForecastResult, PredictedDeploymentPoint } from './types';
 
+// Service analyzing release-over-release P95 latency degradation across deployment points
+// and forecasting future performance trends using Ordinary Least Squares (OLS) regression.
 export class HistoricalDriftService {
   private sensitivityWindowDays: number;
 
+  // Initializes the drift analyzer with a configurable sliding evaluation window in days.
   constructor(sensitivityWindowDays: number = 14) {
     this.sensitivityWindowDays = sensitivityWindowDays;
   }
 
-  /**
-   * Calculates moving-average latency baseline across historical deployments.
-   */
+  // Calculates the moving-average P95 latency baseline across historical deployments,
+  // falling back to a default of 100ms if no historical records exist.
   public calculateBaseline(history: HistoricalDeploymentPoint[]): number {
     if (!history || history.length === 0) {
       return 100.0; // Default baseline in ms
@@ -18,10 +20,8 @@ export class HistoricalDriftService {
     return sum / history.length;
   }
 
-  /**
-   * Forecasts future P95 latency drift using Ordinary Least Squares (OLS) trend analysis
-   * over historical deployment baselines plus live active latency snapshot.
-   */
+  // Performs Ordinary Least Squares (OLS) regression across historical baselines and live traffic
+  // to project latency trends, compute 95% confidence intervals, and estimate deployments until SLA breach.
   public forecastDrift(
     historicalBaselineMs: number,
     currentP95Ms: number,
@@ -140,9 +140,8 @@ export class HistoricalDriftService {
     };
   }
 
-  /**
-   * Computes historical drift score and proactive future forecast.
-   */
+  // Computes the latency drift percentage and normalized penalty score [0.0, 1.0],
+  // bundling them together with the OLS proactive forecast.
   public analyzeDrift(
     serviceId: string,
     currentP95Ms: number,
@@ -172,4 +171,3 @@ export class HistoricalDriftService {
     };
   }
 }
-

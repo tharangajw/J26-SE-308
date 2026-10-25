@@ -7,13 +7,11 @@ import numpy as np
 import pandas as pd
 
 
+# Time-series data pipeline engine using Pandas and NumPy to align streaming metrics
+# onto a uniform 5-second grid, impute scrape dropouts, and output normalized vectors.
 class LiveTelemetryPipelineEngine:
-    """
-    Phase 2: Real-Time Telemetry Preprocessing, 5s Grid Alignment, Imputation,
-    and Min-Max [0, 1] Normalization Engine written in Python (Pandas & NumPy).
-    Zero random/synthetic fallback data.
-    """
-
+    # Sets up rolling metric buffers per microservice and defines domain-specific min/max
+    # bounding intervals for CPU, memory, P95/P99 latency, RPS, and error rates.
     def __init__(self, collector_url: str = "http://telemetry-collector:8787"):
         self.collector_url = collector_url
         # Rolling history of real snapshots per service: service_id -> list of raw dicts
@@ -29,6 +27,8 @@ class LiveTelemetryPipelineEngine:
             "error_rate": {"min": 0.0, "max": 1.0},
         }
 
+    # Performs HTTP GET requests with fallback hosts (localhost, container hostname, 127.0.0.1)
+    # to reliably retrieve JSON payloads from the telemetry collector daemon.
     def _fetch_json(self, path: str, timeout: float = 8.0) -> Optional[Dict[str, Any]]:
         urls = [
             f"http://localhost:8787{path}",
@@ -45,6 +45,8 @@ class LiveTelemetryPipelineEngine:
                 continue
         return None
 
+    # Normalizes arbitrary raw numeric metrics into a bounded [0.0, 1.0] scale
+    # using predefined cluster operational limits and clipping out-of-range extremes.
     def normalize_value(self, value: float, feature: str) -> float:
         b = self.bounds.get(feature)
         if not b or b["max"] <= b["min"]:
@@ -52,6 +54,8 @@ class LiveTelemetryPipelineEngine:
         norm = (float(value) - b["min"]) / (b["max"] - b["min"])
         return round(float(np.clip(norm, 0.0, 1.0)), 4)
 
+    # Ingests a raw telemetry snapshot, extracts Prometheus/Loki/K8s signals,
+    # and appends the record into a 3-minute sliding window history buffer.
     def ingest_live_snapshot(self, snap: Dict[str, Any]) -> Dict[str, Any]:
         service_id = snap.get("serviceId", "unknown")
         ts_ms = int(snap.get("timestamp") or int(time.time() * 1000))
@@ -88,6 +92,8 @@ class LiveTelemetryPipelineEngine:
 
         return record
 
+    # Executes the complete preprocessing pipeline for a microservice: fetches live telemetry,
+    # aligns observations to 5s buckets, imputes missing values, and calculates normalized features.
     def process_service_pipeline(
         self,
         service_id: str,
@@ -147,6 +153,8 @@ class LiveTelemetryPipelineEngine:
                 "timeSeriesGrid": [],
             }
 
+        # Step 1: Bucket timestamps onto a strict 5-second UTC grid and aggregate
+        # simultaneous multi-pod metrics using mean averaging.
         df = pd.DataFrame(buf)
         df["grid_ts_ms"] = (df["timestamp_ms"] // 5000) * 5000
 
@@ -181,7 +189,8 @@ class LiveTelemetryPipelineEngine:
             col for col in feature_cols if bool(missing_mask[col].any())
         ]
 
-        # Apply Pandas imputation
+        # Step 2: Handle scrape gaps by interpolating missing data points across time
+        # using the selected strategy (linear interpolation, forward-fill, or zero-fill).
         imputed_df = grid_df.copy()
         if imputation_method == "zero_fill":
             imputed_df[numeric_cols] = imputed_df[numeric_cols].fillna(0.0)
@@ -214,6 +223,8 @@ class LiveTelemetryPipelineEngine:
             or len(buf) > 0
         )
 
+        # Step 3: Scale raw metrics into normalized [0.0, 1.0] vectors for downstream
+        # consumption by the Isolation Forest model and P-Score calculation engine.
         norm_cpu = self.normalize_value(raw_cpu, "cpu_millicores")
         norm_mem = self.normalize_value(raw_mem, "memory_mb")
         norm_lat = self.normalize_value(raw_p95, "p95_latency_ms")

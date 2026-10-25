@@ -1,10 +1,13 @@
 import { HistoricalDriftService } from '../src/drift';
 import { HistoricalDeploymentPoint } from '../src/types';
 
+// Integration test suite verifying moving baseline calculations, positive drift score assignment,
+// and Ordinary Least Squares (OLS) regression forecast accuracy under degrading latency trends.
 function testDriftAnalysis() {
   console.log('--- Testing Drift Analysis & Predictive Forecasting Module ---');
   const service = new HistoricalDriftService(14);
 
+  // Historical deployment series demonstrating progressive latency growth
   const history: HistoricalDeploymentPoint[] = [
     { deploymentId: 'dep-1', timestamp: Date.now() - 86400000 * 3, baselineP95Ms: 100 },
     { deploymentId: 'dep-2', timestamp: Date.now() - 86400000 * 2, baselineP95Ms: 110 },
@@ -14,6 +17,7 @@ function testDriftAnalysis() {
   // Baseline average = 110ms, Live = 130ms (Clear upward degrading trend)
   const result = service.analyzeDrift('order-service', 130, history, 3, 160);
 
+  // Validate that positive drift score and 3-step forecast are correctly generated
   console.assert(result.driftScore > 0, 'Drift score should be positive');
   console.assert(result.forecast !== undefined, 'Forecast should be generated');
   console.assert(result.forecast?.predictedDeployments.length === 3, 'Should generate 3 forecast steps');
@@ -25,4 +29,3 @@ function testDriftAnalysis() {
 }
 
 testDriftAnalysis();
-

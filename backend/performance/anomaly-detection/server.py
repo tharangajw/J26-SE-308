@@ -81,6 +81,8 @@ class InferenceRequest(BaseModel):
     pod_uptime_sec: Optional[float] = 120.0
 
 
+# Forwards incoming HTTP traffic directly to the target microservice container,
+# measuring actual network round-trip response time and detecting 5xx server failures.
 def _probe_target_service(service_id: str, forward_path: str = "/") -> Optional[Dict[str, Any]]:
     """
     Forwards the incoming JMeter request to the actual microservice container if reachable,
@@ -116,6 +118,8 @@ def _probe_target_service(service_id: str, forward_path: str = "/") -> Optional[
     return None
 
 
+# Fetches live container telemetry from the collector using a short 1.5s TTL cache
+# to avoid socket exhaustion during intensive JMeter load tests.
 def _get_live_service_snapshot(service_id: str, now: float) -> Dict[str, Any]:
     """
     Fetches real container metrics (CPU, Memory, P95 Latency, Loki Errors, K8s Uptime)
@@ -144,6 +148,8 @@ def _get_live_service_snapshot(service_id: str, now: float) -> Dict[str, Any]:
     return target_snap
 
 
+# Ingests live traffic from load tests, calculates rolling 5-second RPS, aggregates
+# measured latency percentiles, normalizes inputs, and runs real-time anomaly inference.
 def record_live_traffic(
     service_id: str,
     uptime_sec: float = 120.0,
@@ -231,6 +237,7 @@ def record_live_traffic(
     return result
 
 
+# Health check endpoint returning runtime status and trained state of the Isolation Forest model.
 @app.get("/health")
 def health_check():
     return {
@@ -240,6 +247,8 @@ def health_check():
     }
 
 
+# Direct ML inference endpoint accepting a 4D normalized vector [CPU, RAM, Latency, Errors]
+# and returning outlier classification, decision score, and dominant driver attributions.
 @app.post("/predict")
 def predict_anomaly(req: InferenceRequest):
     if len(req.feature_vector) != 4:
@@ -262,6 +271,8 @@ def predict_anomaly(req: InferenceRequest):
     return result
 
 
+# Synthetic load test proxy endpoint routing incoming traffic to matching microservice handlers
+# and computing dynamic request rates and latency distributions under load.
 @app.get("/api/v1/{resource}")
 @app.get("/api/v1/{resource}/{item_id}")
 def handle_jmeter_service_traffic(
@@ -272,6 +283,7 @@ def handle_jmeter_service_traffic(
     return record_live_traffic(service_id, uptime, forward_path=forward_path)
 
 
+# Returns the most recent cached telemetry features and inference results for a given service.
 @app.get("/latest/{service_id}")
 def get_latest_service_telemetry(service_id: str):
     now = time.time()
@@ -287,6 +299,7 @@ def get_latest_service_telemetry(service_id: str):
     return {"service_id": service_id, "feature_vector": None}
 
 
+# Triggers the Pandas time-series pipeline to align, impute, and normalize container metrics.
 @app.get("/pipeline/process")
 def run_python_telemetry_pipeline(
     service_id: str = Query(..., description="Target microservice ID"),
@@ -300,6 +313,7 @@ def run_python_telemetry_pipeline(
     return pipeline_engine.process_service_pipeline(service_id, imputation)
 
 
+# Computes cluster-wide P-Scores, validates AHP consistency, and generates optimization recommendations.
 @app.get("/pscore/evaluate")
 def evaluate_composite_pscore(
     services: Optional[str] = Query(

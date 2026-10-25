@@ -33,18 +33,18 @@ SAATY_SCALE_VALUES = np.array(
 )
 
 
+# Quantizes an arbitrary continuous importance ratio to the closest discrete
+# value on Saaty's 1-9 fundamental Analytic Hierarchy Process (AHP) scale.
 def _snap_to_saaty_scale(ratio: float) -> float:
     idx = int(np.argmin(np.abs(SAATY_SCALE_VALUES - ratio)))
     return float(SAATY_SCALE_VALUES[idx])
 
 
+# Core evaluation engine that calculates composite P-Scores, validates AHP consistency,
+# evaluates Apdex and tail-latency ratios, and simulates remediation impact projections.
 class PScoreAndRecommendationEngine:
-    """
-    Phase 4 & 5: Composite Performance Efficiency Scoring Engine (P-Score),
-    Saaty AHP Consistency Validator, Tail-Latency & Apdex Analyzer,
-    4-Tier Maturity Mapper, Historical P-Score Trend Tracker, and Closed-Loop Recommendation Simulator in Python.
-    """
-
+    # Initializes scoring weights (drift 0.4, fan-out 0.4, anomaly 0.2), links the ML anomaly
+    # detector, and loads historical P-Score evaluations for trend visualization.
     def __init__(
         self,
         detector: AnomalyDetectionService,
@@ -68,6 +68,7 @@ class PScoreAndRecommendationEngine:
         self._last_recorded_ts = 0.0
         self._load_pscore_history()
 
+    # Loads the recent sliding history of cluster P-Score snapshots from persistent JSON storage.
     def _load_pscore_history(self) -> None:
         try:
             if os.path.exists(self.history_path):
@@ -78,6 +79,7 @@ class PScoreAndRecommendationEngine:
         except Exception:
             self.pscore_history = []
 
+    # Writes the in-memory P-Score trend history to disk for persistent dashboard charting.
     def _persist_pscore_history(self) -> None:
         try:
             os.makedirs(os.path.dirname(self.history_path), exist_ok=True)
@@ -86,6 +88,8 @@ class PScoreAndRecommendationEngine:
         except Exception:
             pass
 
+    # Records a new time-stamped cluster score snapshot with throttling (every 15s or on score shift)
+    # to maintain an informative historical trajectory without flooding disk I/O.
     def _record_pscore_snapshot(
         self,
         overall_pscore: float,
@@ -141,6 +145,8 @@ class PScoreAndRecommendationEngine:
                 continue
         return None
 
+    # Validates weighting matrix mathematically via Saaty's Analytic Hierarchy Process (AHP),
+    # verifying that the Consistency Ratio (CR) remains below the strict 0.10 threshold.
     @staticmethod
     def compute_ahp_validation(
         w_drift: float = 0.40,
@@ -237,6 +243,8 @@ class PScoreAndRecommendationEngine:
             "threshold": 0.10,
         }
 
+    # Computes Tail-Latency amplification (P99/P95) and Application Performance Index (Apdex)
+    # assessing user satisfaction against target latency (50ms) and frustration threshold (200ms).
     @staticmethod
     def compute_apdex_and_tail(
         avg_lat_ms: float, p95_lat_ms: float, p99_lat_ms: float, error_count: int = 0
@@ -292,6 +300,8 @@ class PScoreAndRecommendationEngine:
             "apdexThresholdMs": 50.0,
         }
 
+    # Categorizes the 0-100 P-Score into four standardized enterprise maturity tiers:
+    # Level 1 Foundational, Level 2 Developing, Level 3 Tuned, and Level 4 Optimized.
     @staticmethod
     def map_score_to_tier(p_score: float) -> Dict[str, Any]:
         if p_score >= 85.0:
@@ -322,6 +332,8 @@ class PScoreAndRecommendationEngine:
             "summary": "Severe latency regression, deep synchronous N+1 fan-out, or active resource saturation.",
         }
 
+    # Evaluates context-specific rules (DB indexing, Redis caching, container footprint)
+    # and projects quantifiable point gains for both individual services and the cluster.
     def evaluate_service_recommendations(
         self,
         service_id: str,
@@ -470,6 +482,8 @@ class PScoreAndRecommendationEngine:
 
         return recommendations
 
+    # Executes end-to-end cluster performance evaluation: aggregates drift, fan-out, and anomaly
+    # scores across active services, computes the composite P-Score, and generates prescriptive remediations.
     def evaluate_cluster_pscore(
         self,
         requested_services: Optional[List[str]] = None,
