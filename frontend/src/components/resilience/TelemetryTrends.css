@@ -46,3 +46,10 @@
 .ft-dashboard-scope .chart-container {
   width: 100%;
 }
+.ft-dashboard-scope .empty-history-message {
+  min-height: 380px;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}

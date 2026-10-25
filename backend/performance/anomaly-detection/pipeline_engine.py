@@ -29,10 +29,11 @@ class LiveTelemetryPipelineEngine:
             "error_rate": {"min": 0.0, "max": 1.0},
         }
 
-    def _fetch_json(self, path: str, timeout: float = 3.5) -> Optional[Dict[str, Any]]:
+    def _fetch_json(self, path: str, timeout: float = 8.0) -> Optional[Dict[str, Any]]:
         urls = [
-            f"{self.collector_url}{path}",
             f"http://localhost:8787{path}",
+            f"{self.collector_url}{path}",
+            f"http://127.0.0.1:8787{path}",
         ]
         for url in urls:
             try:
@@ -204,14 +205,21 @@ class LiveTelemetryPipelineEngine:
         raw_err = int(round(float(latest["error_count"])))
         raw_rep = int(round(float(latest["replica_count"])))
 
-        has_telemetry = bool(raw_cpu > 0 or raw_mem > 0 or raw_p95 > 0 or raw_rps > 0)
+        has_telemetry = bool(
+            raw_cpu > 0
+            or raw_mem > 0
+            or raw_p95 > 0
+            or raw_rps > 0
+            or raw_rep > 0
+            or len(buf) > 0
+        )
 
         norm_cpu = self.normalize_value(raw_cpu, "cpu_millicores")
         norm_mem = self.normalize_value(raw_mem, "memory_mb")
         norm_lat = self.normalize_value(raw_p95, "p95_latency_ms")
         norm_rps = self.normalize_value(raw_rps, "rps")
         norm_err = round(min(1.0, raw_err / 100.0), 4)
-        norm_avail = 1.0 if (has_telemetry and raw_rep > 0) else 0.0
+        norm_avail = 1.0 if raw_rep > 0 else (1.0 if has_telemetry else 0.0)
 
         # Build time-series array for charts
         ts_records = []
@@ -256,7 +264,7 @@ class LiveTelemetryPipelineEngine:
                 "p99LatencyMs": raw_p99,
                 "rps": raw_rps,
                 "errorCount": raw_err,
-                "replicaCount": raw_rep if has_telemetry else 0,
+                "replicaCount": raw_rep,
             },
             "imputedMetrics": {
                 "missingValuesDetected": missing_count,

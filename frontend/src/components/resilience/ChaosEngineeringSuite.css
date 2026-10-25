@@ -3,6 +3,9 @@
 .ft-dashboard-scope .chaos-card {
   padding: 24px;
 }
+.ft-dashboard-scope .chaos-select-sm[data-engine="Chaos Mesh"] option[value="all"] {
+  display: none;
+}
 .ft-dashboard-scope .chaos-header {
   display: flex;
   align-items: center;
@@ -328,6 +331,19 @@
   background: linear-gradient(135deg, #dc2626, #b91c1c);
   box-shadow: 0 6px 18px rgba(239, 68, 68, 0.45);
   transform: translateY(-1px);
+}
+.ft-dashboard-scope .btn-trigger-chaos-card:disabled {
+  background: #334155;
+  border-color: #475569;
+  color: #cbd5e1;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+.ft-dashboard-scope .empty-services-message,
+.ft-dashboard-scope .chaos-unavailable {
+  color: #94a3b8;
+  font-size: 12px;
 }
 .ft-dashboard-scope .ft-badge {
   display: inline-block;
