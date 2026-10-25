@@ -1,3 +1,4 @@
+// Baseline-only fallback used before the first live telemetry response arrives.
 export const INITIAL_MOCK_HISTORY = Array.from({ length: 20 }).map((_, i) => ({
   timestamp: new Date(Date.now() - (20 - i) * 10000).toISOString(),
   oscore: 85 + Math.random() * 10 - 5,

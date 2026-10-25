@@ -1,3 +1,4 @@
+// Renders the O-Score and CCI history returned by the observability engine.
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid

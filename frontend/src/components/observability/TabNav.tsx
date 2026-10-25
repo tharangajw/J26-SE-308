@@ -1,3 +1,4 @@
+// Navigation for the Observability detail, CCI, RCA, remediation, and calculation views.
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'metrics', label: 'Metrics' },

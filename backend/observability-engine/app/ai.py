@@ -7,6 +7,9 @@ import time
 from typing import Any
 
 import requests
+import yaml
+
+# Provider adapters also enforce AI-output, YAML, security, and rollback guardrails.
 
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
@@ -41,6 +44,7 @@ _SECRET_PATTERNS = (
 )
 
 
+# Remove credentials and personal identifiers before sending data to AI providers.
 def _redact(value: Any) -> Any:
     """Remove common credentials and personal identifiers before external AI calls."""
     if isinstance(value, dict):
@@ -55,6 +59,7 @@ def _redact(value: Any) -> Any:
     return redacted
 
 
+# Build the strict JSON-only RCA prompt from a redacted telemetry snapshot.
 def _prompt(snapshot: dict[str, Any]) -> str:
     snapshot = _redact(snapshot)
     return f"""You are an observability SRE performing root-cause analysis.
@@ -65,6 +70,7 @@ Return ONLY valid JSON matching this schema, with no markdown:
 {json.dumps(SCHEMA)}"""
 
 
+# Build a constrained Kubernetes remediation prompt from RCA evidence.
 def _remediation_prompt(report: dict[str, Any]) -> str:
     report = _redact(report)
     telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
@@ -97,6 +103,7 @@ Requirements:
 - Include exact rollback steps using kubectl rollout undo where applicable."""
 
 
+# Parse provider output while tolerating markdown fences or a short preamble.
 def _parse_json(value: str) -> dict[str, Any]:
     """Parse JSON even when a chat model adds fences or a short preamble."""
     if not isinstance(value, str) or not value.strip():
@@ -122,6 +129,7 @@ def _parse_json(value: str) -> dict[str, Any]:
     return parsed
 
 
+# Construct the OpenRouter request with deterministic JSON response settings.
 def _openrouter_payload(model: str, prompt: str) -> dict[str, Any]:
     return {
         "model": model,
@@ -134,6 +142,7 @@ def _openrouter_payload(model: str, prompt: str) -> dict[str, Any]:
     }
 
 
+# Validate YAML syntax, Deployment structure, security blacklist, and rollback data.
 def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
     """Reject incomplete or unsafe model output before it reaches the UI."""
     script_value = parsed.get("script")
@@ -161,6 +170,20 @@ def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
             lines = lines[:-1]
         script = "\n".join(lines).strip()
     parsed["script"] = script
+
+    try:
+        manifest = yaml.safe_load(script)
+    except yaml.YAMLError as error:
+        raise ValueError(f"remediation response contained invalid YAML: {error}") from error
+    if not isinstance(manifest, dict):
+        raise ValueError("remediation response did not contain a YAML mapping")
+    if manifest.get("apiVersion") != "apps/v1":
+        raise ValueError("remediation manifest must use apiVersion apps/v1")
+    if manifest.get("kind") != "Deployment":
+        raise ValueError("remediation manifest must be a Deployment")
+    metadata = manifest.get("metadata")
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("name"), str) or not metadata["name"].strip():
+        raise ValueError("remediation manifest metadata.name is required")
 
     required_yaml = ("apiVersion:", "kind:", "metadata:")
     if not structured_manifest and not all(marker in script for marker in required_yaml):
@@ -192,6 +215,7 @@ def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
+# Return a clearly marked RCA fallback when a provider is unavailable.
 def _demo(provider: str, elapsed: int = 0, reason: str | None = None) -> dict[str, Any]:
     return {
         "summary": "The latest telemetry indicates elevated request latency and intermittent database connection failures in order-service.",
@@ -216,6 +240,7 @@ def _demo(provider: str, elapsed: int = 0, reason: str | None = None) -> dict[st
     }
 
 
+# Return a safe demo patch when live remediation generation is unavailable.
 def _demo_remediation(provider: str, elapsed: int = 0, reason: str | None = None) -> dict[str, Any]:
     return {
         "script_type": "kubernetes_yaml",
@@ -249,6 +274,7 @@ spec:
     }
 
 
+# Call Gemini and parse its structured RCA response.
 def analyze_with_gemini(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
@@ -272,6 +298,7 @@ def analyze_with_gemini(snapshot: dict[str, Any]) -> dict[str, Any]:
     return _demo("gemini", round((time.perf_counter() - started) * 1000), f"Gemini models unavailable after retry: {last_error}")
 
 
+# Call Claude and parse its structured RCA response.
 def analyze_with_claude(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("ANTHROPIC_API_KEY")
     if not key:
@@ -291,6 +318,7 @@ def analyze_with_claude(snapshot: dict[str, Any]) -> dict[str, Any]:
         return _demo("claude", round((time.perf_counter() - started) * 1000), f"Claude unavailable: {str(error)[:180]}")
 
 
+# Call OpenRouter and parse its structured RCA response.
 def analyze_with_openrouter(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("OPENROUTER_API_KEY")
     if not key:
@@ -310,6 +338,7 @@ def analyze_with_openrouter(snapshot: dict[str, Any]) -> dict[str, Any]:
         return _demo("openrouter", round((time.perf_counter() - started) * 1000), f"OpenRouter request/response error: {str(error)[:180]}")
 
 
+# Dispatch RCA analysis to the selected provider adapter.
 def analyze(provider: str, snapshot: dict[str, Any]) -> dict[str, Any]:
     if provider == "gemini":
         return analyze_with_gemini(snapshot)
@@ -318,6 +347,7 @@ def analyze(provider: str, snapshot: dict[str, Any]) -> dict[str, Any]:
     return analyze_with_openrouter(snapshot)
 
 
+# Generate, validate, classify, and return a guarded remediation response.
 def generate_remediation(provider: str, report: dict[str, Any]) -> dict[str, Any]:
     """Generate a guarded remediation script through the selected provider."""
     key = {"gemini": os.getenv("GEMINI_API_KEY"), "claude": os.getenv("ANTHROPIC_API_KEY"), "openrouter": os.getenv("OPENROUTER_API_KEY")}.get(provider)

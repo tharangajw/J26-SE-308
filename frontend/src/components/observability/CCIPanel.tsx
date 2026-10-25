@@ -1,3 +1,4 @@
+// Cross-Pillar Correlation Index explains trace-log matching and blind spots.
 import BlindSpotAlert from './BlindSpotAlert';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 

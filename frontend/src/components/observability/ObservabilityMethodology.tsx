@@ -1,3 +1,4 @@
+// Documents the ingestion, correlation, scoring, RCA, and remediation pipeline.
 import { useState } from 'react';
 import { 
   Activity, 
