@@ -29,11 +29,15 @@ def get_dashboard_data():
         
         prs.append({
             "id": f"PR #{r['pr_number']}",
+            "prNumber": r["pr_number"],
             "title": f"Update {r['service_name']}",
             "services": [r["service_name"]],
             "commitFreq": round(c_freq, 1),
             "coDeployRate": round(c_deploy, 3),
             "couplingIndex": coupling_index,
+            "blastRadius": round(float(r.get("blast_radius") or 0), 1),
+            "cscore": round(float(r.get("cscore", 0) or 0), 1),
+            "decision": r["decision"],
             "status": "Passed" if r["decision"] == "LOW_RISK" else "Blocked",
             "time": r["created_at"]
         })
@@ -110,11 +114,14 @@ def get_phase2_dashboard():
         
         pr_item = {
             "id": f"PR #{r['pr_number']}",
+            "prNumber": r["pr_number"],
             "title": f"Update {r['service_name']}",
             "services": [r["service_name"]],
             "apiChanges": api_changes,
             "downstreamCount": downstream,
             "blastRadius": blast,
+            "cscore": round(float(r.get("cscore", 0) or 0), 1),
+            "decision": r["decision"],
             "status": "Passed" if r["decision"] == "LOW_RISK" else "Blocked",
             "time": r["created_at"],
             "hasContractChange": api_changes > 0 or blast > 0
@@ -200,3 +207,119 @@ def sync_architecture():
     count = auto_discover_dependencies(repo["installation_id"], repo["full_name"], repo["id"])
     return {"status": "ok", "dependencies_discovered": count, "repo": repo["full_name"]}
 
+
+
+
+@router.get("/api/cicd/overview")
+def get_cicd_overview():
+    runs = db.get_runs(limit=50)
+    total_evals = len(runs)
+    if total_evals == 0:
+        return {
+            "summary": {
+                "totalEvaluations": 0,
+                "passRate": 0,
+                "avgCouplingIndex": 0.0,
+                "avgBlastRadius": 0.0,
+                "avgCScore": 0.0,
+                "runtimeRestarts": 0,
+                "runtimeCpu": 0.0,
+                "runtimeStatus": "NOMINAL"
+            },
+            "runs": [],
+            "timeline": []
+        }
+
+    formatted_runs = []
+    total_coupling = 0.0
+    total_blast = 0.0
+    total_cscore = 0.0
+    total_restarts = 0
+    passed_count = 0
+
+    for r in runs:
+        features = json.loads(r["features"])
+        c_freq = float(features.get("commit_freq", 0) or 0)
+        c_deploy = float(features.get("co_deploy_rate", 0) or 0)
+        api_changes = float(features.get("api_changes", 0) or 0)
+        downstream = float(features.get("downstream_count", 0) or 0)
+        pod_restarts = int(features.get("pod_restarts", 0) or 0)
+        cpu_spike = float(features.get("cpu_spike_pct", 0) or 0)
+        mem_spike = float(features.get("mem_spike_pct", 0) or 0)
+        error_rate = float(features.get("error_rate_pct", 0) or 0)
+        max_call_depth = int(features.get("max_call_depth", 0) or 0)
+        sync_call_count = int(features.get("sync_call_count", 0) or 0)
+
+        coupling_index = round(0.5 * min(c_freq / 24.0, 1.0) + 0.5 * c_deploy, 3)
+        blast = float(r.get("blast_radius") if r.get("blast_radius") is not None else (api_changes * downstream))
+        cscore = float(r.get("cscore", 0) or 0)
+        is_passed = (r.get("decision") == "LOW_RISK")
+        if is_passed:
+            passed_count += 1
+
+        total_coupling += coupling_index
+        total_blast += blast
+        total_cscore += cscore
+        total_restarts += pod_restarts
+
+        formatted_runs.append({
+            "id": f"PR #{r['pr_number']}",
+            "prNumber": r["pr_number"],
+            "title": f"Update {r['service_name']}",
+            "service": r["service_name"],
+            "phase1": {
+                "commitFreq": round(c_freq, 1),
+                "coDeployRate": round(c_deploy * 100, 1),
+                "couplingIndex": coupling_index,
+            },
+            "phase2": {
+                "apiChanges": int(api_changes),
+                "downstreamCount": int(downstream),
+                "blastRadius": round(blast, 1),
+            },
+            "phase3": {
+                "podRestarts": pod_restarts,
+                "cpuSpikePct": round(cpu_spike, 1),
+                "memSpikePct": round(mem_spike, 1),
+                "errorRatePct": round(error_rate, 1),
+                "maxCallDepth": max_call_depth,
+                "syncCallCount": sync_call_count,
+            },
+            "cscore": round(cscore, 1),
+            "decision": r["decision"],
+            "status": "Passed" if is_passed else "Blocked",
+            "time": r["created_at"],
+        })
+
+    avg_coupling = round(total_coupling / total_evals, 3)
+    avg_blast = round(total_blast / total_evals, 1)
+    avg_cscore = round(total_cscore / total_evals, 1)
+    pass_rate = round((passed_count / total_evals) * 100)
+
+    timeline = []
+    for run in reversed(formatted_runs[:10]):
+        time_label = run["time"].split(" ")[1][:5] if " " in run["time"] else run["time"]
+        timeline.append({
+            "name": f"{run['id']} ({time_label})",
+            "cscore": run["cscore"],
+            "coupling": round(run["phase1"]["couplingIndex"] * 100, 1),
+            "blast": round(run["phase2"]["blastRadius"] * 10, 1),
+            "restarts": run["phase3"]["podRestarts"],
+        })
+
+    runtime_status = "CRITICAL" if any(r["status"] == "Blocked" for r in formatted_runs[:3]) else "NOMINAL"
+
+    return {
+        "summary": {
+            "totalEvaluations": total_evals,
+            "passRate": pass_rate,
+            "avgCouplingIndex": avg_coupling,
+            "avgBlastRadius": avg_blast,
+            "avgCScore": avg_cscore,
+            "runtimeRestarts": total_restarts,
+            "runtimeCpu": round(sum(r["phase3"]["cpuSpikePct"] for r in formatted_runs) / total_evals, 1),
+            "runtimeStatus": runtime_status,
+        },
+        "runs": formatted_runs,
+        "timeline": timeline,
+    }

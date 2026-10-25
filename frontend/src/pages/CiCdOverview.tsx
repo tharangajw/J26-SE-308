@@ -17,7 +17,8 @@ import {
   ChevronRight,
   Search,
   TrendingUp,
-  GitBranch
+  GitBranch,
+  ServerOff
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -84,107 +85,24 @@ interface OverviewSummary {
   runtimeStatus: 'NOMINAL' | 'WARNING' | 'CRITICAL' | string;
 }
 
-const MOCK_RUNS: RunRecord[] = [
-  {
-    id: 'PR #12',
-    prNumber: 12,
-    title: 'Update order-service (v3 API & Canary Run)',
-    service: 'order-service',
-    phase1: { commitFreq: 12.0, coDeployRate: 66.7, couplingIndex: 0.583 },
-    phase2: { apiChanges: 3, downstreamCount: 1, blastRadius: 3 },
-    phase3: { podRestarts: 14, cpuSpikePct: 78.5, errorRatePct: 5.4, maxCallDepth: 3, syncCallCount: 2 },
-    cscore: 99.8,
-    status: 'Blocked',
-    time: '2026-10-12 15:41:27'
-  },
-  {
-    id: 'PR #11',
-    prNumber: 11,
-    title: 'Update book-service (Schema Refactor)',
-    service: 'book-service',
-    phase1: { commitFreq: 14.0, coDeployRate: 71.4, couplingIndex: 0.649 },
-    phase2: { apiChanges: 3, downstreamCount: 2, blastRadius: 6 },
-    phase3: { podRestarts: 3, cpuSpikePct: 84.5, errorRatePct: 18.4, maxCallDepth: 4, syncCallCount: 4 },
-    cscore: 96.4,
-    status: 'Blocked',
-    time: '2026-10-12 15:40:55'
-  },
-  {
-    id: 'PR #10',
-    prNumber: 10,
-    title: 'Update order-service (N+1 Sync Loop)',
-    service: 'order-service',
-    phase1: { commitFreq: 11.0, coDeployRate: 72.0, couplingIndex: 0.589 },
-    phase2: { apiChanges: 2, downstreamCount: 2, blastRadius: 4 },
-    phase3: { podRestarts: 2, cpuSpikePct: 92.4, errorRatePct: 3.8, maxCallDepth: 6, syncCallCount: 9 },
-    cscore: 94.6,
-    status: 'Blocked',
-    time: '2026-10-11 14:43:19'
-  },
-  {
-    id: 'PR #9',
-    prNumber: 9,
-    title: 'Update user-service (Auth Middleware)',
-    service: 'user-service',
-    phase1: { commitFreq: 5.0, coDeployRate: 20.0, couplingIndex: 0.204 },
-    phase2: { apiChanges: 0, downstreamCount: 2, blastRadius: 0 },
-    phase3: { podRestarts: 0, cpuSpikePct: 15.2, errorRatePct: 0.1, maxCallDepth: 2, syncCallCount: 1 },
-    cscore: 12.4,
-    status: 'Passed',
-    time: '2026-10-11 14:38:22'
-  },
-  {
-    id: 'PR #8',
-    prNumber: 8,
-    title: 'Update gateway (Routing Rules)',
-    service: 'gateway',
-    phase1: { commitFreq: 4.0, coDeployRate: 25.0, couplingIndex: 0.208 },
-    phase2: { apiChanges: 0, downstreamCount: 0, blastRadius: 0 },
-    phase3: { podRestarts: 0, cpuSpikePct: 18.4, errorRatePct: 0.0, maxCallDepth: 3, syncCallCount: 1 },
-    cscore: 14.2,
-    status: 'Passed',
-    time: '2026-10-10 14:45:10'
-  },
-  {
-    id: 'PR #7',
-    prNumber: 7,
-    title: 'Update book-service (Stock Index)',
-    service: 'book-service',
-    phase1: { commitFreq: 6.0, coDeployRate: 30.0, couplingIndex: 0.275 },
-    phase2: { apiChanges: 0, downstreamCount: 2, blastRadius: 0 },
-    phase3: { podRestarts: 0, cpuSpikePct: 14.2, errorRatePct: 0.0, maxCallDepth: 1, syncCallCount: 0 },
-    cscore: 9.8,
-    status: 'Passed',
-    time: '2026-10-10 14:41:38'
-  }
-];
-
-const DEFAULT_TIMELINE: TimelinePoint[] = [
-  { name: 'PR #7', cscore: 9.8, coupling: 27.5, blast: 0, restarts: 0 },
-  { name: 'PR #8', cscore: 14.2, coupling: 20.8, blast: 0, restarts: 0 },
-  { name: 'PR #9', cscore: 12.4, coupling: 20.4, blast: 0, restarts: 0 },
-  { name: 'PR #10', cscore: 94.6, coupling: 58.9, blast: 40, restarts: 2 },
-  { name: 'PR #11', cscore: 96.4, coupling: 64.9, blast: 60, restarts: 3 },
-  { name: 'PR #12', cscore: 99.8, coupling: 58.3, blast: 30, restarts: 14 }
-];
-
 export const CiCdOverview: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<string>('');
 
   const [summary, setSummary] = useState<OverviewSummary>({
-    totalEvaluations: 6,
-    passRate: 50,
-    avgCouplingIndex: 0.418,
-    avgBlastRadius: 2.2,
-    runtimeRestarts: 14,
-    runtimeCpu: 36.7,
-    runtimeStatus: 'CRITICAL'
+    totalEvaluations: 0,
+    passRate: 0,
+    avgCouplingIndex: 0,
+    avgBlastRadius: 0,
+    runtimeRestarts: 0,
+    runtimeCpu: 0,
+    runtimeStatus: 'NOMINAL'
   });
 
-  const [runs, setRuns] = useState<RunRecord[]>(MOCK_RUNS);
-  const [timeline, setTimeline] = useState<TimelinePoint[]>(DEFAULT_TIMELINE);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
 
   // Filters & Pagination
   const [statusFilter, setStatusFilter] = useState<'all' | 'Passed' | 'Blocked'>('all');
@@ -194,106 +112,103 @@ export const CiCdOverview: React.FC = () => {
 
   const fetchOverviewData = async () => {
     try {
-      const presetKey = localStorage.getItem('cscore_phase3_preset') || 'pod_crash';
-      const p3Scenario = PHASE3_SCENARIOS[presetKey] || PHASE3_SCENARIOS.pod_crash;
-
-      const [res1, res2] = await Promise.all([
-        fetch('http://127.0.0.1:8000/api/phase1/dashboard').catch(() => null),
-        fetch('http://127.0.0.1:8000/api/phase2/dashboard').catch(() => null)
-      ]);
-
-      if (res1 && res1.ok && res2 && res2.ok) {
-        const data1 = await res1.json();
-        const data2 = await res2.json();
-        const prs1 = data1.recentPRs || [];
-        const prs2 = data2.recentPRs || [];
-
-        if (prs1.length > 0) {
-          const merged: RunRecord[] = prs1.map((p1Item: any, idx: number) => {
-            const p2Item = prs2[idx] || {};
-            const svc = (p1Item.services && p1Item.services[0]) || 'order-service';
-            const isBlocked = p1Item.status === 'Blocked' || p2Item.status === 'Blocked';
-            const mockP3 = isBlocked
-              ? {
-                  podRestarts: idx === 0 ? p3Scenario.featureVector.podRestarts : 2,
-                  cpuSpikePct: idx === 0 ? p3Scenario.summary.avgCpuSpike : 68.5,
-                  errorRatePct: idx === 0 ? p3Scenario.featureVector.errorRatePct : 4.2,
-                  maxCallDepth: idx === 0 ? p3Scenario.featureVector.maxCallDepth : 3,
-                  syncCallCount: idx === 0 ? p3Scenario.featureVector.syncCallCount : 2
-                }
-              : {
-                  podRestarts: 0,
-                  cpuSpikePct: 16.4,
-                  errorRatePct: 0.1,
-                  maxCallDepth: 2,
-                  syncCallCount: 1
-                };
-
-            return {
-              id: p1Item.id,
-              prNumber: parseInt(String(p1Item.id).replace(/\D/g, ''), 10) || idx + 1,
-              title: p1Item.title,
-              service: svc,
-              phase1: {
-                commitFreq: p1Item.commitFreq ?? 0,
-                coDeployRate: Math.round((p1Item.coDeployRate ?? 0) * 1000) / 10,
-                couplingIndex: p1Item.couplingIndex ?? 0
-              },
-              phase2: {
-                apiChanges: p2Item.apiChanges ?? 0,
-                downstreamCount: p2Item.downstreamCount ?? 0,
-                blastRadius: p2Item.blastRadius ?? 0
-              },
-              phase3: mockP3,
-              cscore: isBlocked ? (idx === 0 ? p3Scenario.cscore : 95.0) : 14.2,
-              status: isBlocked ? 'Blocked' : 'Passed',
-              time: p1Item.time
-            };
-          });
-
-          setRuns(merged);
-          const passed = merged.filter(r => r.status === 'Passed').length;
-          setSummary({
-            totalEvaluations: merged.length,
-            passRate: Math.round((passed / merged.length) * 100),
-            avgCouplingIndex: data1.averages?.couplingIndex ?? 0.493,
-            avgBlastRadius: data2.averages?.blastRadius ?? 0.9,
-            runtimeRestarts: p3Scenario.summary.totalPodRestarts,
-            runtimeCpu: p3Scenario.summary.avgCpuSpike,
-            runtimeStatus: p3Scenario.summary.overallRuntimeStatus
-          });
-
-          const builtTimeline = merged
-            .slice(0, 8)
-            .reverse()
-            .map(item => ({
-              name: item.id,
-              cscore: item.cscore,
-              coupling: Math.round(item.phase1.couplingIndex * 100 * 10) / 10,
-              blast: item.phase2.blastRadius * 10,
-              restarts: item.phase3.podRestarts
-            }));
-          if (builtTimeline.length > 0) setTimeline(builtTimeline);
-        } else {
-          // Use rich mock runs synced with active Phase 3 scenario
-          setSummary(prev => ({
-            ...prev,
-            runtimeRestarts: p3Scenario.summary.totalPodRestarts,
-            runtimeCpu: p3Scenario.summary.avgCpuSpike,
-            runtimeStatus: p3Scenario.summary.overallRuntimeStatus
-          }));
+      // 1. Try unified real overview API
+      const res = await fetch('http://127.0.0.1:8000/api/cicd/overview');
+      if (res.ok) {
+        const data = await res.json();
+        setBackendConnected(true);
+        setRuns(data.runs || []);
+        if (data.summary) {
+          setSummary(data.summary);
         }
+        setTimeline(data.timeline || []);
       } else {
-        setSummary(prev => ({
-          ...prev,
-          runtimeRestarts: p3Scenario.summary.totalPodRestarts,
-          runtimeCpu: p3Scenario.summary.avgCpuSpike,
-          runtimeStatus: p3Scenario.summary.overallRuntimeStatus
-        }));
+        // Fallback to Phase 1 & 2 APIs
+        const [res1, res2] = await Promise.all([
+          fetch('http://127.0.0.1:8000/api/phase1/dashboard').catch(() => null),
+          fetch('http://127.0.0.1:8000/api/phase2/dashboard').catch(() => null)
+        ]);
+
+        if (res1 && res1.ok && res2 && res2.ok) {
+          const data1 = await res1.json();
+          const data2 = await res2.json();
+          const prs1 = data1.recentPRs || [];
+          const prs2 = data2.recentPRs || [];
+          setBackendConnected(true);
+
+          if (prs1.length > 0) {
+            const merged: RunRecord[] = prs1.map((p1Item: any, idx: number) => {
+              const p2Item = prs2[idx] || {};
+              const svc = (p1Item.services && p1Item.services[0]) || 'order-service';
+              const isBlocked = p1Item.status === 'Blocked' || p2Item.status === 'Blocked';
+              const realCScore = p1Item.cscore ?? p2Item.cscore ?? (isBlocked ? 98.0 : 12.0);
+
+              return {
+                id: p1Item.id,
+                prNumber: p1Item.prNumber || parseInt(String(p1Item.id).replace(/\D/g, ''), 10) || idx + 1,
+                title: p1Item.title,
+                service: svc,
+                phase1: {
+                  commitFreq: p1Item.commitFreq ?? 0,
+                  coDeployRate: Math.round((p1Item.coDeployRate ?? 0) * 1000) / 10,
+                  couplingIndex: p1Item.couplingIndex ?? 0
+                },
+                phase2: {
+                  apiChanges: p2Item.apiChanges ?? 0,
+                  downstreamCount: p2Item.downstreamCount ?? 0,
+                  blastRadius: p2Item.blastRadius ?? 0
+                },
+                phase3: {
+                  podRestarts: 0,
+                  cpuSpikePct: 0,
+                  errorRatePct: 0,
+                  maxCallDepth: 0,
+                  syncCallCount: 0
+                },
+                cscore: realCScore,
+                status: isBlocked ? 'Blocked' : 'Passed',
+                time: p1Item.time
+              };
+            });
+
+            setRuns(merged);
+            const passed = merged.filter(r => r.status === 'Passed').length;
+            setSummary({
+              totalEvaluations: merged.length,
+              passRate: Math.round((passed / merged.length) * 100),
+              avgCouplingIndex: data1.averages?.couplingIndex ?? 0,
+              avgBlastRadius: data2.averages?.blastRadius ?? 0,
+              runtimeRestarts: 0,
+              runtimeCpu: 0,
+              runtimeStatus: 'NOMINAL'
+            });
+
+            const builtTimeline = merged
+              .slice(0, 8)
+              .reverse()
+              .map(item => ({
+                name: item.id,
+                cscore: item.cscore,
+                coupling: Math.round(item.phase1.couplingIndex * 100 * 10) / 10,
+                blast: item.phase2.blastRadius * 10,
+                restarts: 0
+              }));
+            setTimeline(builtTimeline);
+          } else {
+            setRuns([]);
+            setTimeline([]);
+          }
+        } else {
+          setBackendConnected(false);
+          setRuns([]);
+          setTimeline([]);
+        }
       }
       setLastRefreshed(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    } catch (err) {
-      console.error('Error updating CI/CD Overview data:', err);
+    } catch {
+      setBackendConnected(false);
+      setRuns([]);
+      setTimeline([]);
     } finally {
       setLoading(false);
     }
@@ -329,6 +244,25 @@ export const CiCdOverview: React.FC = () => {
   return (
     <div className="h-full bg-background text-text-primary p-4 lg:p-6 overflow-y-auto space-y-6">
       
+      {/* Backend Disconnected Banner */}
+      {backendConnected === false && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-xs">
+          <ServerOff className="w-5 h-5 text-rose-400 shrink-0" />
+          <div className="flex-1">
+            <span className="font-bold text-rose-300">C-Score Backend Engine is Not Connected</span>
+            <p className="text-text-secondary mt-0.5">
+              Unable to reach the live C-Score API at <code className="text-purple-400 font-mono">http://127.0.0.1:8000/api/cicd/overview</code>. Start the backend server (<code className="text-purple-400 font-mono">uvicorn app.main:app --port 8000</code>) to view live PR evaluations.
+            </p>
+          </div>
+          <button
+            onClick={() => { setLoading(true); fetchOverviewData(); }}
+            className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 font-medium transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* ── Top Header Banner ── */}
       <div className="flex flex-wrap lg:flex-nowrap justify-between items-center bg-surface border border-border rounded-xl p-5 shadow-sm gap-4">
         <div className="flex items-center gap-4">
@@ -779,7 +713,16 @@ export const CiCdOverview: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40 font-mono">
-              {paginatedRuns.map((pr, idx) => (
+              {paginatedRuns.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-text-muted font-sans text-xs">
+                    {backendConnected === false
+                      ? 'C-Score Backend is not connected. Start uvicorn server to stream real-time evaluations.'
+                      : 'No Pull Request evaluations recorded in C-Score database yet.'}
+                  </td>
+                </tr>
+              ) : (
+                paginatedRuns.map((pr, idx) => (
                 <tr key={idx} className="hover:bg-surface-secondary/20 transition-colors">
                   
                   {/* PR & Service */}
@@ -883,14 +826,7 @@ export const CiCdOverview: React.FC = () => {
                     {pr.time}
                   </td>
                 </tr>
-              ))}
-
-              {filteredRuns.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-text-muted font-sans text-xs">
-                    No Pull Request assessments match your search criteria.
-                  </td>
-                </tr>
+              ))
               )}
             </tbody>
           </table>
