@@ -50,6 +50,11 @@ def build_report(service, result, p1, p2):
     """Markdown text for the check summary / PR comment."""
     icon = "🔴 HIGH RISK" if result["decision"] == "HIGH_RISK" else "🟢 LOW RISK"
     f = result["features"]
+    coupling_status = (
+        f"**{p1['coupling_index']}** ⚠️ *(High Coupling Advisory > 0.50)*"
+        if p1["coupling_index"] > 0.5
+        else f"**{p1['coupling_index']}** ✅"
+    )
     lines = [
         f"## C-Score Report: `{service}`",
         f"### {icon} - C-Score **{result['cscore']}** (threshold {result['threshold']})",
@@ -57,8 +62,8 @@ def build_report(service, result, p1, p2):
         "| Metric | Value |",
         "|---|---|",
         f"| Blast Radius | **{p2['blast_radius']}** ({p2['api_changes']} breaking changes x {p2['downstream_count']} consumers) |",
-        f"| Coupling Index | **{p1['coupling_index']}** |",
-        f"| Commit Frequency (per day) | {f['commit_freq']} |",
+        f"| Coupling Index | {coupling_status} |",
+        f"| Commit Frequency (30d) | {f['commit_freq']} |",
         f"| Co-Deploy Rate | {f['co_deploy_rate']} |",
         f"| Downstream Services | {', '.join(p2['downstream_services']) or 'none'} |",
     ]
