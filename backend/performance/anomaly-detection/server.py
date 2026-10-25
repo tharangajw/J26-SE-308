@@ -362,18 +362,32 @@ def trigger_load_test(
     mode: str = Query("spike", description="Profile: spike, startup, nominal, or sequential"),
     services: Optional[str] = Query(None, description="Comma-separated target services"),
 ):
-    target_list = (
-        [s.strip() for s in services.split(",") if s.strip()]
-        if services
-        else [
-            "order-service-1",
-            "user-service-1",
-            "book-service-1",
-            "gateway-1",
-            "payment-service",
-            "inventory-service",
-        ]
-    )
+    if services:
+        target_list = [s.strip() for s in services.split(",") if s.strip()]
+    else:
+        # Dynamically discover active running services from Telemetry Collector
+        target_list = []
+        try:
+            disc = pscore_engine._fetch_json("/api/telemetry/discover", timeout=1.0)
+            if disc and isinstance(disc, dict):
+                app_svcs = disc.get("applicationServices") or disc.get("allServices")
+                if app_svcs and isinstance(app_svcs, list):
+                    target_list = [s for s in app_svcs if isinstance(s, str) and s.strip()]
+        except Exception:
+            pass
+
+        # Fallback to active services currently registered in latest_telemetry
+        if not target_list and latest_telemetry:
+            target_list = list(latest_telemetry.keys())
+
+        # Final fallback to verified active cluster microservices
+        if not target_list:
+            target_list = [
+                "gateway-1",
+                "order-service-1",
+                "user-service-1",
+                "book-service-1",
+            ]
 
     now = time.time()
     results = {}

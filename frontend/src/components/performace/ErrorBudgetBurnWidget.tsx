@@ -107,7 +107,7 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
             ) : (
               <>
                 <HelpCircle className="h-3.5 w-3.5" />
-                Explain with Scenario (තේරුම් ගන්න)
+                Explain with Scenario
               </>
             )}
           </button>
@@ -183,10 +183,10 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
             <div className="space-y-0.5">
               <h4 className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
-                <HelpCircle className="h-4 w-4" /> Error Budget &amp; Burn Rate කියන්නේ මොකක්ද? (සරලව)
+                <HelpCircle className="h-4 w-4" /> What Are Error Budget &amp; Burn Rate? (Simply Explained)
               </h4>
               <p className="text-[11px] text-text-muted">
-                Google SRE (Site Reliability Engineering) ක්‍රමවේදය සරල ජීවන උදාහරණයකින් සහ Microservices පරිසරයකින් තේරුම් ගනිමු.
+                Understand Google SRE (Site Reliability Engineering) methodology through a real-world vehicle analogy and cloud microservices.
               </p>
             </div>
 
@@ -200,7 +200,7 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
                     : 'text-text-muted hover:text-text-primary'
                 }`}
               >
-                <Car className="h-3.5 w-3.5" /> 🚗 කාර් එකක තෙල් ටැංකිය (Real-Life)
+                <Car className="h-3.5 w-3.5" /> 🚗 Car Fuel Tank Analogy (Real-Life)
               </button>
               <button
                 type="button"
@@ -224,11 +224,11 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
                 <div className="rounded-lg border border-border/70 bg-surface-secondary/30 p-3 space-y-1.5">
                   <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-[11px]">1</span>
-                    Error Budget = මාසික තෙල් ටැංකිය
+                    Error Budget = Monthly Fuel Tank
                   </div>
                   <p className="text-[11px] text-text-secondary leading-relaxed">
-                    හිතන්න ඔබට මාසෙකට දුවන්න ලැබෙනවා <strong>ලීටර් 30 ක පෙට්‍රල් ටැංකියක්</strong>.
-                    සාමාන්‍යයෙන් දවසකට <strong>ලීටර් 1 ක්</strong> පිච්චුවොත් මාසය (දින 30) කිසිම කරදරයක් නැතිව දුවන්න පුළුවන්.
+                    Imagine you are given a <strong>30-liter fuel tank</strong> to last an entire month (30 days).
+                    If you consume a steady <strong>1 liter per day</strong>, you will safely complete the entire month without stalling.
                   </p>
                   <div className="font-mono text-[10px] text-emerald-400/90 bg-emerald-500/10 rounded px-2 py-1">
                     Burn Rate = 1.0x (Optimal)
@@ -239,11 +239,11 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5">
                   <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/20 text-[11px]">2</span>
-                    Burn Rate = තෙල් පිච්චෙන වේගය
+                    Burn Rate = Fuel Consumption Speed
                   </div>
                   <p className="text-[11px] text-text-secondary leading-relaxed">
-                    දවසක් ඔබ අධික වේගයෙන් වාහනය එළවනවා (හෝ ටැංකියේ ලීක් එකක් තියෙනවා). දවසකට <strong>ලීටර් 4.5 ක්</strong> පිච්චෙනවා!
-                    ඒ කියන්නේ ඔබ සාමාන්‍ය වේගයට වඩා <strong>4.5 ගුණයකින් තෙල් පුච්චනවා</strong>.
+                    Suppose you drive at reckless speeds (or develop a fuel leak). You suddenly burn <strong>4.5 liters in a day</strong>!
+                    That means you are consuming your fuel supply <strong>4.5x faster than normal</strong>.
                   </p>
                   <div className="font-mono text-[10px] text-amber-400 bg-amber-500/10 rounded px-2 py-1">
                     Burn Rate = 4.5x (Fast Burn!)
@@ -254,11 +254,11 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
                 <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 space-y-1.5">
                   <div className="flex items-center gap-2 text-xs font-bold text-rose-400">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/20 text-[11px]">3</span>
-                    Depletion Forecast = තෙල් ඉවර වෙන දවස
+                    Depletion Forecast = The Day You Run Dry
                   </div>
                   <p className="text-[11px] text-text-secondary leading-relaxed">
-                    දවසකට ලීටර් 4.5 ගානේ පිච්චුණොත්, දින 30 කට තිබුණු මුළු ටැංකියම <strong>දින 6 න් සම්පූර්ණයෙන්ම හිස් වේ</strong>!
-                    පාර මැද වාහනය නතර වීමට පෙර වේගය අඩු කර ලීක් එක හදාගත යුතුය.
+                    If you consume 4.5 liters per day, your entire 30-day fuel supply will run completely dry in <strong>just ~6.6 days</strong>!
+                    You must reduce speed and repair the leak before your vehicle stalls on the road.
                   </p>
                   <div className="font-mono text-[10px] text-rose-400 bg-rose-500/10 rounded px-2 py-1">
                     Exhaustion: 30 / 4.5 = ~6.6 Days
@@ -270,10 +270,10 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
               <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 flex items-start gap-2.5 text-xs text-sky-200">
                 <CheckCircle2 className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
                 <div className="space-y-1">
-                  <strong>මෘදුකාංග පද්ධතියට මෙය අදාළ වෙන්නේ කෙසේද?</strong>
+                  <strong>How Does This Apply to Microservice Architecture?</strong>
                   <p className="text-[11px] text-sky-300/90 leading-relaxed">
-                    Microservice එකක <strong>"Error Budget"</strong> කියන්නේ මාසයක් ඇතුළත පද්ධතියට සිදුවිය හැකි උපරිම බිඳවැටීම් හෝ ප්‍රමාදයන් (Allowed Downtime) ප්‍රමාණයයි.
-                    Slow database queries හෝ Memory leak එකක් නිසා responses ප්‍රමාද වන විට Error Budget එක වේගයෙන් පිච්චෙන්න (Burn වෙන්න) පටන් ගනී.
+                    In a microservice, an <strong>"Error Budget"</strong> represents the maximum permissible downtime, errors, or latency breaches within a 30-day window (e.g. 99.9% SLO = 43.2 mins allowed).
+                    When slow database queries or memory leaks cause cascading response delays, the system burns through this safety budget rapidly.
                   </p>
                 </div>
               </div>
@@ -285,24 +285,24 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
                 {/* Math Card */}
                 <div className="rounded-lg border border-border/70 bg-surface-secondary/30 p-3 space-y-2">
                   <div className="text-xs font-bold text-text-primary flex items-center gap-1.5">
-                    <Zap className="h-3.5 w-3.5 text-amber-400" /> ගණනය කිරීම (99.9% SLO Target එකක් සඳහා)
+                    <Zap className="h-3.5 w-3.5 text-amber-400" /> Quantitative Breakdown (For 99.9% SLO Target)
                   </div>
                   <div className="space-y-1 font-mono text-[11px] text-text-secondary">
                     <div className="flex justify-between border-b border-border/40 py-1">
-                      <span>මාසයක මුළු කාලය:</span>
-                      <strong className="text-text-primary">30 දින × 24 පැය × 60 = 43,200 මිනිත්තු</strong>
+                      <span>Total Month Window:</span>
+                      <strong className="text-text-primary">30 Days × 24h × 60m = 43,200 Mins</strong>
                     </div>
                     <div className="flex justify-between border-b border-border/40 py-1">
-                      <span>99.9% SLO අවසර දෙන Downtime:</span>
-                      <strong className="text-emerald-400">43.2 මිනිත්තු (0.1% Budget)</strong>
+                      <span>99.9% SLO Allowed Downtime:</span>
+                      <strong className="text-emerald-400">43.2 Minutes (0.1% Budget)</strong>
                     </div>
                     <div className="flex justify-between border-b border-border/40 py-1">
-                      <span>දැනට වැය වී ඇති Downtime:</span>
-                      <strong className="text-amber-400">{consumedMinutes} මිනිත්තු ({(100 - remainingBudgetPct).toFixed(1)}%)</strong>
+                      <span>Consumed Downtime:</span>
+                      <strong className="text-amber-400">{consumedMinutes} Mins ({(100 - remainingBudgetPct).toFixed(1)}%)</strong>
                     </div>
                     <div className="flex justify-between pt-1">
-                      <span>ඉතිරිව ඇති ආරක්ෂිත කාලය:</span>
-                      <strong className="text-sky-400">{remainingMinutes} මිනිත්තු ({remainingBudgetPct.toFixed(1)}%)</strong>
+                      <span>Remaining Safety Margin:</span>
+                      <strong className="text-sky-400">{remainingMinutes} Mins ({remainingBudgetPct.toFixed(1)}%)</strong>
                     </div>
                   </div>
                 </div>
@@ -310,20 +310,20 @@ export const ErrorBudgetBurnWidget: React.FC<ErrorBudgetBurnWidgetProps> = ({
                 {/* SRE Policy Card */}
                 <div className="rounded-lg border border-border/70 bg-surface-secondary/30 p-3 space-y-2">
                   <div className="text-xs font-bold text-text-primary flex items-center gap-1.5">
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Google SRE Action Rules (ඉංජිනේරු තීරණ)
+                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Google SRE Action Rules &amp; Engineering Governance
                   </div>
                   <div className="space-y-1.5 text-[11px] text-text-secondary">
                     <div className="flex items-start gap-2">
                       <span className="font-mono text-emerald-400 font-bold shrink-0">1.0x - 1.5x:</span>
-                      <span><strong>🟢 Safe to Ship:</strong> Developers ලාට බය නැතුව අලුත් features deploy කරන්න පුළුවන්.</span>
+                      <span><strong>🟢 Safe to Ship:</strong> Feature developers can freely deploy releases and schema updates.</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="font-mono text-amber-400 font-bold shrink-0">2.0x - 3.5x:</span>
-                      <span><strong>🟡 Warning Alert:</strong> Latency drift එකක් හෝ N+1 queries හඳුනාගෙන optimization කරන්න.</span>
+                      <span><strong>🟡 Warning Alert:</strong> Latency drift or N+1 queries detected; investigate and prioritize optimization.</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="font-mono text-rose-400 font-bold shrink-0">&gt;= 4.0x:</span>
-                      <span><strong>🔴 Feature Freeze:</strong> සියලු නව deployments නවතා (freeze කර) reliability fix කරන තෙක් hold කරන්න.</span>
+                      <span><strong>🔴 Feature Freeze:</strong> All non-critical deployments are halted until reliability hotfixes are deployed.</span>
                     </div>
                   </div>
                 </div>
