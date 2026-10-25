@@ -181,26 +181,43 @@ export class DockerCollector {
   }
 
   /**
-   * Measures live response latency for a running container via HTTP ping (if public port exists)
+   * Measures live response latency for a running container via parallel HTTP ping (if ports exist)
    * or live Docker Engine socket round-trip inspection for internal/DB containers.
    */
   public async measureContainerLatencyMs(container: DockerContainerInfo): Promise<number> {
-    if (container.publicPorts.length > 0) {
-      const port = container.publicPorts[0];
-      const urls = [`http://host.docker.internal:${port}/`, `http://localhost:${port}/`];
-      for (const url of urls) {
+    const ports = [...container.publicPorts, ...container.ports];
+    if (ports.length > 0) {
+      const port = ports[0];
+      const urls = [
+        `http://${container.name}:${port}/`,
+        `http://${container.serviceName}:${port}/`,
+        `http://localhost:${port}/`,
+        `http://127.0.0.1:${port}/`,
+        `http://host.docker.internal:${port}/`,
+      ];
+
+      const pingUrl = async (url: string): Promise<number> => {
         const start = performance.now();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300);
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 600);
           const res = await fetch(url, { signal: controller.signal });
           clearTimeout(timeoutId);
           if (res.status >= 200 && res.status < 600) {
             return parseFloat(Math.max(0.5, performance.now() - start).toFixed(2));
           }
-        } catch {
-          // continue
+          throw new Error('Unhealthy status');
+        } catch (e) {
+          clearTimeout(timeoutId);
+          throw e;
         }
+      };
+
+      try {
+        const result = await Promise.any(urls.map((u) => pingUrl(u)));
+        return result;
+      } catch {
+        // Continue to docker socket inspect turnaround
       }
     }
 
@@ -226,6 +243,82 @@ export class DockerCollector {
       req.on('timeout', () => {
         req.destroy();
         resolve(0);
+      });
+      req.end();
+    });
+  }
+
+  /**
+   * Fetches container stdout/stderr timestamped logs via Docker Daemon socket API.
+   */
+  public async getContainerLogs(containerId: string, tail: number = 50): Promise<Array<{ timestamp: string; message: string }>> {
+    return new Promise((resolve) => {
+      const req = http.request(
+        {
+          socketPath: this.socketPath,
+          path: `/containers/${containerId}/logs?stdout=true&stderr=true&tail=${tail}&timestamps=true`,
+          method: 'GET',
+          timeout: 2000,
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => {
+            const lines = body.split('\n').filter(Boolean);
+            const parsed = lines.map((line) => {
+              const clean = line.replace(/^[\x00-\x08]+/, '').trim();
+              const match = clean.match(/^(\d{4}-\d{2}-\d{2}T[^\s]+)\s+(.*)$/);
+              if (match) {
+                return { timestamp: match[1], message: match[2] };
+              }
+              return { timestamp: new Date().toISOString(), message: clean };
+            });
+            resolve(parsed);
+          });
+        }
+      );
+      req.on('error', () => resolve([]));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve([]);
+      });
+      req.end();
+    });
+  }
+
+  /**
+   * Inspects container lifecycle state from Docker API.
+   */
+  public async getContainerInspect(containerId: string): Promise<{ startedAt: string; createdAt: string; status: string } | null> {
+    return new Promise((resolve) => {
+      const req = http.request(
+        {
+          socketPath: this.socketPath,
+          path: `/containers/${containerId}/json`,
+          method: 'GET',
+          timeout: 1500,
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => {
+            try {
+              const data = JSON.parse(body);
+              resolve({
+                startedAt: data?.State?.StartedAt || '',
+                createdAt: data?.Created || '',
+                status: data?.State?.Status || '',
+              });
+            } catch {
+              resolve(null);
+            }
+          });
+        }
+      );
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(null);
       });
       req.end();
     });
@@ -295,7 +388,7 @@ export class DockerCollector {
   }
 
   /**
-   * Matches a container from a list of running containers by serviceId, displayId, serviceName, or container name.
+   * Matches a container from a list of running containers by exact serviceId, displayId, serviceName, or container name.
    */
   public matchContainer(containers: DockerContainerInfo[], serviceId: string): DockerContainerInfo | null {
     const raw = serviceId.toLowerCase().trim();
@@ -312,19 +405,21 @@ export class DockerCollector {
       }
     }
 
-    // 2. Normalized match
+    // 2. Normalized exact match (ignoring dashes and underscores)
     for (const c of containers) {
       const cNameNorm = c.name.toLowerCase().replace(/[-_]/g, '');
       const cDispNorm = c.displayId.toLowerCase().replace(/[-_]/g, '');
       const cSvcNorm = c.serviceName.toLowerCase().replace(/[-_]/g, '');
 
-      if (
-        cDispNorm === norm ||
-        cSvcNorm === norm ||
-        cNameNorm === norm ||
-        cDispNorm.startsWith(norm) ||
-        (norm.length >= 4 && cNameNorm.endsWith(norm))
-      ) {
+      if (cDispNorm === norm || cSvcNorm === norm || cNameNorm === norm) {
+        return c;
+      }
+    }
+
+    // 3. Exact project prefix match (e.g. rp-core-product-order-service-1 matching order-service-1)
+    for (const c of containers) {
+      const cName = c.name.toLowerCase();
+      if (cName.endsWith(`-${raw}`) || cName.endsWith(`_${raw}`)) {
         return c;
       }
     }
