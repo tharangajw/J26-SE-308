@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Calculator,
   GitMerge,
@@ -45,20 +45,63 @@ export const CiCdCalculationPage: React.FC = () => {
   // Phase 3 Indicators
   const p3HighRisk = podRestarts > 0 || errorRatePct > 2.0 || maxCallDepth > 3 || syncCallCount > 4;
 
-  // C-Score Simulation
-  let simulatedScore = 12.0;
-  if (p2HighRisk) {
-    simulatedScore = 98.0;
-  } else if (p1HighRisk) {
-    simulatedScore = Number((3.0 + commitFreq * 0.4 + coDeployRate * 8).toFixed(1));
-  } else if (p3HighRisk) {
-    simulatedScore = Number(Math.min(99.0, 30.0 + podRestarts * 15 + errorRatePct * 5 + maxCallDepth * 4).toFixed(1));
-  } else {
-    simulatedScore = Number((8.0 + commitFreq * 0.5 + coDeployRate * 10).toFixed(1));
-  }
+  // Live Model Scoring State from Backend API (/score)
+  const [calculatedScore, setCalculatedScore] = useState<number>(12.0);
+  const [isHighRisk, setIsHighRisk] = useState<boolean>(false);
+  const [threshold, setThreshold] = useState<number>(28.9);
+  const [isLiveEngine, setIsLiveEngine] = useState<boolean>(false);
 
-  const threshold = 28.9;
-  const isHighRisk = simulatedScore > threshold;
+  useEffect(() => {
+    let active = true;
+    const fetchLiveScore = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/score', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            commit_freq: commitFreq,
+            co_deploy_rate: coDeployRate,
+            api_changes: apiChanges,
+            downstream_count: downstreamCount,
+            max_call_depth: maxCallDepth,
+            sync_call_count: syncCallCount,
+            cpu_spike_pct: 0,
+            mem_spike_pct: 0,
+            error_rate_pct: errorRatePct,
+            pod_restarts: podRestarts,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (active) {
+            setCalculatedScore(data.cscore);
+            setIsHighRisk(data.decision === 'HIGH_RISK');
+            setThreshold(data.threshold || 28.9);
+            setIsLiveEngine(true);
+          }
+          return;
+        }
+      } catch {
+        // Fallback when backend is disconnected
+      }
+
+      if (active) {
+        // Deterministic guardrail formula fallback
+        const blast = apiChanges * downstreamCount;
+        const fallbackScore = blast > 0 ? 98.0 : (couplingIndex > 0.5 ? 23.25 : 5.18);
+        setCalculatedScore(fallbackScore);
+        setIsHighRisk(fallbackScore > 28.9);
+        setIsLiveEngine(false);
+      }
+    };
+
+    const timer = setTimeout(fetchLiveScore, 80);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [commitFreq, coDeployRate, apiChanges, downstreamCount, maxCallDepth, syncCallCount, errorRatePct, podRestarts, couplingIndex]);
 
   return (
     <div className="h-full bg-background text-text-primary p-4 lg:p-6 overflow-y-auto space-y-6">
@@ -288,9 +331,16 @@ export const CiCdCalculationPage: React.FC = () => {
           }`}>
             <div>
               <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-wider">
-                <span className={isHighRisk ? 'text-rose-400' : 'text-emerald-400'}>
-                  Synthesis Verdict
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className={isHighRisk ? 'text-rose-400' : 'text-emerald-400'}>
+                    Synthesis Verdict
+                  </span>
+                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
+                    isLiveEngine ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-surface-secondary text-text-muted border border-border/40'
+                  }`}>
+                    {isLiveEngine ? 'XGBoost Live' : 'Deterministic'}
+                  </span>
+                </div>
                 {isHighRisk ? <ShieldAlert className="w-4 h-4 text-rose-400" /> : <ShieldCheck className="w-4 h-4 text-emerald-400" />}
               </div>
               <div className="mt-2">
@@ -298,7 +348,7 @@ export const CiCdCalculationPage: React.FC = () => {
                 <div className={`text-3xl font-extrabold font-mono mt-0.5 ${
                   isHighRisk ? 'text-rose-400' : 'text-emerald-400'
                 }`}>
-                  {simulatedScore}
+                  {calculatedScore}
                 </div>
                 <div className="text-[11px] font-mono text-text-muted mt-1">
                   Threshold: <b>&gt; 28.9</b> = HIGH RISK

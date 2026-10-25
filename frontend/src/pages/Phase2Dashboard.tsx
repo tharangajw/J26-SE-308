@@ -569,10 +569,20 @@ export const Phase2Dashboard = () => {
                   <div className="text-xs text-purple-400 uppercase tracking-wider font-bold">Calculation Logic</div>
                 </div>
                 
-                <div className="relative z-10 mb-3 p-3.5 rounded-lg bg-black/50 border border-purple-500/20 font-mono text-[11px] text-text-primary overflow-x-auto leading-relaxed">
-                  <span className="text-purple-400">def</span> <span className="text-yellow-200">blast_radius</span>(api_changes, downstream):<br/>
-                  &nbsp;&nbsp;<span className="text-text-muted"># Blast impact calculation</span><br/>
-                  &nbsp;&nbsp;<span className="text-purple-400">return</span> api_changes * downstream
+                <div className="relative z-10 mb-3 p-3.5 rounded-lg bg-black/50 border border-purple-500/20 font-mono space-y-2">
+                  <div className="text-[10px] text-text-muted uppercase tracking-wider">Systemic Blast Radius (BR):</div>
+                  <div className="text-xs text-yellow-200 font-bold bg-surface/50 p-2 rounded border border-border/40">
+                    BR = api_changes × downstream_consumers
+                  </div>
+                  <div className="text-[10px] text-text-muted pt-1 space-y-1">
+                    <div>• <span className="text-text-secondary">api_changes</span> = Breaking diff count via oasdiff</div>
+                    <div>• <span className="text-text-secondary">downstream_consumers</span> = Consuming services count</div>
+                  </div>
+                </div>
+
+                <div className="relative z-10 mb-3 p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[11px] font-mono flex items-center justify-between">
+                  <span className="text-rose-300 font-medium">BR &gt; 0 Hard Guardrail:</span>
+                  <span className="text-rose-400 font-bold">PR Abort (C-Score = 98.0)</span>
                 </div>
                 
                 <p className="text-xs text-text-secondary leading-relaxed relative z-10">
