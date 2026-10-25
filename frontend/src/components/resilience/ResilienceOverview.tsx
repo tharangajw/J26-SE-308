@@ -47,6 +47,17 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
   clearAllChaos,
   healService
 }) => {
+  const [expandedSignalCards, setExpandedSignalCards] = React.useState<Record<string, boolean>>({});
+  const toggleSignalCard = (card: string) => {
+    setExpandedSignalCards(current => ({ ...current, [card]: !current[card] }));
+  };
+  const handleSignalCardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, card: string) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleSignalCard(card);
+    }
+  };
+
   const getScoreColor = (score: number) => {
     if (score >= 87.5) return 'color-success';
     if (score >= 50) return 'color-warning';
@@ -335,30 +346,31 @@ export const ResilienceOverview: React.FC<ResilienceOverviewProps> = ({
           <h3>
             <Activity size={18} /> Live Microservice Self-Healing Signals
           </h3>
+          <span className="sh-interaction-hint">Hover or tap a card for details</span>
           <span className={`mode-badge ${coreProductConnected ? 'live' : ''}`} style={{ margin: 0, fontSize: '10px' }}>
             {isMeshActive ? (kubernetesConnected ? 'CHAOS MESH · KUBERNETES CONNECTED' : 'CHAOS MESH · KUBERNETES UNAVAILABLE') : coreProductConnected ? 'CORE PROMETHEUS CONNECTED' : 'CORE PROMETHEUS UNAVAILABLE'}
           </span>
         </div>
         <div className="self-healing-grid">
-          <div className="sh-metric-box">
+          <div className={`sh-metric-box ${expandedSignalCards.health ? 'is-expanded' : ''}`} role="button" tabIndex={0} aria-expanded={Boolean(expandedSignalCards.health)} onClick={() => toggleSignalCard('health')} onKeyDown={event => handleSignalCardKeyDown(event, 'health')}>
             <div className="sh-metric-val">{isMeshActive ? (kubernetesConnected && kubernetesValidation ? `${coreReady} / ${coreDesired}` : 'Unavailable') : coreProductConnected ? `${coreHealthyCount} / ${coreServices.length}` : '—'}</div>
             <div className="sh-metric-lbl">Core services healthy</div>
-            <small>{isMeshActive ? kubernetesValidation?.coreServices.map(service => `${service.name}: ${service.readyPodCount}/${service.podCount} ready`).join(' · ') || 'Waiting for Kubernetes core-product Pods' : coreServices.map(service => `${service.name}: ${service.status}${service.processUptimeSeconds != null ? `, uptime ${Math.floor(service.processUptimeSeconds)}s` : ''}`).join(' · ') || 'Waiting for live Prometheus targets'}</small>
+            <small onClick={event => event.stopPropagation()}>{isMeshActive ? kubernetesValidation?.coreServices.map(service => `${service.name}: ${service.readyPodCount}/${service.podCount} ready`).join(' · ') || 'Waiting for Kubernetes core-product Pods' : coreServices.map(service => `${service.name}: ${service.status}${service.processUptimeSeconds != null ? `, uptime ${Math.floor(service.processUptimeSeconds)}s` : ''}`).join(' · ') || 'Waiting for live Prometheus targets'}</small>
           </div>
-          <div className="sh-metric-box">
+          <div className={`sh-metric-box ${expandedSignalCards.restarts ? 'is-expanded' : ''}`} role="button" tabIndex={0} aria-expanded={Boolean(expandedSignalCards.restarts)} onClick={() => toggleSignalCard('restarts')} onKeyDown={event => handleSignalCardKeyDown(event, 'restarts')}>
             <div className="sh-metric-val">{isMeshActive ? kubernetesValidation?.podRestartCount ?? 'Unavailable' : coreProductConnected ? hasProcessRestartMetrics ? observedProcessRestarts : 'N/A' : '—'}</div>
             <div className="sh-metric-lbl">{isMeshActive ? 'Core Pod restarts' : 'Process restarts observed'}</div>
-            <small>{isMeshActive ? 'Container restarts plus replaced core-product Pod UIDs observed by Kubernetes since the collector started' : 'Detected from process start-time changes since resilience API startup'}</small>
+            <small onClick={event => event.stopPropagation()}>{isMeshActive ? 'Container restarts plus replaced core-product Pod UIDs observed by Kubernetes since the collector started' : 'Detected from process start-time changes since resilience API startup'}</small>
           </div>
-          <div className="sh-metric-box">
+          <div className={`sh-metric-box ${expandedSignalCards.recoveries ? 'is-expanded' : ''}`} role="button" tabIndex={0} aria-expanded={Boolean(expandedSignalCards.recoveries)} onClick={() => toggleSignalCard('recoveries')} onKeyDown={event => handleSignalCardKeyDown(event, 'recoveries')}>
             <div className="sh-metric-val">{isMeshActive ? 'Observed live' : coreProductConnected ? observedRecoveries : '—'}</div>
             <div className="sh-metric-lbl">Service recoveries observed</div>
-            <small>{isMeshActive ? 'Ready replicas refresh from Kubernetes every 5 seconds; short events between polls may be missed' : 'OFFLINE-to-HEALTHY transitions seen during polling'}</small>
+            <small onClick={event => event.stopPropagation()}>{isMeshActive ? 'Ready replicas refresh from Kubernetes every 5 seconds; short events between polls may be missed' : 'OFFLINE-to-HEALTHY transitions seen during polling'}</small>
           </div>
-          <div className="sh-metric-box">
+          <div className={`sh-metric-box ${expandedSignalCards.kubernetes ? 'is-expanded' : ''}`} role="button" tabIndex={0} aria-expanded={Boolean(expandedSignalCards.kubernetes)} onClick={() => toggleSignalCard('kubernetes')} onKeyDown={event => handleSignalCardKeyDown(event, 'kubernetes')}>
             <div className="sh-metric-val">{isMeshActive ? kubernetesValidation ? `${kubernetesValidation.readyReplicas}/${kubernetesValidation.desiredReplicas} ready` : 'Unavailable' : 'Not applicable'}</div>
             <div className="sh-metric-lbl">Pod replacement / HPA</div>
-            <small>{isMeshActive ? `${kubernetesValidation?.hpas.length ?? 0} core-product HPA(s) · circuit breaker is not instrumented` : 'These services run in Docker Compose; Kubernetes autoscaling requires Kubernetes workloads.'}</small>
+            <small onClick={event => event.stopPropagation()}>{isMeshActive ? `${kubernetesValidation?.hpas.length ?? 0} core-product HPA(s) · circuit breaker is not instrumented` : 'These services run in Docker Compose; Kubernetes autoscaling requires Kubernetes workloads.'}</small>
           </div>
         </div>
       </section>
