@@ -19,12 +19,12 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/proxy/prometheus': {
-        target: process.env.PROMETHEUS_PROXY_TARGET || 'http://localhost:9090',
+        target: process.env.PROMETHEUS_PROXY_TARGET || 'http://localhost:9200',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/prometheus/, '')
       },
       '/proxy/loki': {
-        target: process.env.LOKI_PROXY_TARGET || 'http://localhost:13100',
+        target: process.env.LOKI_PROXY_TARGET || 'http://localhost:13300',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/loki/, '')
       },
@@ -45,3 +45,6 @@ export default defineConfig({
     }
   }
 })
+
+
+

@@ -51,7 +51,7 @@ services:
     image: prom/prometheus:v2.45.0
     container_name: pscore-prometheus
     ports:
-      - "9091:9090"
+      - "9200:9090"
     volumes:
       - ./backend/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     networks:
@@ -71,7 +71,7 @@ services:
     image: grafana/loki:2.9.8
     container_name: pscore-loki
     ports:
-      - "13100:3100"
+      - "13300:3100"
     command: -config.file=/etc/loki/loki-config.yaml
     volumes:
       - ./backend/observability/loki-config.yaml:/etc/loki/loki-config.yaml:ro
@@ -143,3 +143,6 @@ networks:
 
 volumes:
   resilience-data:
+
+
+
