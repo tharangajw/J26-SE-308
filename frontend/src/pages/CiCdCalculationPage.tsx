@@ -50,7 +50,7 @@ export const CiCdCalculationPage: React.FC = () => {
   if (p2HighRisk) {
     simulatedScore = 98.0;
   } else if (p1HighRisk) {
-    simulatedScore = 95.0;
+    simulatedScore = Number((3.0 + commitFreq * 0.4 + coDeployRate * 8).toFixed(1));
   } else if (p3HighRisk) {
     simulatedScore = Number(Math.min(99.0, 30.0 + podRestarts * 15 + errorRatePct * 5 + maxCallDepth * 4).toFixed(1));
   } else {
@@ -378,7 +378,7 @@ export const CiCdCalculationPage: React.FC = () => {
                 Coupling_Index = (0.5 * norm_freq) + (0.5 * R_co_deploy)
               </div>
               <p className="text-[11px] text-rose-400 font-mono">
-                Guardrail Rule: If Coupling_Index &gt; 0.50 ➔ Force C-Score = 95.0 (High Risk).
+                Soft Advisory Rule: If Coupling_Index &gt; 0.50 ➔ Architectural Warning (ML evaluates multi-feature context).
               </p>
             </div>
           </div>
@@ -585,12 +585,12 @@ export const CiCdCalculationPage: React.FC = () => {
 
               <div className="p-4 rounded-xl bg-surface-secondary/40 border border-border/50 space-y-3">
                 <div className="text-xs font-bold text-text-primary uppercase tracking-wider font-mono">
-                  3. Research Proposal Guardrail Overrides (Safety Constraints)
+                  3. Hybrid Governance: Soft Advisory vs Hard Guardrail Enforcement
                 </div>
                 <div className="p-3 rounded-lg bg-black/50 border border-border/60 font-mono text-xs space-y-1 text-text-secondary">
-                  <div className="text-amber-400"># Guardrail 1: Phase 1 High Entanglement</div>
-                  <div>if (coupling_index &gt; 0.50): P = max(P, 0.95)  # Force C-Score &ge; 95.0</div>
-                  <div className="text-amber-400 mt-2"># Guardrail 2: Phase 2 Breaking API Blast Risk</div>
+                  <div className="text-blue-400"># Phase 1 (Soft Advisory): Evaluated by XGBoost + Dashboard Warning</div>
+                  <div>if (coupling_index &gt; 0.50): coupling_warning = True  # Non-blocking advisory</div>
+                  <div className="text-rose-400 mt-2"># Phase 2 (Hard Guardrail): Breaking API Blast Risk Blocks PR</div>
                   <div>if (blast_radius &gt; 0): P = max(P, 0.98)       # Force C-Score &ge; 98.0</div>
                 </div>
               </div>
