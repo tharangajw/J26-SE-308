@@ -1,7 +1,6 @@
 """Collect and normalise telemetry before handing it to the scoring engine."""
 
 import os
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -57,53 +56,15 @@ def _query_range(query: str, start: datetime, end: datetime, step: str = "60s") 
     })
 
 
-# Emit correlated demo heartbeat logs/traces for the bundled local stack.
-def _push_observability_event(now: datetime) -> list[dict]:
-    """Emit a small structured heartbeat so the local Loki dashboard has a live stream.
-
-    Production deployments should replace this with the application's normal
-    log shipper (Alloy/Promtail/OpenTelemetry). This keeps the bundled demo
-    stack observable without requiring a host Docker socket.
-    """
-    try:
-        streams = []
-        trace_events = []
-        for service in ("api-gateway", "order-service", "payment-service"):
-            trace_id = uuid.uuid4().hex
-            duration = 75.0 + len(trace_events) * 12.5
-            streams.append({
-                "stream": {"service": service, "level": "INFO", "source": "telemetry", "trace_id": trace_id},
-                "values": [[str(int(now.timestamp() * 1_000_000_000)), f"Telemetry correlation refresh completed for {service} trace_id={trace_id}"]],
-            })
-            trace_events.append({
-                "id": trace_id,
-                "time": now.timestamp() * 1000,
-                "duration": duration,
-                "spans": 3,
-                "isError": False,
-                "service": service,
-                "operation": "telemetry.refresh",
-            })
-        requests.post(
-            f"{LOKI_URL}/loki/api/v1/push",
-            json={"streams": streams},
-            timeout=TIMEOUT_SECONDS,
-        )
-        return trace_events
-    except requests.RequestException:
-        return []
-
-
-# Build a service dependency graph from discovered Jaeger spans or safe fallback edges.
-def _dependency_map(traces_payload: dict | None, heartbeat_traces: list[dict]) -> dict:
-    """Build a service graph from Jaeger parent/child spans.
-
-    The bundled stack has no application spans by default, so the correlated
-    heartbeat trace IDs provide a small live graph until real OTLP spans arrive.
+# Build a service dependency graph strictly from real Jaeger spans.
+def _dependency_map(traces_payload: dict | None) -> dict:
+    """Build a dynamic service graph from real Jaeger parent/child spans.
+    No mock or hardcoded fallback edges are injected.
     """
     edges: dict[tuple[str, str], dict] = {}
     discovered_edges = False
-    root = "order-service"
+    root = "unknown-service"
+
     for trace in (traces_payload or {}).get("data", []):
         spans = trace.get("spans", [])
         if not spans:
@@ -127,18 +88,7 @@ def _dependency_map(traces_payload: dict | None, heartbeat_traces: list[dict]) -
                     discovered_edges = True
 
     if not edges:
-        # These are the services represented by the live Loki/trace heartbeat,
-        # not frontend-only rows. Replace automatically when Jaeger emits spans.
-        root = "order-service"
-        fallback_edges = [
-            ("order-service", "payment-service"),
-            ("order-service", "inventory-service"),
-            ("order-service", "notification-service"),
-            ("payment-service", "bank-gateway-service"),
-            ("payment-service", "fraud-check-service"),
-            ("inventory-service", "warehouse-db"),
-        ]
-        edges = {key: {"source": key[0], "target": key[1], "status": "Healthy"} for key in fallback_edges}
+        return {"root": None, "nodes": [], "edges": [], "live": False}
 
     children: dict[str, list[str]] = {}
     for edge in edges.values():
@@ -159,30 +109,28 @@ def _dependency_map(traces_payload: dict | None, heartbeat_traces: list[dict]) -
     return {"root": root, "nodes": nodes, "edges": list(edges.values()), "live": discovered_edges}
 
 
-# Collect and normalize the complete Prometheus/Loki/Jaeger snapshot.
+# Collect and normalize the complete Prometheus/Loki/Jaeger snapshot in real-time.
 def collect_telemetry() -> dict:
     now = datetime.now(timezone.utc)
     start = now - timedelta(minutes=30)
+    # Define Prometheus queries for CPU, memory, request count, latency, and error rate.
     prom_queries = (
-        # The local stack exposes process/http metrics rather than cAdvisor
-        # container_* metrics. Keep these queries compatible with the bundled
-        # Prometheus target so the dashboard receives real time-series data.
-        "sum(rate(process_cpu_seconds_total[1m])) * 100",
-        "sum(process_resident_memory_bytes) / clamp_min(sum(process_virtual_memory_bytes), 1) * 100",
-        "sum(rate(prometheus_http_requests_total[1m]))",
-        "histogram_quantile(0.95, sum(rate(prometheus_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
-        "100 * sum(rate(http_requests_total{status=~'5..'}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1)",
+        "sum(rate(process_cpu_seconds_total[1m])) * 100",  # cpu usage percentage
+        "sum(process_resident_memory_bytes) / clamp_min(sum(process_virtual_memory_bytes), 1) * 100",# memory usage percentage
+        "sum(rate(prometheus_http_requests_total[1m]))",# request count per second
+        "histogram_quantile(0.95, sum(rate(prometheus_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",# p95 latency in milliseconds
+        "100 * sum(rate(http_requests_total{status=~'5..'}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1)",# error rate percentage
     )
+    # Query all active services from Loki for the last 15 minutes
     loki_params = {
-        "query": '{service=~"api-gateway|order-service|payment-service", level=~"INFO|WARN|ERROR|CRITICAL"}',
+        "query": '{level=~"INFO|WARN|ERROR|CRITICAL"}',
         "start": (now - timedelta(minutes=15)).isoformat(),
         "end": now.isoformat(),
         "limit": "100",
         "direction": "backward",
     }
-    heartbeat_traces = _push_observability_event(now)
-    # Query all pillars at once. A refresh should take roughly one source
-    # timeout, not one timeout for every Prometheus/Loki/Jaeger request.
+
+    # Query all pillars concurrently via real endpoints
     with ThreadPoolExecutor(max_workers=10) as executor:
         prom_futures = [executor.submit(_get_json, f"{PROMETHEUS_URL}/api/v1/query", {"query": query}) for query in prom_queries]
         series_futures = [executor.submit(_query_range, query, start, now) for query in prom_queries[:4]]
@@ -206,11 +154,11 @@ def collect_telemetry() -> dict:
             if len(entry) < 2:
                 continue
             recent_logs.append({
-                "timestamp": entry[0],
-                "level": labels.get("level", "ERROR").upper(),
-                "service": labels.get("service", labels.get("app", "unknown-service")),
-                "message": entry[1],
-                "traceId": labels.get("trace_id", labels.get("traceId", "-")),
+                "timestamp": entry[0],# nanoseconds since epoch
+                "level": labels.get("level", "ERROR").upper(),# log level
+                "service": labels.get("service", labels.get("app", "unknown-service")),# service name
+                "message": entry[1],# log message
+                "traceId": labels.get("trace_id", labels.get("traceId", "-")),# trace ID
             })
     log_buckets = {}
     for item in recent_logs:
@@ -221,6 +169,7 @@ def collect_telemetry() -> dict:
         counts = log_buckets.setdefault(bucket, {"time": bucket, "info": 0, "error": 0})
         counts["error" if item["level"] in {"ERROR", "CRITICAL"} else "info"] += 1
 
+    # Real Jaeger trace parsing - no synthetic fallbacks
     trace_samples = []
     for trace in (traces_payload or {}).get("data", []):
         spans = trace.get("spans", [])
@@ -229,25 +178,20 @@ def collect_telemetry() -> dict:
         root = min(spans, key=lambda span: span.get("startTime", 0))
         tags = {tag.get("key"): tag.get("value") for tag in root.get("tags", [])}
         trace_samples.append({
-            "id": trace.get("traceID", root.get("traceID", "trace-unknown")),
-            "time": root.get("startTime", 0) / 1000,
-            "duration": max(0, root.get("duration", 0) / 1000),
-            "spans": len(spans),
-            "isError": tags.get("error") is True or tags.get("otel.status_code") == "ERROR",
-            "service": (root.get("process", {}) or {}).get("serviceName", "unknown-service"),
-            "operation": root.get("operationName", "unknown-operation"),
+            "id": trace.get("traceID", root.get("traceID", "trace-unknown")),# trace ID
+            "time": root.get("startTime", 0) / 1000,# start time in seconds since epoch
+            "duration": max(0, root.get("duration", 0) / 1000),# duration in seconds
+            "spans": len(spans),# number of spans in the trace
+            "isError": tags.get("error") is True or tags.get("otel.status_code") == "ERROR",# whether the trace indicates an error
+            "service": (root.get("process", {}) or {}).get("serviceName", "unknown-service"),# service name
+            "operation": root.get("operationName", "unknown-operation"),# operation name
         })
     trace_samples.sort(key=lambda item: item["time"])
-    if not trace_samples:
-        # The bundled services do not emit OTLP spans themselves. Reuse the
-        # same correlation events sent to Loki so the local trace view remains
-        # live and linked by the exact same trace IDs.
-        trace_samples = heartbeat_traces
-        if trace_samples:
-            services = sorted({item["service"] for item in trace_samples})
+
     error_trace_count = sum(1 for trace in trace_samples if trace["isError"])
     average_trace_latency = sum(trace["duration"] for trace in trace_samples) / len(trace_samples) if trace_samples else 0.0
     error_rate = (error_trace_count / len(trace_samples) * 100) if trace_samples else _prometheus_value(prom[4])
+
     experiment = telemetry_experiment()
     active_gap = experiment["fault_type"] if experiment else None
     service_fault = experiment.get("service_id") if active_gap == "SERVICE_DOWN" else None
@@ -266,7 +210,7 @@ def collect_telemetry() -> dict:
             "timestamp": str(int(now.timestamp() * 1_000_000_000)),
             "level": "ERROR",
             "service": "payment-service",
-            "message": "Synthetic chaos error spike: upstream request failures",
+            "message": "Chaos fault injection: upstream error spike",
             "traceId": "-",
         })
         error_count += 1
@@ -281,15 +225,33 @@ def collect_telemetry() -> dict:
     if active_gap == "LATENCY_SPIKE":
         metrics_payload["p95Latency"] = max(metrics_payload["p95Latency"], 1500.0)
         average_trace_latency = max(average_trace_latency, 1500.0)
+
     return {
         "metrics": metrics_payload,
-        "series": {"cpu": _prometheus_series(cpu_series, "value"), "memory": _prometheus_series(memory_series, "value"), "requests": _prometheus_series(request_series, "value"), "latency": _prometheus_series(latency_series, "value")},
-        "logs": {"errorCount": error_count, "recentErrors": [item["message"] for item in recent_logs[-20:]], "recentLogs": recent_logs[-100:], "series": list(log_buckets.values())},
-        "traces": {"latency": average_trace_latency or _prometheus_value(prom[3]), "errorRate": error_rate, "serviceCount": len(services) if isinstance(services, list) else 0, "samples": trace_samples[-100:]},
-        "dependencyMap": _dependency_map(traces_payload, heartbeat_traces),
+        "series": {
+            "cpu": _prometheus_series(cpu_series, "value"),
+            "memory": _prometheus_series(memory_series, "value"),
+            "requests": _prometheus_series(request_series, "value"),
+            "latency": _prometheus_series(latency_series, "value")
+        },
+        "logs": {
+            "errorCount": error_count,
+            "recentErrors": [item["message"] for item in recent_logs[-20:]],
+            "recentLogs": recent_logs[-100:],
+            "series": list(log_buckets.values())
+        },
+        "traces": {
+            "latency": average_trace_latency or _prometheus_value(prom[3]),
+            "errorRate": error_rate,
+            "serviceCount": len(services) if isinstance(services, list) else 0,
+            "samples": trace_samples[-100:]
+        },
+        "dependencyMap": _dependency_map(traces_payload),
         "serviceFault": {"type": "SERVICE_DOWN", "service": service_fault} if service_fault else None,
-        # A reachable Jaeger API is a healthy telemetry pillar even when its
-        # current trace query is empty or requires a service filter.
-        "sources": {"prometheus": any(item is not None for item in prom), "loki": loki is not None, "jaeger": jaeger is not None and active_gap != "TRACE_GAP"},
+        "sources": {
+            "prometheus": any(item is not None for item in prom),
+            "loki": loki is not None,
+            "jaeger": jaeger is not None and active_gap != "TRACE_GAP"
+        },
         "lastUpdated": now.isoformat(),
     }
