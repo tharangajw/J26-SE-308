@@ -1,9 +1,10 @@
-import { TraceCallTree, FanOutAnalysisResult } from './types';
+import { TraceCallTree, FanOutAnalysisResult, TraceSpan } from './types';
 
+// Analyzes distributed trace call trees from Jaeger/OpenTelemetry to detect architectural fan-out,
+// measuring dependency depth and applying attenuation adjustments for legitimate API gateways.
 export class FanOutEngineService {
-  /**
-   * Parses Jaeger call-tree structures and calculates unique dependency depth and fan-out score.
-   */
+  // Evaluates a trace call-tree to compute direct downstream couplings, maximum call depth,
+  // and logarithmic gateway attenuation to produce a normalized fan-out penalty score [0.0, 1.0].
   public analyzeTraceTree(callTree: TraceCallTree): FanOutAnalysisResult {
     const { spans, rootService } = callTree;
     if (!spans || spans.length === 0) {
@@ -51,6 +52,8 @@ export class FanOutEngineService {
     };
   }
 
+  // Traverses parent-child span relations up the call tree to determine the maximum call hierarchy depth,
+  // including a 20-hop safeguard to prevent infinite loops in cyclic traces.
   private computeMaxDepth(spans: TraceSpan[]): number {
     const parentMap = new Map<string, string | undefined>();
     spans.forEach((s) => parentMap.set(s.spanId, s.parentSpanId));

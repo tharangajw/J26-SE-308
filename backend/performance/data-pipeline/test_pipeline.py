@@ -1,6 +1,8 @@
 import time
 from pipeline import DataPipelineEngine
 
+# Verifies that raw multi-service telemetry snapshots are properly processed,
+# timestamp-aligned, imputed, and scaled into normalized 0-1 metrics.
 def test_data_pipeline():
     print("--- Testing Data Pipeline Module ---")
     engine = DataPipelineEngine()
@@ -32,6 +34,7 @@ def test_data_pipeline():
         }
     ]
     
+    # Process raw snapshots through the pipeline and assert output integrity
     processed_df = engine.process_raw_snapshots(mock_snapshots)
     assert not processed_df.empty, "Processed dataframe should not be empty"
     assert "cpu_millicores_norm" in processed_df.columns, "Normalized CPU feature missing"

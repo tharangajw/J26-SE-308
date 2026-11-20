@@ -7,7 +7,11 @@ from typing import Dict, Any, List, Optional
 from prefilter import PodStartupFilter
 
 
+# Unsupervised anomaly detection service combining scikit-learn Isolation Forest
+# with a 90-second Kubernetes startup pre-filter and Explainable AI (XAI) attribution.
 class AnomalyDetectionService:
+    # Initializes model hyperparameters (contamination, n_estimators), sets up the startup
+    # suppression filter, and loads historical training snapshots from disk.
     def __init__(
         self,
         contamination: float = 0.05,
@@ -45,6 +49,8 @@ class AnomalyDetectionService:
 
         self._load_and_fit_real_model()
 
+    # Loads persisted telemetry samples from storage and fits the model;
+    # falls back to a deterministic reference lattice if real samples are not yet available.
     def _load_and_fit_real_model(self) -> None:
         """Loads persisted real telemetry vectors from disk and fits the Isolation Forest model."""
         try:
@@ -74,6 +80,8 @@ class AnomalyDetectionService:
             self.model.fit(np.array(lattice, dtype=float))
             self.is_trained = True
 
+    # Fits the Isolation Forest with verified training observations
+    # and computes feature median baselines for subsequent XAI attribution.
     def _fit_on_samples(self, data: np.ndarray) -> None:
         if len(data) < 2:
             return
@@ -81,6 +89,8 @@ class AnomalyDetectionService:
         self.baseline_medians = np.median(data, axis=0)
         self.is_trained = True
 
+    # Persists collected real telemetry vectors into the data directory
+    # so learned cluster patterns survive service restarts.
     def _persist_training_samples(self) -> None:
         try:
             os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
@@ -89,6 +99,8 @@ class AnomalyDetectionService:
         except Exception:
             pass
 
+    # Ingests live telemetry vectors outside the 90s startup window into an online buffer
+    # and periodically refits the Isolation Forest to adapt to genuine cluster patterns.
     def record_real_telemetry_sample(
         self, feature_vector: List[float], pod_uptime_sec: float
     ) -> None:
@@ -117,6 +129,8 @@ class AnomalyDetectionService:
             self._persist_training_samples()
             self._samples_since_last_fit = 0
 
+    # Implements Explainable AI (XAI) via single-feature ablation to determine percentage
+    # contributions of CPU, RAM, latency, and error rate, identifying the root-cause driver.
     def compute_feature_attributions(
         self, feature_vector: list, full_decision_score: float
     ) -> Dict[str, Any]:
@@ -154,6 +168,8 @@ class AnomalyDetectionService:
             "dominantDriver": self.feature_names[dominant_idx],
         }
 
+    # Predicts runtime anomalies by verifying pod uptime against the startup window,
+    # computing Isolation Forest outlier scores, and attributing dominant metric drivers.
     def predict(
         self,
         feature_vector: list,
@@ -209,6 +225,8 @@ class AnomalyDetectionService:
             "trained_samples_count": len(self.real_training_samples),
         }
 
+    # Computes Precision, Recall, and False-Positive Reduction by testing model predictions
+    # and startup suppression efficiency against labeled ground-truth benchmark datasets.
     def benchmark_performance(
         self, ground_truth_dataset: pd.DataFrame
     ) -> Dict[str, float]:

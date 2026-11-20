@@ -1,14 +1,18 @@
 import { ScoringWeights, ServiceSignals, PScoreEvaluationResult } from './types';
 import { MaturityTierMapper } from './maturity_mapper';
 
+// TypeScript P-Score computation engine that calculates composite performance efficiency
+// by penalizing latency drift, call-tree fan-out amplification, and ML runtime anomalies.
 export class PScoreEngineService {
   private weights: ScoringWeights;
 
+  // Initializes default or customized dimension weights and ensures their sum equals 1.0.
   constructor(weights: ScoringWeights = { latencyDriftWeight: 0.40, fanOutWeight: 0.40, anomalyWeight: 0.20 }) {
     this.weights = weights;
     this.normalizeWeights();
   }
 
+  // Normalizes weight factors to guarantee that total penalty weight equals 1.0.
   private normalizeWeights() {
     const total = this.weights.latencyDriftWeight + this.weights.fanOutWeight + this.weights.anomalyWeight;
     if (total > 0 && Math.abs(total - 1.0) > 0.001) {
@@ -18,6 +22,8 @@ export class PScoreEngineService {
     }
   }
 
+  // Calculates the final 0-100 P-Score from input signals using: PScore = 100 * (1 - TotalPenalty),
+  // assigns maturity tiers, and measures execution runtime overhead in milliseconds.
   public calculatePScore(signals: ServiceSignals): PScoreEvaluationResult {
     const startTime = performance.now();
 
