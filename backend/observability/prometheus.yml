@@ -7,8 +7,29 @@ scrape_configs:
     static_configs:
       - targets: ['prometheus:9090']
 
+  - job_name: gateway-1
+    static_configs:
+      - targets: ['gateway:3000']
+        labels:
+          application: rp-core-product
+
+  - job_name: book-service-1
+    static_configs:
+      - targets: ['book-service:3001']
+        labels:
+          application: rp-core-product
+
+  - job_name: user-service-1
+    static_configs:
+      - targets: ['user-service:3002']
+        labels:
+          application: rp-core-product
+
+  - job_name: order-service-1
+    static_configs:
+      - targets: ['order-service:3003']
+        labels:
+          application: rp-core-product
+
   # Add application targets here when services expose /metrics.
   # Kubernetes uses the equivalent scrape annotations in k8s/performance-stack.yaml.
-  - job_name: telemetry-collector
-    static_configs:
-      - targets: ['telemetry-collector:8787']

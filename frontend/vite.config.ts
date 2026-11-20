@@ -11,8 +11,9 @@ export default defineConfig({
     react()
   ],
   server: {
-    host: '127.0.0.1',
-    port: 3000,
+    host: 'localhost',
+    port: process.env.VITE_DEV_PORT ? Number(process.env.VITE_DEV_PORT) : 5174,
+    strictPort: true,
     proxy: {
       '/api/observability': {
         target: process.env.OBSERVABILITY_PROXY_TARGET || 'http://localhost:18011',

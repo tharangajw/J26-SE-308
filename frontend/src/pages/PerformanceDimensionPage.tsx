@@ -365,11 +365,7 @@ export const PerformanceDimensionPage: React.FC = () => {
       if (useCustomPairwise) {
         qs += `&a12=${pairwiseJudgments.a12}&a13=${pairwiseJudgments.a13}&a23=${pairwiseJudgments.a23}`;
       }
-      const urls = [
-        `/api/anomaly/pscore/evaluate${qs}`,
-        `http://localhost:8000/pscore/evaluate${qs}`,
-        `http://localhost:18002/pscore/evaluate${qs}`
-      ];
+      const urls = [`/api/anomaly/pscore/evaluate${qs}`];
       let payload: PythonPScoreResponse | null = null;
 
       for (const url of urls) {

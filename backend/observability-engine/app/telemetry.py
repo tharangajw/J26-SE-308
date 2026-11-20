@@ -1,6 +1,7 @@
 """Collect and normalise telemetry before handing it to the scoring engine."""
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -44,6 +45,19 @@ def _prometheus_series(payload: dict | None, name: str) -> list[dict]:
             except (TypeError, ValueError):
                 continue
     return points
+
+
+def _detect_log_level(labels: dict, message: str) -> str:
+    level = str(labels.get("level", labels.get("severity", ""))).upper()
+    if level in {"ERROR", "CRITICAL", "FATAL", "WARN", "WARNING", "DEBUG", "INFO"}:
+        return "WARN" if level == "WARNING" else level
+    if "❌" in message or re.search(r"\b(ERROR|CRITICAL|FATAL|EXCEPTION|PANIC)\b", message, re.I):
+        return "ERROR"
+    if re.search(r"\b(WARN|WARNING)\b", message, re.I):
+        return "WARN"
+    if re.search(r"\bDEBUG\b", message, re.I):
+        return "DEBUG"
+    return "INFO"
 
 
 # Query a bounded Prometheus time range for live dashboard history.
@@ -115,15 +129,15 @@ def collect_telemetry() -> dict:
     start = now - timedelta(minutes=30)
     # Define Prometheus queries for CPU, memory, request count, latency, and error rate.
     prom_queries = (
-        "sum(rate(process_cpu_seconds_total[1m])) * 100",  # cpu usage percentage
-        "sum(process_resident_memory_bytes) / clamp_min(sum(process_virtual_memory_bytes), 1) * 100",# memory usage percentage
-        "sum(rate(prometheus_http_requests_total[1m]))",# request count per second
-        "histogram_quantile(0.95, sum(rate(prometheus_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",# p95 latency in milliseconds
-        "100 * sum(rate(http_requests_total{status=~'5..'}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1)",# error rate percentage
+        'sum(rate(process_cpu_user_seconds_total{application="rp-core-product"}[1m]) + rate(process_cpu_system_seconds_total{application="rp-core-product"}[1m])) * 100',
+        '100 * sum(nodejs_heap_size_used_bytes{application="rp-core-product"}) / clamp_min(sum(nodejs_heap_size_total_bytes{application="rp-core-product"}), 1)',
+        'sum(rate(http_requests_total{application="rp-core-product"}[1m]))',
+        'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{application="rp-core-product"}[5m])) by (le)) * 1000',
+        '100 * sum(rate(http_requests_total{application="rp-core-product",status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{application="rp-core-product"}[5m])), 1)',
     )
     # Query all active services from Loki for the last 15 minutes
     loki_params = {
-        "query": '{level=~"INFO|WARN|ERROR|CRITICAL"}',
+        "query": '{project="rp-core-product", app_service=~"gateway|book-service|user-service|order-service"}',
         "start": (now - timedelta(minutes=15)).isoformat(),
         "end": now.isoformat(),
         "limit": "100",
@@ -146,20 +160,21 @@ def collect_telemetry() -> dict:
     cpu_series, memory_series, request_series, latency_series = series
     streams = (loki or {}).get("data", {}).get("result", [])
     services = (jaeger or {}).get("data", [])
-    error_count = sum(len(stream.get("values", [])) for stream in streams)
     recent_logs = []
     for stream in streams:
         labels = stream.get("stream", {})
         for entry in stream.get("values", []):
             if len(entry) < 2:
                 continue
+            message = entry[1]
             recent_logs.append({
                 "timestamp": entry[0],# nanoseconds since epoch
-                "level": labels.get("level", "ERROR").upper(),# log level
+                "level": _detect_log_level(labels, message),
                 "service": labels.get("service", labels.get("app", "unknown-service")),# service name
-                "message": entry[1],# log message
+                "message": message,
                 "traceId": labels.get("trace_id", labels.get("traceId", "-")),# trace ID
             })
+    error_count = sum(1 for item in recent_logs if item["level"] in {"ERROR", "CRITICAL"})
     log_buckets = {}
     for item in recent_logs:
         try:
@@ -236,7 +251,7 @@ def collect_telemetry() -> dict:
         },
         "logs": {
             "errorCount": error_count,
-            "recentErrors": [item["message"] for item in recent_logs[-20:]],
+            "recentErrors": [item["message"] for item in recent_logs if item["level"] in {"ERROR", "CRITICAL"}][-20:],
             "recentLogs": recent_logs[-100:],
             "series": list(log_buckets.values())
         },

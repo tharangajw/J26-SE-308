@@ -163,9 +163,9 @@ export class TelemetryService {
   static async fetchPrometheusMetrics(): Promise<any> {
     try {
       const [cpu, memory, requests] = await Promise.all([
-        this.fetchPrometheusQuery('sum(rate(container_cpu_usage_seconds_total[1m])) * 100'),
-        this.fetchPrometheusQuery('sum(container_memory_working_set_bytes) / sum(container_spec_memory_limit_bytes) * 100'),
-        this.fetchPrometheusQuery('sum(rate(http_requests_total[1m]))'),
+        this.fetchPrometheusQuery('sum(rate(process_cpu_user_seconds_total{application="rp-core-product"}[1m]) + rate(process_cpu_system_seconds_total{application="rp-core-product"}[1m])) * 100'),
+        this.fetchPrometheusQuery('100 * sum(nodejs_heap_size_used_bytes{application="rp-core-product"}) / clamp_min(sum(nodejs_heap_size_total_bytes{application="rp-core-product"}), 1)'),
+        this.fetchPrometheusQuery('sum(rate(http_requests_total{application="rp-core-product"}[1m]))'),
       ]);
       return { cpu, memory, requests };
     } catch (error) {
@@ -178,7 +178,7 @@ export class TelemetryService {
     try {
       const start = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       return await fetchJson(`${LOKI_URL}/loki/api/v1/query_range`, {
-        query: '{level="error"}',
+        query: '{project="rp-core-product", app_service=~"gateway|book-service|user-service|order-service"}',
         start,
         end: new Date().toISOString(),
         limit: '100',
@@ -220,7 +220,6 @@ export class TelemetryService {
     // Query FastAPI Anomaly / Performance Engine dynamic Docker discovery endpoint first (<50ms)
     const fastApiUrls = [
       '/api/anomaly/cluster/services',
-      'http://localhost:8000/cluster/services',
     ];
     for (const url of fastApiUrls) {
       try {
@@ -246,10 +245,7 @@ export class TelemetryService {
       }
     }
 
-    const collectorUrls = [
-      '/api/telemetry/discovered-services',
-      'http://localhost:8787/api/telemetry/discovered-services',
-    ];
+    const collectorUrls = ['/api/telemetry/discovered-services'];
     for (const url of collectorUrls) {
       try {
         const res = await fetch(url);
@@ -295,33 +291,13 @@ export class TelemetryService {
       if (promRes?.status === 'success' && Array.isArray(promRes.data)) {
         prometheusJobs = promRes.data;
       }
-    } catch {
-      try {
-        const res = await fetch('http://localhost:9090/api/v1/label/job/values');
-        const data = await res.json();
-        if (data?.status === 'success' && Array.isArray(data.data)) {
-          prometheusJobs = data.data;
-        }
-      } catch {
-        // unreachable
-      }
+    } catch (error) {
+      console.warn('Prometheus service discovery failed.', error);
     }
 
-    try {
-      const jaegerRes = await this.fetchJaegerTraces();
-      if (jaegerRes?.data && Array.isArray(jaegerRes.data)) {
-        jaegerServices = jaegerRes.data;
-      }
-    } catch {
-      try {
-        const res = await fetch('http://localhost:16686/api/services');
-        const data = await res.json();
-        if (Array.isArray(data.data)) {
-          jaegerServices = data.data;
-        }
-      } catch {
-        // unreachable
-      }
+    const jaegerRes = await this.fetchJaegerTraces();
+    if (jaegerRes?.data && Array.isArray(jaegerRes.data)) {
+      jaegerServices = jaegerRes.data;
     }
 
     const infraKeywords = ['prometheus', 'jaeger', 'loki', 'grafana', 'collector', 'performance-engine', 'pscore-'];

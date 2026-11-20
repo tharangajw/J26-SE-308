@@ -86,10 +86,7 @@ export const PerformanceScenarioInjector: React.FC<PerformanceScenarioInjectorPr
     setIsTriggering(true);
     setTriggerStatus(`Injecting ${mode.toUpperCase()} profile into FastAPI Engine...`);
     try {
-      const urls = [
-        `/api/anomaly/loadtest/trigger?mode=${mode}`,
-        `http://localhost:8000/loadtest/trigger?mode=${mode}`
-      ];
+      const urls = [`/api/anomaly/loadtest/trigger?mode=${mode}`];
       let ok = false;
       for (const url of urls) {
         try {

@@ -124,10 +124,17 @@ flowchart LR
 From the repository root, start the frontend, backend APIs, and telemetry services with:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-Open the frontend at `http://localhost:5173`. Stop the services with `Ctrl+C`, or run `docker compose down` in another terminal. The resilience API is available at `http://localhost:3010` and the telemetry collector at `http://localhost:8787`. Docker Compose reads optional `GEMINI_API_KEY` and `GEMINI_MODEL` values from the root `.env` file for resilience insights.
+To send live telemetry, also start the `rp-core-product` microservices Compose project. Its services expose Prometheus metrics, export traces to Jaeger, and Alloy forwards their container logs to Loki:
+
+```bash
+# From the rp-core-product project directory
+docker compose up --build -d
+```
+
+Open the frontend at `http://localhost:5173`. For local frontend development with `npm run dev`, Vite uses `http://localhost:5174` so it can run alongside the Compose frontend. Prometheus is at `http://localhost:9200`, Jaeger at `http://localhost:16686`, and Loki's API at `http://localhost:13300`. The resilience API is available at `http://localhost:3010` and the telemetry collector at `http://localhost:8787`. Docker Compose reads optional `GEMINI_API_KEY` and `GEMINI_MODEL` values from the root `.env` file for resilience insights.
 
 ### Prerequisites
 - Docker + Kubernetes (minikube / kind / cloud sandbox)

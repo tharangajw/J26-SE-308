@@ -241,7 +241,7 @@ export class PrometheusCollector {
     ] = await Promise.all([
       this.queryFirstAvailableMetric([
         `sum(rate(container_cpu_usage_seconds_total{container=~".*${serviceId}.*"}[5m])) * 1000`,
-        `sum(rate(process_cpu_seconds_total{job=~".*${serviceId}.*"}[5m])) * 1000`,
+        `sum(rate(process_cpu_user_seconds_total{job=~".*${serviceId}.*"}[5m]) + rate(process_cpu_system_seconds_total{job=~".*${serviceId}.*"}[5m])) * 1000`,
         `container_cpu_usage_seconds_total{container=~".*${serviceId}.*"} * 1000`,
       ]),
       this.queryFirstAvailableMetric([

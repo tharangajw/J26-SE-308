@@ -6,8 +6,9 @@ services:
     container_name: pscore-frontend
     restart: unless-stopped
     ports:
-      - "5173:3000"
+      - "5173:5173"
     environment:
+      VITE_DEV_PORT: 5173
       PROMETHEUS_PROXY_TARGET: http://prometheus:9090
       LOKI_PROXY_TARGET: http://loki:3100
       JAEGER_PROXY_TARGET: http://jaeger:16686
@@ -35,7 +36,7 @@ services:
       PROMETHEUS_URL: http://prometheus:9090
       # Requires kubectl proxy on the host at port 8001 to reach Kubernetes.
       KUBERNETES_URL: http://host.docker.internal:8001
-      FRONTEND_HEALTH_URL: http://frontend:3000
+      FRONTEND_HEALTH_URL: http://frontend:5173
       # Compose reads these variables from the project-root .env file.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
@@ -65,6 +66,23 @@ services:
       - "16686:16686"
       - "4317:4317"
       - "4318:4318"
+    networks:
+      - pscore-net
+
+  alloy:
+    image: grafana/alloy:v1.8.3
+    container_name: pscore-alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy-config.alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
     networks:
       - pscore-net
 
@@ -114,9 +132,10 @@ services:
     container_name: pscore-performance-engine
     ports:
       - "8000:8000"
-      - "18002:8000"
     networks:
-      - pscore-net
+      pscore-net:
+        aliases:
+          - anomaly-detection
 
   telemetry-collector:
     build:
@@ -140,10 +159,7 @@ services:
     depends_on:
       - mongodb
     networks:
-      pscore-net:
-        aliases:
-          - telemetry-collector
-          - anomaly-detection
+      - pscore-net
     deploy:
       resources:
         limits:
@@ -153,8 +169,6 @@ services:
   mongodb:
     image: mongo:7
     container_name: pscore-mongo
-    ports:
-      - "27017:27017"
     volumes:
       - mongo-data:/data/db
     networks:

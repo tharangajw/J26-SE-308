@@ -54,7 +54,7 @@ export class LokiCollector {
   ): Promise<LokiMetrics> {
     const selector = serviceId
       ? `{service=~".*${serviceId}.*"}`
-      : '{level=~"(?i)(error|err|fatal|critical)"}';
+      : '{project="rp-core-product", app_service=~"gateway|book-service|user-service|order-service"}';
     const end = Date.now() * 1_000_000;
     const start = end - windowMinutes * 60 * 1_000_000_000;
     const params = new URLSearchParams({

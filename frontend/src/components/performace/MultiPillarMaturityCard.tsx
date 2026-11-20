@@ -40,8 +40,7 @@ export const MultiPillarMaturityCard: React.FC<MultiPillarMaturityCardProps> = (
     setIsRefreshing(true);
     try {
       const urls = [
-        `/api/anomaly/composite/multi-pillar?service_id=${encodeURIComponent(serviceId)}`,
-        `http://localhost:8000/composite/multi-pillar?service_id=${encodeURIComponent(serviceId)}`
+        `/api/anomaly/composite/multi-pillar?service_id=${encodeURIComponent(serviceId)}`
       ];
       let payload: MultiPillarData | null = null;
       for (const url of urls) {

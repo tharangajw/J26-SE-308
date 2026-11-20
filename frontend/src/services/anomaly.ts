@@ -47,17 +47,9 @@ export interface ServiceAnomalyEvaluation {
 }
 
 const ANOMALY_BASE_URL = '/api/anomaly';
-const FALLBACK_ANOMALY_URL = 'http://localhost:8000';
 
 async function fetchAnomalyJson<T>(path: string, options: RequestInit = {}): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${ANOMALY_BASE_URL}${path}`, options);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  } catch {
-    response = await fetch(`${FALLBACK_ANOMALY_URL}${path}`, options);
-  }
-
+  const response = await fetch(`${ANOMALY_BASE_URL}${path}`, options);
   if (!response.ok) {
     throw new Error(`Anomaly service responded with status ${response.status}`);
   }

@@ -35,14 +35,9 @@ export const PScoreTechnicalReportPage: React.FC = () => {
       try {
         let evalData: any = null;
         try {
-          const res = await fetch(`http://localhost:8000/pscore/evaluate?services=${encodeURIComponent(serviceId)}`);
+          const res = await fetch(`/api/anomaly/pscore/evaluate?services=${encodeURIComponent(serviceId)}`);
           if (res.ok) evalData = await res.json();
-        } catch {
-          try {
-            const res = await fetch(`/api/anomaly/pscore/evaluate?services=${encodeURIComponent(serviceId)}`);
-            if (res.ok) evalData = await res.json();
-          } catch {}
-        }
+        } catch {}
 
         const built = ReportService.buildExecutiveReport(evalData || {}, serviceId);
         setReport(built);
