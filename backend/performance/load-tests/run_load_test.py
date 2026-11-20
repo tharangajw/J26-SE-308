@@ -5,9 +5,26 @@ import time
 import urllib.request
 
 ANOMALY_API_URL = "http://localhost:8000/predict"
-SERVICES = ["order-service", "payment-service", "api-gateway", "inventory-service"]
 
 
+def get_discovered_services() -> list[str]:
+    """
+    Dynamically queries FastAPI service discovery to find live microservices in the cluster.
+    """
+    try:
+        req = urllib.request.Request("http://localhost:8000/cluster/services", method="GET")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            svcs = data.get("services")
+            if svcs and isinstance(svcs, list) and len(svcs) > 0:
+                return svcs
+    except Exception:
+        pass
+    return ["gateway-1", "order-service-1", "user-service-1", "book-service-1"]
+
+
+# Sends a POST request containing a 4D normalized telemetry vector to the FastAPI inference engine
+# and returns the prediction result including anomaly status and feature attributions.
 def send_inference(service_id: str, feature_vector: list[float], pod_uptime_sec: float) -> dict:
     payload = json.dumps({
         "service_id": service_id,
@@ -25,6 +42,8 @@ def send_inference(service_id: str, feature_vector: list[float], pod_uptime_sec:
         return json.loads(resp.read().decode("utf-8"))
 
 
+# Formats and prints real-time test outcomes to the console indicating whether a snapshot
+# was classified as normal, an anomaly, or suppressed by the pod startup pre-filter.
 def print_result(stage: str, res: dict, vec: list[float], uptime: float):
     if res.get("prefiltered"):
         status = "PREFILTERED (STARTUP)"
@@ -42,10 +61,13 @@ def print_result(stage: str, res: dict, vec: list[float], uptime: float):
     )
 
 
-def run_stage(name: str, mode: str, iterations: int = 4, delay_sec: float = 1.5):
-    print(f"\n=== {name} ===")
+# Generates and dispatches synthetic load profiles (baseline normal, extreme traffic spike,
+# or cold-start pod initialization) across target services over multiple iterations.
+def run_stage(name: str, mode: str, iterations: int = 4, delay_sec: float = 1.5, services: list[str] | None = None):
+    target_services = services or get_discovered_services()
+    print(f"\n=== {name} (Active Services: {', '.join(target_services)}) ===")
     for _ in range(iterations):
-        for svc in SERVICES:
+        for svc in target_services:
             if mode == "normal":
                 vec = [
                     round(random.uniform(0.15, 0.32), 3),
@@ -79,6 +101,8 @@ def run_stage(name: str, mode: str, iterations: int = 4, delay_sec: float = 1.5)
         time.sleep(delay_sec)
 
 
+# CLI load test controller supporting selective scenarios (--mode spike/startup/normal/full)
+# to evaluate anomaly detection responsiveness and UI dashboard visualizations without k6.
 def main():
     parser = argparse.ArgumentParser(description="Live Anomaly Detection Load Test Runner (No k6 required)")
     parser.add_argument(

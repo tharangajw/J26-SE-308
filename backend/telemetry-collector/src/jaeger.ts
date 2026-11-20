@@ -32,7 +32,7 @@ export class JaegerCollector {
         const spans = trace.spans || [];
         const rootSpan = spans.find((s: any) => !s.references || s.references.length === 0) || spans[0];
         const durationMs = rootSpan ? rootSpan.duration / 1000.0 : 0.0;
-        const errorSpans = spans.filter((s: any) => 
+        const errorSpans = spans.filter((s: any) =>
           s.tags?.some((t: any) => t.key === 'error' && t.value === true)
         );
 
@@ -51,10 +51,13 @@ export class JaegerCollector {
   }
 
   /**
-   * Parses live Jaeger trace spans & processes to build a service-level DAG call-tree topology.
+   * Parses live Jaeger trace spans & processes to build a service-level DAG call-tree topology,
+   * including sibling span timestamp overlap analysis to detect Sequential (N+1) vs Parallel fan-out.
    */
   public async fetchTraceDAG(serviceId: string): Promise<{
     traceId: string;
+    sequentialRatio: number;
+    executionPattern: 'SINGLE' | 'PARALLEL_CONCURRENT' | 'HYBRID_WATERFALL' | 'SEQUENTIAL_N_PLUS_1';
     nodes: {
       id: string;
       serviceId: string;
@@ -95,14 +98,17 @@ export class JaegerCollector {
         spanService.set(s.spanID, procSvc);
       }
 
-      // Build service-level adjacency and aggregate span durations
+      // Build service-level adjacency, aggregate span durations, and collect child span intervals
       const serviceChildren = new Map<string, Set<string>>();
       const serviceParent = new Map<string, string | null>();
       const serviceDurationMs = new Map<string, number>();
+      const downstreamIntervals: Array<{ startUs: number; endUs: number; durUs: number }> = [];
 
       for (const s of spans) {
         const svc = spanService.get(s.spanID) || serviceId;
-        const durMs = parseFloat(((s.duration || 0) / 1000.0).toFixed(2));
+        const durUs = Number(s.duration || 0);
+        const startUs = Number(s.startTime || 0);
+        const durMs = parseFloat((durUs / 1000.0).toFixed(2));
         const prevDur = serviceDurationMs.get(svc) || 0;
         if (durMs > prevDur) serviceDurationMs.set(svc, durMs);
         if (!serviceChildren.has(svc)) serviceChildren.set(svc, new Set());
@@ -117,7 +123,45 @@ export class JaegerCollector {
             if (!serviceParent.get(svc)) {
               serviceParent.set(svc, parentSvc);
             }
+            if (startUs > 0 && durUs > 0) {
+              downstreamIntervals.push({ startUs, endUs: startUs + durUs, durUs });
+            }
           }
+        }
+      }
+
+      // Analyze whether downstream spans execute sequentially (N+1) or in parallel
+      let sequentialRatio = 0.0;
+      let executionPattern: 'SINGLE' | 'PARALLEL_CONCURRENT' | 'HYBRID_WATERFALL' | 'SEQUENTIAL_N_PLUS_1' = 'SINGLE';
+      if (downstreamIntervals.length >= 2) {
+        const sorted = [...downstreamIntervals].sort((a, b) => a.startUs - b.startUs);
+        const totalDurUs = sorted.reduce((acc, it) => acc + it.durUs, 0);
+        const maxSingleUs = Math.max(...sorted.map((it) => it.durUs));
+
+        let mergedUs = 0;
+        let curStart = sorted[0].startUs;
+        let curEnd = sorted[0].endUs;
+        for (let i = 1; i < sorted.length; i++) {
+          if (sorted[i].startUs < curEnd) {
+            curEnd = Math.max(curEnd, sorted[i].endUs);
+          } else {
+            mergedUs += curEnd - curStart;
+            curStart = sorted[i].startUs;
+            curEnd = sorted[i].endUs;
+          }
+        }
+        mergedUs += curEnd - curStart;
+
+        const denom = Math.max(1, totalDurUs - maxSingleUs);
+        sequentialRatio = parseFloat(
+          Math.min(1.0, Math.max(0.0, (mergedUs - maxSingleUs) / denom)).toFixed(3)
+        );
+        if (sequentialRatio >= 0.65) {
+          executionPattern = 'SEQUENTIAL_N_PLUS_1';
+        } else if (sequentialRatio <= 0.35) {
+          executionPattern = 'PARALLEL_CONCURRENT';
+        } else {
+          executionPattern = 'HYBRID_WATERFALL';
         }
       }
 
@@ -181,6 +225,8 @@ export class JaegerCollector {
 
       return {
         traceId: trace.traceID,
+        sequentialRatio,
+        executionPattern,
         nodes,
       };
     } catch {

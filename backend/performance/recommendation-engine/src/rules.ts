@@ -1,10 +1,15 @@
 import { PerformanceRecommendation, RecommendationContext } from './types';
 
+// Rule-based recommendation engine evaluating architectural bottlenecks and prescribing
+// targeted remediation actions with estimated P-Score improvements.
 export class RecommendationRulesEngine {
+  // Evaluates performance signals against prescriptive heuristics: database query indexing,
+  // in-memory Redis caching for fan-out decoupling, and container base-image/HPA tuning.
   public evaluateRules(ctx: RecommendationContext): PerformanceRecommendation[] {
     const recommendations: PerformanceRecommendation[] = [];
 
     // Rule 1: Database Indexing Trigger
+    // Triggered when downstream DB span latency exceeds 150ms or historical drift score > 0.4.
     if ((ctx.dbQueryLatencyMs && ctx.dbQueryLatencyMs > 150) || ctx.driftScore > 0.4) {
       recommendations.push({
         ruleId: 'REC-DB-01',
@@ -19,6 +24,7 @@ export class RecommendationRulesEngine {
     }
 
     // Rule 2: Redis Caching Trigger
+    // Triggered when a service makes 4+ direct downstream calls or fan-out score > 0.4.
     if ((ctx.directFanOutCount && ctx.directFanOutCount >= 4) || ctx.fanOutScore > 0.4) {
       recommendations.push({
         ruleId: 'REC-CACHE-02',
@@ -33,6 +39,7 @@ export class RecommendationRulesEngine {
     }
 
     // Rule 3: Container Base-Image & HPA Tuning Trigger
+    // Triggered when pod spin-up lag exceeds 10s or ML anomaly score > 0.3.
     if ((ctx.podSpinUpLagSec && ctx.podSpinUpLagSec > 10.0) || ctx.anomalyScore > 0.3) {
       recommendations.push({
         ruleId: 'REC-OPT-03',

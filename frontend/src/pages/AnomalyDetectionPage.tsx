@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { PageContainer } from '../components/layout/PageContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import {
@@ -7,17 +7,13 @@ import {
   CheckCircle2,
   Clock,
   RefreshCw,
-  Server,
   Zap,
   ServerCrash,
-  Search,
-  Plus,
   ShieldAlert,
   ShieldCheck,
   Cpu,
   Layers,
   Flame,
-  Radio,
   Sliders
 } from 'lucide-react';
 import { TelemetryService } from '../services/telemetry';
@@ -26,17 +22,24 @@ import {
   type ServiceAnomalyEvaluation,
   type AnomalyServiceHealth
 } from '../services/anomaly';
+import {
+  PerformanceFlowHeader,
+  PerformanceStepFooter
+} from '../components/performace/PerformanceFlowNav';
 
 export const AnomalyDetectionPage: React.FC = () => {
   const [health, setHealth] = useState<AnomalyServiceHealth | null>(null);
-  const [discoveredServices, setDiscoveredServices] = useState<string[]>([]);
-  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
-  const [customServices, setCustomServices] = useState<string[]>([]);
-  const [customInput, setCustomInput] = useState<string>('');
+  const [discoveredServices, setDiscoveredServices] = useState<string[]>(() =>
+    TelemetryService.getCollectedServices()
+  );
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(() =>
+    TelemetryService.getActiveService()
+  );
+  const [customServices, setCustomServices] = useState<string[]>(() =>
+    TelemetryService.getCollectedServices()
+  );
   const [evaluation, setEvaluation] = useState<ServiceAnomalyEvaluation | null>(null);
   const [predictionHistory, setPredictionHistory] = useState<ServiceAnomalyEvaluation[]>([]);
-  
-  // Interactive Pod Uptime test override (to test Cao & Long 90s startup window)
   const [testUptimeSec, setTestUptimeSec] = useState<number>(120);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -44,21 +47,27 @@ export const AnomalyDetectionPage: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
-  // Discover services and check ML service health
   const initServices = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // 1. Health check FastAPI on port 8000
+      const collected = TelemetryService.getCollectedServices();
+      const activeFromStore = TelemetryService.getActiveService();
       const healthData = await AnomalyService.checkHealth();
       setHealth(healthData);
 
-      // 2. Discover cluster services from Prometheus, Jaeger & Docker
       const discovery = await TelemetryService.discoverServices();
       const baseServices =
-        discovery.applicationServices && discovery.applicationServices.length > 0
+        collected.length > 0
+          ? collected
+          : discovery.applicationServices && discovery.applicationServices.length > 0
           ? discovery.applicationServices
           : discovery.allServices;
-      const allDiscovered = Array.from(new Set([...customServices, ...baseServices]));
+      const allDiscovered = Array.from(new Set([
+        ...collected,
+        ...customServices,
+        ...(activeFromStore ? [activeFromStore] : []),
+        ...baseServices
+      ]));
       setDiscoveredServices(allDiscovered);
 
       setError(null);
@@ -72,14 +81,12 @@ export const AnomalyDetectionPage: React.FC = () => {
     }
   }, [customServices]);
 
-  // Evaluate the selected service
   const evaluateSelectedService = useCallback(async (serviceId: string, uptimeOverride?: number) => {
     if (!serviceId) return;
     setIsRefreshing(true);
     try {
       let evalResult = await AnomalyService.evaluateService(serviceId);
 
-      // Apply uptime override only if user explicitly adjusted slider
       if (uptimeOverride !== undefined && uptimeOverride !== evalResult.rawMetrics.uptimeSeconds) {
         const customPred = await AnomalyService.predict({
           service_id: serviceId,
@@ -127,7 +134,6 @@ export const AnomalyDetectionPage: React.FC = () => {
     }
   }, []);
 
-  // Inject specific workload telemetry into live FastAPI Isolation Forest model
   const injectWorkloadScenario = useCallback(
     async (
       rawMetrics: { cpuMillicores: number; memoryMB: number; p95LatencyMs: number; errorCount: number },
@@ -177,18 +183,18 @@ export const AnomalyDetectionPage: React.FC = () => {
     [selectedServiceId, discoveredServices]
   );
 
-  // Initial load
   useEffect(() => {
     initServices().then((services) => {
-      if (services.length > 0 && !selectedServiceId) {
-        setSelectedServiceId(services[0]);
-        evaluateSelectedService(services[0]);
+      const activeFromStore = TelemetryService.getActiveService();
+      const target = activeFromStore || selectedServiceId || services[0];
+      if (target) {
+        setSelectedServiceId(target);
+        evaluateSelectedService(target);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Live 2-second auto-polling so terminal load tests automatically stream into the UI
   useEffect(() => {
     if (!selectedServiceId || !health) return;
     const intervalId = setInterval(() => {
@@ -197,27 +203,23 @@ export const AnomalyDetectionPage: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [selectedServiceId, health, evaluateSelectedService]);
 
-  // Handle service change
   const handleSelectService = (sId: string) => {
     setSelectedServiceId(sId);
+    TelemetryService.setActiveService(sId);
     evaluateSelectedService(sId);
   };
 
-  // Handle adding custom service
-  const handleAddCustom = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = customInput.trim();
+  const handleAddService = (serviceId: string) => {
+    const trimmed = serviceId.trim();
     if (!trimmed) return;
-    if (!customServices.includes(trimmed)) {
-      setCustomServices((prev) => [...prev, trimmed]);
-      setDiscoveredServices((prev) => Array.from(new Set([...prev, trimmed])));
-    }
+    const next = customServices.includes(trimmed) ? customServices : [...customServices, trimmed];
+    setCustomServices(next);
+    setDiscoveredServices((prev) => Array.from(new Set([...prev, trimmed])));
+    TelemetryService.setCollectedServices(next, trimmed);
     setSelectedServiceId(trimmed);
-    setCustomInput('');
     evaluateSelectedService(trimmed);
   };
 
-  // Uptime slider change (preserves current feature vector while re-evaluating FastAPI model)
   const handleUptimeChange = async (val: number) => {
     setTestUptimeSec(val);
     if (evaluation) {
@@ -235,10 +237,10 @@ export const AnomalyDetectionPage: React.FC = () => {
     }
   };
 
-  // 1. Loading State
   if (isLoading && !health) {
     return (
       <PageContainer className="space-y-6">
+        <PerformanceFlowHeader currentStep="anomaly" />
         <div className="flex h-96 flex-col items-center justify-center space-y-4 rounded-xl border border-border bg-surface p-8 text-center">
           <RefreshCw className="h-8 w-8 animate-spin text-brand-perf" />
           <h2 className="text-lg font-medium text-text-primary">Connecting to Anomaly Detection Engine...</h2>
@@ -246,34 +248,15 @@ export const AnomalyDetectionPage: React.FC = () => {
             Checking FastAPI service on port 8000 and pulling cluster metrics.
           </p>
         </div>
+        <PerformanceStepFooter currentStep="anomaly" />
       </PageContainer>
     );
   }
 
-  // 2. Offline State
   if (error && !health) {
     return (
       <PageContainer className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-text-primary">
-              Performance Anomaly Detection Engine
-            </h1>
-            <p className="text-sm text-text-secondary">
-              Real-time Isolation Forest ML model with Cao & Long 90s pod startup suppression.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => initServices()}
-            disabled={isRefreshing}
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-secondary px-3.5 py-2 text-xs font-medium text-text-primary hover:bg-surface-secondary/80 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin text-brand-perf' : ''}`} />
-            Retry Connection
-          </button>
-        </div>
-
+        <PerformanceFlowHeader currentStep="anomaly" />
         <div className="flex flex-col items-center justify-center rounded-xl border border-rose-500/20 bg-rose-500/5 p-12 text-center">
           <ServerCrash className="h-12 w-12 text-rose-400" />
           <h3 className="mt-4 text-lg font-semibold text-rose-300">FastAPI Anomaly Service Offline (Port 8000)</h3>
@@ -288,12 +271,13 @@ export const AnomalyDetectionPage: React.FC = () => {
             type="button"
             onClick={() => initServices()}
             disabled={isRefreshing}
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-brand-perf px-4 py-2 text-xs font-semibold text-white hover:bg-brand-perf/90"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-brand-perf px-4 py-2 text-xs font-semibold text-slate-950 hover:opacity-90"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
             Refresh Now
           </button>
         </div>
+        <PerformanceStepFooter currentStep="anomaly" />
       </PageContainer>
     );
   }
@@ -311,23 +295,35 @@ export const AnomalyDetectionPage: React.FC = () => {
 
   return (
     <PageContainer className="space-y-6">
+      {/* Unified Pipeline Flow Header */}
+      <PerformanceFlowHeader
+        currentStep="anomaly"
+        services={discoveredServices}
+        selectedService={selectedServiceId}
+        onSelectService={handleSelectService}
+        onAddService={handleAddService}
+      />
+
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-text-primary">
-              Performance Anomaly Detection Engine
-            </h1>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-400">
+              Step 3C of 4 — Sub-Engine 3: Unsupervised ML Runtime Anomaly (20% P-Score Weight)
+            </p>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
               FastAPI :8000 Online
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-xs font-medium text-sky-400">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-400">
               Isolation Forest Trained
             </span>
           </div>
-          <p className="mt-1 text-sm text-text-secondary">
-            Unsupervised Isolation Forest inference with Cao & Long 90-second pod-startup exclusion window to prevent false positives.
+          <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-text-primary">
+            Performance Anomaly Detection &amp; 90s Startup Filter
+          </h1>
+          <p className="mt-1 max-w-3xl text-sm text-text-secondary">
+            Consumes the normalized 4D feature vector from Step 2, applies the Cao &amp; Long 90-second pod-startup exclusion filter, and outputs the ML Anomaly Penalty (20% weight) with XAI attribution.
           </p>
         </div>
 
@@ -352,78 +348,10 @@ export const AnomalyDetectionPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Service Selector & Search */}
-      <div className="rounded-lg border border-border/80 bg-surface-secondary/40 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-text-muted uppercase tracking-wider mr-2 flex items-center gap-1.5">
-              <Server className="h-3.5 w-3.5 text-brand-perf" /> Monitored Services:
-            </span>
-            {discoveredServices.map((svc) => {
-              const isSelected = selectedServiceId === svc;
-              const isCustom = customServices.includes(svc);
-              return (
-                <div
-                  key={svc}
-                  className={`inline-flex items-center rounded-lg border font-mono text-xs font-medium transition-all ${
-                    isSelected
-                      ? 'border-brand-perf bg-brand-perf/15 text-brand-perf shadow-sm'
-                      : 'border-border bg-surface text-text-secondary hover:text-text-primary hover:border-border/80'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleSelectService(svc)}
-                    className="px-3 py-1.5"
-                  >
-                    {svc}
-                  </button>
-                  {isCustom && (
-                    <button
-                      type="button"
-                      title="Remove service"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCustomServices((prev) => prev.filter((s) => s !== svc));
-                        setDiscoveredServices((prev) => prev.filter((s) => s !== svc));
-                      }}
-                      className="pr-2 pl-0.5 text-text-muted hover:text-rose-400 font-bold"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <form onSubmit={handleAddCustom} className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-              <input
-                type="text"
-                placeholder="Inspect service name..."
-                value={customInput}
-                onChange={(e) => setCustomInput(e.target.value)}
-                className="w-48 rounded-md border border-border bg-surface pl-8 pr-3 py-1 text-xs font-mono text-text-primary placeholder:text-text-muted focus:border-brand-perf focus:outline-none"
-              />
-            </div>
-            <button
-              type="submit"
-              className="inline-flex items-center gap-1 rounded-md bg-brand-perf/20 border border-brand-perf/40 px-2.5 py-1 text-xs font-medium text-brand-perf hover:bg-brand-perf/30"
-            >
-              <Plus className="h-3 w-3" />
-              Add
-            </button>
-          </form>
-        </div>
-      </div>
-
       {evaluation && (
         <>
           {/* 4 Focused KPI Cards */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {/* 1. Inference Status */}
             <Card className="bg-surface border-border">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between text-text-muted">
@@ -457,11 +385,10 @@ export const AnomalyDetectionPage: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* 2. Anomaly Severity Score */}
             <Card className="bg-surface border-border">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between text-text-muted">
-                  <span className="text-xs font-medium uppercase tracking-wider">Anomaly Score</span>
+                  <span className="text-xs font-medium uppercase tracking-wider">ML Penalty (20% Wt)</span>
                   <Flame className={`h-4 w-4 ${getScoreColor()}`} />
                 </div>
                 <div className="mt-3 flex items-baseline gap-1.5">
@@ -476,11 +403,10 @@ export const AnomalyDetectionPage: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* 3. Cao & Long 90s Startup Filter Status */}
             <Card className="bg-surface border-border">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between text-text-muted">
-                  <span className="text-xs font-medium uppercase tracking-wider">Cao & Long Filter</span>
+                  <span className="text-xs font-medium uppercase tracking-wider">Cao &amp; Long Filter</span>
                   <Clock className="h-4 w-4 text-sky-400" />
                 </div>
                 <div className="mt-3 flex items-baseline gap-1.5">
@@ -497,7 +423,6 @@ export const AnomalyDetectionPage: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* 4. Decision Function Score */}
             <Card className="bg-surface border-border">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between text-text-muted">
@@ -522,7 +447,7 @@ export const AnomalyDetectionPage: React.FC = () => {
               <CardTitle className="text-sm font-semibold flex items-center justify-between text-text-primary">
                 <span className="flex items-center gap-2">
                   <Layers className="h-4 w-4 text-brand-perf" />
-                  4-Dimensional Feature Vector Passed to ML Model
+                  4-Dimensional Normalized Feature Vector (From Step 2)
                 </span>
                 <span className="text-xs font-mono font-normal text-text-muted">
                   Target: {evaluation.serviceId}
@@ -531,7 +456,6 @@ export const AnomalyDetectionPage: React.FC = () => {
             </CardHeader>
             <CardContent className="p-6">
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                {/* 1. CPU */}
                 <div className="rounded-lg border border-border/80 bg-surface-secondary/30 p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs text-text-muted">
                     <span className="flex items-center gap-1.5 font-medium text-text-primary">
@@ -552,7 +476,6 @@ export const AnomalyDetectionPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* 2. Memory */}
                 <div className="rounded-lg border border-border/80 bg-surface-secondary/30 p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs text-text-muted">
                     <span className="flex items-center gap-1.5 font-medium text-text-primary">
@@ -573,7 +496,6 @@ export const AnomalyDetectionPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* 3. Latency */}
                 <div className="rounded-lg border border-border/80 bg-surface-secondary/30 p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs text-text-muted">
                     <span className="flex items-center gap-1.5 font-medium text-text-primary">
@@ -594,7 +516,6 @@ export const AnomalyDetectionPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* 4. Error Rate */}
                 <div className="rounded-lg border border-border/80 bg-surface-secondary/30 p-4 space-y-2">
                   <div className="flex items-center justify-between text-xs text-text-muted">
                     <span className="flex items-center gap-1.5 font-medium text-text-primary">
@@ -616,7 +537,6 @@ export const AnomalyDetectionPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Explainable AI (XAI) Marginal Feature Attribution Breakdown */}
               {evaluation.prediction.feature_attributions && (
                 <div className="mt-5 rounded-lg border border-brand-perf/30 bg-brand-perf/5 p-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -631,7 +551,6 @@ export const AnomalyDetectionPage: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Stacked Attribution Bar */}
                   <div className="h-3 w-full rounded-full bg-surface-secondary overflow-hidden flex">
                     <div
                       className="bg-emerald-400 transition-all duration-500"
@@ -692,7 +611,7 @@ export const AnomalyDetectionPage: React.FC = () => {
               <CardTitle className="text-sm font-semibold flex items-center justify-between text-text-primary">
                 <span className="flex items-center gap-2">
                   <Sliders className="h-4 w-4 text-brand-perf" />
-                  Cao & Long 90s Pod-Startup Exclusion Window Simulator
+                  Cao &amp; Long 90s Pod-Startup Exclusion Window Simulator
                 </span>
                 <span className="text-xs font-mono font-bold text-brand-perf">
                   Uptime: {testUptimeSec}s
@@ -831,6 +750,9 @@ export const AnomalyDetectionPage: React.FC = () => {
           </Card>
         </>
       )}
+
+      {/* Bottom Step Navigation Footer */}
+      <PerformanceStepFooter currentStep="anomaly" />
     </PageContainer>
   );
 };

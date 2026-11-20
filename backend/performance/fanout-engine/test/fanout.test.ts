@@ -1,10 +1,13 @@
 import { FanOutEngineService } from '../src/fanout';
 import { TraceCallTree } from '../src/types';
 
+// Integration test suite validating distributed call-tree trace analysis,
+// span depth computation, and logarithmic attenuation factors for API gateways.
 function testFanOutEngine() {
   console.log('--- Testing Fan-Out Engine Module ---');
   const engine = new FanOutEngineService();
 
+  // Mock Jaeger distributed trace tree spanning gateway, order, user, and payment services
   const mockCallTree: TraceCallTree = {
     traceId: 'trace-101',
     rootService: 'api-gateway',
@@ -16,6 +19,7 @@ function testFanOutEngine() {
     ],
   };
 
+  // Run trace tree analysis and assert structural metrics
   const result = engine.analyzeTraceTree(mockCallTree);
   console.assert(result.totalSpans === 4, 'Span count should be 4');
   console.assert(result.maxDependencyDepth === 3, 'Max depth should be 3');
