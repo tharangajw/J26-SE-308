@@ -34,8 +34,9 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
       });
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || `${provider} analysis failed (${response.status})`);
-      setRca(data);
-      if (onRcaComplete) onRcaComplete(data);
+      const report = { ...data, telemetry: cciData?.telemetry };
+      setRca(report);
+      if (onRcaComplete) onRcaComplete(report);
     } catch (err) {
       const providerLabel = provider === 'gemini' ? 'Gemini' : provider === 'claude' ? 'Claude' : 'OpenRouter';
       setError(`${providerLabel} API Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -66,7 +67,7 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
                     <span className="flex items-center gap-2 font-semibold capitalize text-text-primary">
                       {name === 'gemini' ? <Sparkles className="h-4 w-4 text-cyan-300" /> : name === 'claude' ? <Zap className="h-4 w-4 text-orange-300" /> : <BrainCircuit className="h-4 w-4 text-violet-300" />}{name}
                     </span>
-                    <span className={`text-[10px] font-medium uppercase ${configured ? 'text-emerald-400' : 'text-amber-400'}`}>{configured ? 'Connected' : 'Demo fallback'}</span>
+                    <span className={`text-[10px] font-medium uppercase ${configured ? 'text-emerald-400' : 'text-amber-400'}`}>{configured ? 'Configured' : 'Not configured'}</span>
                   </div>
                   <p className="mt-2 text-xs text-text-muted">{providers[name]?.model || 'Configure provider key in Docker'}</p>
                 </button>
@@ -76,10 +77,10 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
           <button
             type="button"
             onClick={handleAnalyze}
-            disabled={loading}
+            disabled={loading || !providers[provider]?.configured}
             className="inline-flex items-center gap-2 rounded-lg bg-brand-obs px-4 py-2 text-xs font-semibold text-slate-950 transition-colors hover:bg-brand-obs/80 disabled:cursor-wait disabled:opacity-60"
           >
-            {loading ? 'Analyzing telemetry…' : 'Analyze recent errors'}
+            {loading ? 'Analyzing telemetry…' : providers[provider]?.configured ? 'Analyze current telemetry' : 'Configure provider to analyze'}
           </button>
         </CardContent>
       </Card>
@@ -147,18 +148,13 @@ export default function RCAPanel({ onRcaComplete, cciData }: any) {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border border-border/80 bg-surface-secondary/30 p-3">
                     <p className="text-[10px] uppercase text-text-muted">AI Model</p>
-                    <p className="mt-1 text-xs font-medium capitalize">{rca.mode === 'demo' ? `${rca.provider} demo` : `${rca.provider} AI`}</p>
+                    <p className="mt-1 text-xs font-medium capitalize">{rca.mode === 'simulation' ? 'Controlled simulation' : `${rca.provider} · ${rca.model}`}</p>
                   </div>
                   <div className="rounded-md border border-border/80 bg-surface-secondary/30 p-3">
                     <p className="text-[10px] uppercase text-text-muted">Response</p>
-                    <p className="mt-1 font-mono text-xs">{rca.mode === 'demo' ? '< 1 ms' : `${rca.ai_response_time_ms} ms`}</p>
+                    <p className="mt-1 font-mono text-xs">{typeof rca.ai_response_time_ms === 'number' ? `${rca.ai_response_time_ms} ms` : '—'}</p>
                   </div>
                 </div>
-                {rca.mode === 'demo' && (
-                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
-                    Demo fallback active. {rca.fallback_reason || 'Configure the provider key in Docker for live analysis.'}
-                  </div>
-                )}
               </CardContent>
             </Card>
 

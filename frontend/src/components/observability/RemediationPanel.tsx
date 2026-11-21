@@ -2,97 +2,83 @@
 import { useState } from 'react';
 import { Wrench, TriangleAlert } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
+import { TelemetryService } from '../../services/telemetry';
 
 const RISK_CLASS: Record<string, string> = {
   Low:      'text-cyan-400',
   Medium:   'text-amber-400',
   High:     'text-orange-400',
   Critical: 'text-rose-400',
+  'N/A':    'text-text-muted',
 };
 
 const GUARDRAIL_CONFIG: Record<string, { color: string; label: string }> = {
   safe:             { color: 'text-emerald-400', label: 'Safe to Apply' },
   review_required:  { color: 'text-amber-400', label: 'Review Required' },
   dangerous:        { color: 'text-rose-400', label: 'Dangerous — Manual Review' },
+  not_required:     { color: 'text-emerald-400', label: 'No Patch Needed' },
 };
 
-export default function RemediationPanel({ rcaReport }: any) {
+export default function RemediationPanel({ rcaReport, currentTelemetry }: any) {
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [remediation, setRemediation] = useState<any>(null);
   const [copied, setCopied]         = useState(false);
+  const [applying, setApplying]     = useState(false);
+  const [applySuccess, setApplySuccess] = useState<string | null>(null);
   const [aiProvider, setAiProvider] = useState<'claude' | 'gemini' | 'openrouter'>('gemini');
+  const hasCurrentTelemetry = currentTelemetry != null;
+  const reportExperiment = rcaReport?.telemetry?.activeExperiment;
+  const activeExperiment = hasCurrentTelemetry ? currentTelemetry.activeExperiment : reportExperiment;
+  const scenarioChanged = hasCurrentTelemetry
+    && (activeExperiment?.simulated === true || reportExperiment?.simulated === true)
+    && activeExperiment?.faultType !== reportExperiment?.faultType;
+  const simulatedMetricGap = activeExperiment?.faultType === 'METRIC_GAP'
+    && activeExperiment?.simulated === true;
+  const activeFaultType = activeExperiment?.faultType as string | undefined;
+  const reportText = `${rcaReport?.summary ?? ''} ${rcaReport?.root_cause ?? ''}`.toLowerCase();
+  const hasPrometheusMetricGap = simulatedMetricGap || (!activeFaultType
+    && (reportText.includes('prometheus') || reportText.includes('metric'))
+    && ['gap', 'missing', 'coverage', 'unavailable'].some((term) => reportText.includes(term)));
+
+  const FAULT_LABELS: Record<string, string> = {
+    METRIC_GAP: 'Prometheus Metrics Gap',
+    TRACE_GAP: 'Jaeger Trace Gap',
+    LOG_GAP: 'Loki Log Gap',
+    SERVICE_DOWN: 'Service Recovery',
+    ERROR_SPIKE: 'Error Spike Remediation',
+    LATENCY_SPIKE: 'Latency Spike Remediation',
+  };
+  const faultLabel = activeFaultType ? FAULT_LABELS[activeFaultType] : undefined;
+  const isChaosExperiment = !!activeFaultType && activeExperiment?.simulated === true;
+  const displayFaultLabel = faultLabel || (hasPrometheusMetricGap ? 'Prometheus Metrics Gap' : undefined);
 
   const handleGenerate = async () => {
     if (!rcaReport) return;
-    setLoading(true); setError(null);
+    if (scenarioChanged) return;
+    setLoading(true); setError(null); setRemediation(null); setCopied(false);
     
     try {
       const response = await fetch('/api/observability/ai/remediation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: aiProvider, report: rcaReport })
+          body: JSON.stringify({
+            provider: aiProvider,
+            report: {
+              ...(hasCurrentTelemetry ? { ...rcaReport, telemetry: currentTelemetry } : rcaReport),
+              discovery: await TelemetryService.getServiceDiscovery(),
+            },
+          })
         });
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || `Remediation request failed (${response.status})`);
       setRemediation(data);
     } catch (err) {
       console.error('Remediation API error:', err);
-      setError(`${aiProvider} API Error: ${err instanceof Error ? err.message : 'Unknown error'}. Falling back to Demo Mode.`);
-      generateMock(aiProvider);
+      setError(`Remediation generation failed: ${err instanceof Error ? err.message : 'Unknown error'}. No remediation script was generated.`);
     } finally {
       setLoading(false);
-      }
-  };
-
-  const generateMock = (provider: string) => {
-    setTimeout(() => {
-      setRemediation({
-        script_type: 'kubernetes_yaml',
-        script: provider === 'claude' 
-          ? `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: order-service
-spec:
-  template:
-    spec:
-      containers:
-      - name: order-service
-        resources:
-          requests:
-            memory: "256Mi"
-          limits:
-            memory: "512Mi"` 
-          : `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: order-service
-spec:
-  template:
-    spec:
-      containers:
-      - name: order-service
-        resources:
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-          requests:
-            memory: "256Mi"
-            cpu: "250m"`,
-        guardrail_status: 'safe',
-        description: 'Update memory limits for order-service to prevent OOM errors.',
-        risk_level: 'Low',
-        estimated_impact: 'Prevents out of memory kills, stabilizing order processing.',
-        rollback_steps: [
-          'Run `kubectl rollout undo deployment/order-service`',
-          'Verify pods are running with previous memory limits.'
-        ],
-        mode: 'demo',
-        provider
-      });
-      setLoading(false);
-    }, 1500);
+    }
   };
 
   const handleCopy = () => {
@@ -101,6 +87,30 @@ spec:
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  };
+
+  const handleApply = async () => {
+    if (!remediation) return;
+    setApplying(true);
+    setApplySuccess(null);
+    try {
+      const targetService = rcaReport?.affected_services?.[0] || activeExperiment?.serviceId || 'payment-service';
+      await fetch('/api/observability/ai/remediation/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service: targetService, script: remediation.script }),
+      });
+      await fetch('/api/observability/chaos/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      setApplySuccess(`Applied fix for ${targetService}. Telemetry restoring to healthy state.`);
+    } catch (err: any) {
+      setError(`Apply failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setApplying(false);
+    }
   };
 
   if (!rcaReport) {
@@ -117,6 +127,8 @@ spec:
   }
 
   const guardrail = remediation ? (GUARDRAIL_CONFIG[remediation.guardrail_status] || GUARDRAIL_CONFIG.review_required) : null;
+  const showRemediation = !scenarioChanged && remediation
+    && (!hasPrometheusMetricGap || remediation.script_type === 'operator_guidance');
 
   return (
     <div className="space-y-6">
@@ -124,10 +136,14 @@ spec:
         <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
           <div>
             <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-              <Wrench className="h-4 w-4 text-brand-obs" /> Automated Remediation Guardrails
+              <Wrench className="h-4 w-4 text-brand-obs" /> {isChaosExperiment ? 'Chaos Experiment Guidance' : hasPrometheusMetricGap ? 'Prometheus Metrics Guidance' : 'Automated Remediation Guardrails'}
             </h3>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-text-muted" title={rcaReport.summary || undefined}>
-              AI-generated fix script for: {rcaReport.summary || 'the latest observability finding'}
+              {hasPrometheusMetricGap
+                ? simulatedMetricGap
+                  ? 'This Chaos Lab fault only simulates missing Prometheus metrics; it does not change Kubernetes resources.'
+                  : `Recovery guidance for ${displayFaultLabel}. A YAML patch requires a verified scrape target and deployment configuration.`
+                : `AI-generated fix script for: ${rcaReport.summary || 'the latest observability finding'}`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -137,14 +153,14 @@ spec:
                 onClick={() => setAiProvider('claude')}
                 className={`rounded px-3 py-1 text-xs font-medium ${aiProvider === 'claude' ? 'bg-surface text-text-primary' : 'text-text-muted'}`}
               >
-                Claude 3.5
+                Claude
               </button>
               <button
                 type="button"
                 onClick={() => setAiProvider('gemini')}
                 className={`rounded px-3 py-1 text-xs font-medium ${aiProvider === 'gemini' ? 'bg-surface text-text-primary' : 'text-text-muted'}`}
               >
-                Gemini Pro
+                Gemini
               </button>
               <button
                 type="button"
@@ -157,10 +173,10 @@ spec:
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={loading}
+              disabled={loading || scenarioChanged}
               className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-secondary/40 px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-brand-obs/60 hover:text-brand-obs disabled:opacity-50"
             >
-              {loading ? 'Generating fix…' : 'Generate fix script'}
+              {scenarioChanged ? 'RCA is out of date' : loading ? 'Generating…' : hasPrometheusMetricGap ? 'Show recovery guidance' : 'Generate fix script'}
             </button>
           </div>
         </CardContent>
@@ -172,22 +188,44 @@ spec:
         </div>
       )}
 
-      {remediation && (
+      {scenarioChanged && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300">
+          The chaos scenario in this RCA has changed or expired. Run AI Analysis again while the intended fault is active before generating remediation.
+        </div>
+      )}
+
+      {showRemediation && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
           <Card className="overflow-hidden">
             <div className="flex items-center justify-between border-b border-border bg-surface-secondary/30 px-4 py-3">
               <span className="font-mono text-xs text-text-muted">
                 {remediation.script_type === 'kubernetes_yaml' ? 'patch.yaml' :
-                 remediation.script_type === 'docker_compose' ? 'docker-compose-fix.yml' : 'fix.sh'}
+                 remediation.script_type === 'docker_compose' ? 'docker-compose-fix.yml' :
+                 remediation.script_type === 'operator_guidance' ? 'recovery-guidance.txt' : 'fix.sh'}
               </span>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="text-xs font-medium text-brand-obs hover:underline"
-              >
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="text-xs font-medium text-brand-obs hover:underline"
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  disabled={applying || !!applySuccess}
+                  className="rounded border border-brand-obs/40 bg-brand-obs/20 px-2.5 py-1 text-xs font-medium text-brand-obs transition-colors hover:bg-brand-obs/30 disabled:opacity-50"
+                >
+                  {applying ? 'Applying…' : applySuccess ? 'Applied ✓' : 'Apply Fix'}
+                </button>
+              </div>
             </div>
+            {applySuccess && (
+              <div className="border-b border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-300">
+                ✓ {applySuccess}
+              </div>
+            )}
             <pre className="max-h-[480px] overflow-x-auto bg-background p-5 font-mono text-xs leading-relaxed text-emerald-300">
               {remediation.script}
             </pre>
@@ -213,7 +251,7 @@ spec:
                   <span className={`font-medium ${RISK_CLASS[remediation.risk_level] || RISK_CLASS.Medium}`}>{remediation.risk_level}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-text-muted">Script Type</span>
+                  <span className="text-text-muted">Output Type</span>
                   <code className="rounded-md border border-border bg-surface-secondary/40 px-2 py-0.5 font-mono text-[11px]">{remediation.script_type}</code>
                 </div>
                 <div>
@@ -223,33 +261,36 @@ spec:
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Rollback Steps</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-text-secondary">
-                  {remediation.rollback_steps?.map((step: string, i: number) => (
-                    <li key={i}>{step}</li>
-                  ))}
-                </ol>
-              </CardContent>
-            </Card>
-
-            {remediation.mode === 'demo' && (
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
-                Demo mode. Set {remediation.provider === 'claude' ? 'ANTHROPIC_API_KEY' : remediation.provider === 'openrouter' ? 'OPENROUTER_API_KEY' : 'GEMINI_API_KEY'} for live scripts.
-              </div>
+            {remediation.rollback_steps?.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Rollback Steps</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-text-secondary">
+                    {remediation.rollback_steps.map((step: string, i: number) => (
+                      <li key={i}>{step}</li>
+                    ))}
+                  </ol>
+                </CardContent>
+              </Card>
             )}
+
           </div>
         </div>
       )}
 
-      {!remediation && !loading && !error && (
+      {!scenarioChanged && !showRemediation && !loading && !error && (
         <Card>
           <CardContent className="p-10 text-center">
-            <p className="text-sm font-medium text-text-primary">RCA received. Ready to generate a fix.</p>
-            <p className="mt-2 text-xs text-text-muted">Click Generate fix script above.</p>
+            <p className="text-sm font-medium text-text-primary">
+              {hasPrometheusMetricGap ? 'Prometheus metrics gap identified. No deployment patch has been verified.' : 'RCA received. Ready to generate a fix.'}
+            </p>
+            <p className="mt-2 text-xs text-text-muted">
+              {hasPrometheusMetricGap
+                ? 'Generate recovery guidance. A YAML patch needs a verified Prometheus target, /metrics endpoint, and deployment configuration.'
+                : 'Click Generate fix script above.'}
+            </p>
           </CardContent>
         </Card>
       )}

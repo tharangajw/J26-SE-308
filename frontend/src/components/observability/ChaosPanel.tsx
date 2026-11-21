@@ -39,17 +39,21 @@ export default function ChaosPanel({ onExperimentRun: _onExperimentRun }: ChaosP
     setLoadingServices(true);
     setMessage('Discovering available services...');
     try {
-      const discovered = await TelemetryService.discoverServices();
-      const liveServices = discovered.applicationServices.length > 0
-        ? discovered.applicationServices
-        : ['api-gateway', 'order-service', 'payment-service', 'book-service', 'user-service'];
+      const discovered = await TelemetryService.getServiceDiscovery();
+      const liveServices = discovered.services.map((service) => service.name);
+      if (liveServices.length === 0) {
+        setServices([]);
+        setServicePickerOpen(false);
+        setMessage('No live services were discovered. Configure Prometheus, Jaeger, or Kubernetes access first.');
+        return;
+      }
       setServices([...new Set(liveServices)].sort());
       setServicePickerOpen(true);
-      setMessage('Select a service to disable for the controlled experiment.');
-    } catch {
-      setServices(['api-gateway', 'order-service', 'payment-service', 'book-service', 'user-service']);
-      setServicePickerOpen(true);
-      setMessage('Live discovery unavailable; showing the project service catalog.');
+      setMessage('Select a discovered service for a controlled telemetry simulation.');
+    } catch (error) {
+      setServices([]);
+      setServicePickerOpen(false);
+      setMessage(`Service discovery failed: ${error instanceof Error ? error.message : 'observability engine unavailable'}`);
     } finally {
       setLoadingServices(false);
     }
@@ -65,9 +69,9 @@ export default function ChaosPanel({ onExperimentRun: _onExperimentRun }: ChaosP
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-            <Skull className="h-4 w-4 text-rose-400" /> Chaos Engineering Lab
+            <Skull className="h-4 w-4 text-rose-400" /> Controlled Telemetry Experiments
           </h3>
-          <p className="mt-1 text-text-secondary">Monitoring active chaos faults injected from the Fault Tolerance suite.</p>
+          <p className="mt-1 text-text-secondary">These experiments alter this engine&apos;s telemetry snapshot only; they do not stop Kubernetes workloads.</p>
         </div>
         {activeChaosEvent && activeChaosEvent.status.includes('Active Fault') && (
           <div className="inline-flex items-center gap-2 font-medium text-rose-300">
@@ -82,21 +86,21 @@ export default function ChaosPanel({ onExperimentRun: _onExperimentRun }: ChaosP
           <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-cyan-300">
             <ShieldAlert className="h-4 w-4" /> Research CCI / O-Score Experiments
           </CardTitle>
-          <p className="text-xs text-text-secondary">Create a reversible telemetry blind spot. The live calculation refreshes every 2 seconds.</p>
+          <p className="text-xs text-text-secondary">Create a reversible simulated signal gap to evaluate the scoring method. Live backend data remains read-only.</p>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <button disabled={!!running} onClick={() => runTelemetryGap('TRACE_GAP')} className="rounded-md border border-indigo-400/40 px-3 py-2 text-xs text-indigo-300 hover:bg-indigo-400/10 disabled:opacity-50"><Radio className="mr-1 inline h-3.5 w-3.5" />Drop Jaeger Trace</button>
             <button disabled={!!running} onClick={() => runTelemetryGap('LOG_GAP')} className="rounded-md border border-cyan-400/40 px-3 py-2 text-xs text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-50">Drop Loki Log</button>
             <button disabled={!!running} onClick={() => runTelemetryGap('METRIC_GAP')} className="rounded-md border border-orange-400/40 px-3 py-2 text-xs text-orange-300 hover:bg-orange-400/10 disabled:opacity-50">Drop Prometheus Metric</button>
-            <button disabled={!!running || loadingServices} onClick={openServicePicker} className="rounded-md border border-rose-400/40 px-3 py-2 text-xs text-rose-300 hover:bg-rose-400/10 disabled:opacity-50">{loadingServices ? 'Loading Services...' : 'Disable Service'}</button>
+            <button disabled={!!running || loadingServices} onClick={openServicePicker} className="rounded-md border border-rose-400/40 px-3 py-2 text-xs text-rose-300 hover:bg-rose-400/10 disabled:opacity-50">{loadingServices ? 'Loading Services...' : 'Simulate Service Down'}</button>
             <button disabled={!!running} onClick={() => runTelemetryGap('LATENCY_SPIKE')} className="rounded-md border border-amber-400/40 px-3 py-2 text-xs text-amber-300 hover:bg-amber-400/10 disabled:opacity-50">Latency Spike</button>
             <button disabled={!!running} onClick={() => runTelemetryGap('ERROR_SPIKE')} className="rounded-md border border-red-400/40 px-3 py-2 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-50">Error Spike</button>
             <button onClick={clearTelemetryGap} className="rounded-md border border-emerald-400/40 px-3 py-2 text-xs text-emerald-300 hover:bg-emerald-400/10">Restore Telemetry</button>
           </div>
           {servicePickerOpen && (
             <div className="rounded-md border border-rose-400/30 bg-rose-400/5 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-rose-300">Choose service to disable</p>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-rose-300">Choose a discovered service</p>
               <div className="flex flex-wrap gap-2">
                 {services.map((service) => (
                   <button key={service} disabled={!!running} onClick={() => { setServicePickerOpen(false); runTelemetryGap('SERVICE_DOWN', service); }} className="rounded-md border border-border bg-surface-secondary/50 px-3 py-2 font-mono text-xs text-text-secondary hover:border-rose-400/50 hover:text-rose-300 disabled:opacity-50">
@@ -108,7 +112,7 @@ export default function ChaosPanel({ onExperimentRun: _onExperimentRun }: ChaosP
             </div>
           )}
           {message && <p className="text-xs text-text-secondary">{message}</p>}
-          <p className="text-[11px] text-text-muted">Recommended demo: baseline → Drop Jaeger Trace → show Blind Spot + lower CCI/O-Score → Restore Telemetry.</p>
+          <p className="text-[11px] text-text-muted">A simulated experiment does not apply Kubernetes changes or replace the live telemetry sources.</p>
         </CardContent>
       </Card>
 

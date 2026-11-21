@@ -2,20 +2,21 @@
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
+import { useState } from 'react';
 import { Search, Filter, TriangleAlert, BarChart3 } from 'lucide-react';
 import { ChartTooltip } from './ChartTooltip';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
 export default function LogsDashboard({ data }: any) {
+  const [search, setSearch] = useState('');
+  const [errorsOnly, setErrorsOnly] = useState(false);
   const realtime = data?.realtime;
-  const liveLogData = realtime?.logs?.series ?? [];
-  const logData = liveLogData.length ? liveLogData : Array.from({ length: 12 }, (_, index) => ({
-    time: `${String(index * 5).padStart(2, '0')}m ago`,
-    info: 0,
-    error: 0,
-  }));
-  const usingLogPreview = liveLogData.length === 0;
-  const logs = realtime?.logs?.recentLogs ?? [];
+  const logData = realtime?.logs?.series ?? [];
+  const logs = (realtime?.logs?.recentLogs ?? []).filter((log: any) => {
+    const matchesSearch = !search || `${log.service} ${log.message} ${log.level} ${log.traceId}`.toLowerCase().includes(search.toLowerCase());
+    const matchesLevel = !errorsOnly || log.level === 'ERROR' || log.level === 'CRITICAL';
+    return matchesSearch && matchesLevel;
+  });
 
   return (
     <div className="space-y-6">
@@ -25,9 +26,7 @@ export default function LogsDashboard({ data }: any) {
             <CardTitle className="flex items-center gap-2 text-sm uppercase tracking-wider text-text-secondary">
               <BarChart3 className="h-4 w-4 text-brand-obs" /> Log Volume (Last 2 Hours)
             </CardTitle>
-            {usingLogPreview ? (
-              <span className="text-[10px] font-medium uppercase tracking-wider text-amber-400">Waiting for Loki logs</span>
-            ) : data?.details?.log_error_count > 0 && (
+            {realtime?.availability?.logs && data?.details?.log_error_count > 0 && (
               <div className="inline-flex items-center gap-1.5 text-xs font-medium text-rose-400">
                 <TriangleAlert className="h-3.5 w-3.5" />
                 {data.details.log_error_count} errors detected
@@ -36,7 +35,7 @@ export default function LogsDashboard({ data }: any) {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="h-64 w-full">
+          {logData.length > 0 ? <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={logData} margin={{ top: 5, right: 0, left: -20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#252C35" vertical={false} />
@@ -48,7 +47,9 @@ export default function LogsDashboard({ data }: any) {
                 <Bar dataKey="error" name="Error Logs" stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </div> : <p className="py-12 text-center text-sm text-text-muted">
+            {realtime?.sources?.loki ? 'No log entries were returned for this query window.' : 'Loki is unavailable. Configure the log backend to view live data.'}
+          </p>}
         </CardContent>
       </Card>
 
@@ -59,10 +60,21 @@ export default function LogsDashboard({ data }: any) {
             <input
               type="text"
               placeholder="Search logs... (e.g., status:error service:order-service)"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
               className="w-full rounded-md border border-border bg-surface px-3 py-2 pl-9 text-sm text-text-primary placeholder:text-text-muted focus:border-brand-obs/60 focus:outline-none"
             />
           </div>
-          <button type="button" className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-secondary/40 px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-secondary">
+          <button
+            type="button"
+            aria-pressed={errorsOnly}
+            onClick={() => setErrorsOnly((current) => !current)}
+            className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+              errorsOnly
+                ? 'border-rose-500/50 bg-rose-500/10 text-rose-300'
+                : 'border-border bg-surface-secondary/40 text-text-primary hover:bg-surface-secondary'
+            }`}
+          >
             <Filter className="h-4 w-4" />
             Filters
           </button>
@@ -101,6 +113,13 @@ export default function LogsDashboard({ data }: any) {
                   </td>
                 </tr>
               ))}
+              {logs.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-text-muted">
+                    {realtime?.sources?.loki ? 'No matching log entries.' : 'No live log data available.'}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

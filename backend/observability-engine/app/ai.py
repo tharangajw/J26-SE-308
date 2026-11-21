@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -63,16 +64,383 @@ def _redact(value: Any) -> Any:
 def _prompt(snapshot: dict[str, Any]) -> str:
     snapshot = _redact(snapshot)
     return f"""You are an observability SRE performing root-cause analysis.
-Analyze this correlated Prometheus, Loki, and Jaeger telemetry snapshot:
+Analyze the observed metrics, logs, traces, and their source/coverage status:
 {json.dumps(snapshot, indent=2)}
 
 Return ONLY valid JSON matching this schema, with no markdown:
 {json.dumps(SCHEMA)}"""
 
 
+# Helper to detect scenario and primary target service from telemetry & RCA report.
+def _detect_scenario(report: dict[str, Any]) -> tuple[str, str]:
+    """Detect the active fault/scenario type and the target service."""
+    telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
+    experiment = telemetry.get("activeExperiment", {}) if isinstance(telemetry, dict) else {}
+    service_fault = telemetry.get("serviceFault", {}) if isinstance(telemetry, dict) else {}
+
+    # 1. Check active experiment
+    exp_fault = experiment.get("faultType") if isinstance(experiment, dict) else None
+    exp_service = experiment.get("serviceId") if isinstance(experiment, dict) else None
+
+    # 2. Check service fault
+    sf_service = service_fault.get("service") if isinstance(service_fault, dict) else None
+
+    # 3. Check affected services and error logs
+    affected = report.get("affected_services", [])
+    if not isinstance(affected, list):
+        affected = []
+
+    target_service = ""
+    if exp_service and exp_service != "all":
+        target_service = exp_service
+    elif sf_service:
+        target_service = sf_service
+    elif affected:
+        target_service = str(affected[0]).strip()
+    else:
+        # Check recent error logs
+        recent_logs = telemetry.get("logs", {}).get("recentLogs", []) if isinstance(telemetry, dict) else []
+        for log in reversed(recent_logs):
+            if isinstance(log, dict) and log.get("level") in {"ERROR", "CRITICAL"}:
+                svc = str(log.get("service", "")).strip()
+                if svc and svc not in {"unknown", "unknown-service"}:
+                    target_service = svc
+                    break
+
+    if not target_service or target_service in {"unknown", "unknown-service", "all"}:
+        target_service = ""
+
+    summary = str(report.get("summary", "")).lower()
+    root_cause = str(report.get("root_cause", "")).lower()
+    combined_text = f"{summary} {root_cause}"
+
+    if exp_fault:
+        return exp_fault, target_service
+
+    gap_terms = ("gap", "missing", "coverage", "unavailable", "not available")
+    if ("prometheus" in combined_text or "metric" in combined_text) and any(term in combined_text for term in gap_terms):
+        return "METRIC_GAP", target_service
+    if ("loki" in combined_text or "log" in combined_text) and any(term in combined_text for term in gap_terms):
+        return "LOG_GAP", target_service
+    if ("jaeger" in combined_text or "trace" in combined_text) and any(term in combined_text for term in gap_terms):
+        return "TRACE_GAP", target_service
+
+    if "down" in combined_text or "unavailable" in combined_text or "stopped" in combined_text:
+        return "SERVICE_DOWN", target_service
+    elif "error spike" in combined_text or "5xx" in combined_text or "error" in combined_text:
+        return "ERROR_SPIKE", target_service
+    elif "latency" in combined_text or "slow" in combined_text or "timeout" in combined_text:
+        return "LATENCY_SPIKE", target_service
+    elif "oom" in combined_text or "memory" in combined_text:
+        return "OOM_PRESSURE", target_service
+
+    return ("UNKNOWN" if not combined_text.strip() else "UNCLASSIFIED"), target_service
+
+
+def _operator_guidance(
+    provider: str,
+    scenario: str,
+    target_service: str,
+    elapsed: int,
+    simulated: bool,
+) -> dict[str, Any]:
+    target = f" for `{target_service}`" if target_service else ""
+    if simulated:
+        message = (
+            f"{scenario.replace('_', ' ').title()}{target} is a controlled telemetry simulation. "
+            "It did not change a Kubernetes workload. Restore the simulated telemetry state "
+            "from the experiment controls; no Kubernetes patch is required."
+        )
+        mode = "simulation"
+    else:
+        message = (
+            f"The telemetry indicates {scenario.replace('_', ' ').lower()}{target}, but this report "
+            "does not contain a verified Kubernetes Deployment and namespace. No YAML patch was "
+            "generated. Verify the workload and its intended replica/resource settings before "
+            "making a cluster change."
+        )
+        mode = "guidance"
+    return {
+        "script_type": "operator_guidance",
+        "script": message,
+        "guardrail_status": "not_required",
+        "description": "Remediation is withheld until the failure mode and target workload are verified.",
+        "risk_level": "N/A",
+        "estimated_impact": "Avoids applying a speculative change to an unrelated service.",
+        "rollback_steps": [],
+        "provider": provider,
+        "mode": mode,
+        "model": "observability-engine",
+        "ai_response_time_ms": elapsed,
+    }
+
+
+def _verified_deployment(report: dict[str, Any]) -> dict[str, Any] | None:
+    discovery = report.get("discovery", {}) if isinstance(report, dict) else {}
+    if not isinstance(discovery, dict):
+        return None
+    sources = discovery.get("sources", {})
+    kubernetes_source = sources.get("kubernetes") if isinstance(sources, dict) else None
+    if not isinstance(kubernetes_source, dict) or not kubernetes_source.get("connected"):
+        return None
+    target_service = _detect_scenario(report)[1]
+    workloads = discovery.get("workloads", [])
+    if not target_service or not isinstance(workloads, list):
+        return None
+    matches = [
+        workload for workload in workloads
+        if isinstance(workload, dict)
+        and workload.get("name") == target_service
+        and isinstance(workload.get("namespace"), str)
+        and workload.get("namespace")
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+# Build evidence-based guidance when a controlled scenario does not need a patch.
+def _build_scenario_remediation(
+    provider: str,
+    report: dict[str, Any],
+    elapsed: int = 0,
+    reason: str | None = None,
+    mode: str = "guidance"
+) -> dict[str, Any]:
+    scenario, target_service = _detect_scenario(report)
+    telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
+    experiment = telemetry.get("activeExperiment", {}) if isinstance(telemetry, dict) else {}
+    simulated = isinstance(experiment, dict) and experiment.get("simulated") is True
+
+    if scenario == "METRIC_GAP":
+        if simulated and experiment.get("faultType") == "METRIC_GAP":
+            return _simulated_metric_gap_guidance(provider)
+        return {
+            "script_type": "operator_guidance",
+            "script": (
+                "No Kubernetes YAML patch was generated because this report does not identify a verified Prometheus scrape target, "
+                "metrics endpoint, or deployment configuration.\n"
+                "Check Prometheus Status > Targets and confirm the affected service exposes a working /metrics endpoint. "
+                "Generate a patch only after verifying the target deployment, namespace, and scrape settings."
+            ),
+            "guardrail_status": "not_required",
+            "description": "The reported Prometheus metrics gap lacks enough deployment evidence for a safe YAML patch.",
+            "risk_level": "N/A",
+            "estimated_impact": "Avoids changing an unrelated workload; use the verified scrape target and deployment details to plan a fix.",
+            "rollback_steps": [],
+            "provider": provider,
+            "mode": "guidance",
+            "model": "rule-engine",
+            "ai_response_time_ms": elapsed,
+        }
+
+    return _operator_guidance(
+        provider, scenario, target_service, elapsed, simulated
+    )
+
+    if scenario == "TRACE_GAP":
+        telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
+        experiment = telemetry.get("activeExperiment", {}) if isinstance(telemetry, dict) else {}
+        if isinstance(experiment, dict) and experiment.get("simulated") is True:
+            return {
+                "script_type": "operator_guidance",
+                "script": (
+                    "No Kubernetes patch is required for this Chaos Lab experiment.\n"
+                    "The experiment pauses Jaeger trace collection in the observability snapshot; "
+                    "it does not modify or crash any container.\n"
+                    "Use the Chaos Lab > Restore Telemetry action to re-enable distributed trace correlation."
+                ),
+                "guardrail_status": "not_required",
+                "description": "Simulated Jaeger trace gap in Chaos Lab.",
+                "risk_level": "N/A",
+                "estimated_impact": "Restores trace propagation without altering container manifests.",
+                "rollback_steps": [],
+                "provider": provider,
+                "mode": "simulation",
+                "model": "chaos-lab",
+                "ai_response_time_ms": elapsed,
+            }
+        return {
+            "script_type": "kubernetes_yaml",
+            "script": f"""apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {target_service}
+  namespace: performance-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: {target_service}
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.performance-demo.svc.cluster.local:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "{target_service}"
+""",
+            "guardrail_status": "safe",
+            "description": f"Configure standard OpenTelemetry context propagation endpoint for {target_service}.",
+            "risk_level": "Low",
+            "estimated_impact": f"Enables distributed trace context propagation for {target_service}.",
+            "rollback_steps": [
+                f"Run `kubectl rollout undo deployment/{target_service} -n performance-demo`",
+            ],
+            "provider": provider,
+            "mode": mode,
+            "model": "rule-engine" if mode != "demo" else "demo-fallback",
+            "fallback_reason": reason,
+            "ai_response_time_ms": elapsed,
+        }
+
+    if scenario == "LOG_GAP":
+        return {
+            "script_type": "operator_guidance",
+            "script": (
+                "No Kubernetes patch is required for this Chaos Lab experiment.\n"
+                "The experiment pauses Loki log streaming in the observability view.\n"
+                "Use the Chaos Lab > Restore Telemetry action to resume log streaming."
+            ),
+            "guardrail_status": "not_required",
+            "description": "Simulated Loki log gap in Chaos Lab.",
+            "risk_level": "N/A",
+            "estimated_impact": "Restores log ingestion without altering deployment pods.",
+            "rollback_steps": [],
+            "provider": provider,
+            "mode": "simulation",
+            "model": "chaos-lab",
+            "ai_response_time_ms": elapsed,
+        }
+
+    if scenario == "SERVICE_DOWN":
+        return {
+            "script_type": "kubernetes_yaml",
+            "script": f"""apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {target_service}
+  namespace: performance-demo
+spec:
+  replicas: 1
+""",
+            "guardrail_status": "safe",
+            "description": f"Restore {target_service} deployment availability by scaling replicas back to 1.",
+            "risk_level": "Low",
+            "estimated_impact": f"Restores availability for {target_service}, recovering healthy pod status and endpoint routing.",
+            "rollback_steps": [
+                f"kubectl scale deployment/{target_service} --replicas=0 -n performance-demo",
+                f"kubectl rollout undo deployment/{target_service} -n performance-demo",
+            ],
+            "provider": provider,
+            "mode": mode,
+            "model": "rule-engine" if mode != "demo" else "demo-fallback",
+            "fallback_reason": reason,
+            "ai_response_time_ms": elapsed,
+        }
+
+    if scenario == "ERROR_SPIKE":
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {
+            "script_type": "kubernetes_yaml",
+            "script": f"""apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {target_service}
+  namespace: performance-demo
+spec:
+  replicas: 2
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "{ts}"
+""",
+            "guardrail_status": "review_required",
+            "description": f"Scale {target_service} to 2 replicas and trigger a rolling restart to clear poisoned container state and mitigate the error spike.",
+            "risk_level": "Medium",
+            "estimated_impact": f"Eliminates transient fault state, expands capacity to process retry traffic, and returns {target_service} to normal error-free HTTP operation.",
+            "rollback_steps": [
+                f"kubectl rollout undo deployment/{target_service} -n performance-demo",
+                f"kubectl scale deployment/{target_service} --replicas=1 -n performance-demo",
+            ],
+            "provider": provider,
+            "mode": mode,
+            "model": "rule-engine" if mode != "demo" else "demo-fallback",
+            "fallback_reason": reason,
+            "ai_response_time_ms": elapsed,
+        }
+
+    if scenario == "LATENCY_SPIKE":
+        return {
+            "script_type": "kubernetes_yaml",
+            "script": f"""apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {target_service}
+  namespace: performance-demo
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: {target_service}
+          resources:
+            requests:
+              cpu: "250m"
+            limits:
+              cpu: "500m"
+""",
+            "guardrail_status": "safe",
+            "description": f"Scale {target_service} to 3 replicas and increase CPU limits to mitigate response latency spike.",
+            "risk_level": "Medium",
+            "estimated_impact": f"Distributes queued load across 3 instances, reducing p95 latency below SLA threshold.",
+            "rollback_steps": [
+                f"kubectl scale deployment/{target_service} --replicas=1 -n performance-demo",
+                f"kubectl rollout undo deployment/{target_service} -n performance-demo",
+            ],
+            "provider": provider,
+            "mode": mode,
+            "model": "rule-engine" if mode != "demo" else "demo-fallback",
+            "fallback_reason": reason,
+            "ai_response_time_ms": elapsed,
+        }
+
+    # Default / OOM / Memory limit scenario
+    return {
+        "script_type": "kubernetes_yaml",
+        "script": f"""apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {target_service}
+  namespace: performance-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: {target_service}
+          resources:
+            requests:
+              memory: "256Mi"
+            limits:
+              memory: "512Mi"
+""",
+        "guardrail_status": "safe",
+        "description": f"Update memory limits for {target_service} to prevent OOM errors and pod restarts.",
+        "risk_level": "Low",
+        "estimated_impact": f"Stabilizes {target_service} memory footprint, preventing out-of-memory container terminations.",
+        "rollback_steps": [
+            f"kubectl rollout undo deployment/{target_service} -n performance-demo",
+            "Verify pods are running with previous memory limits.",
+        ],
+        "provider": provider,
+        "mode": mode,
+        "model": "rule-engine" if mode != "demo" else "demo-fallback",
+        "fallback_reason": reason,
+        "ai_response_time_ms": elapsed,
+    }
+
+
 # Build a constrained Kubernetes remediation prompt from RCA evidence.
 def _remediation_prompt(report: dict[str, Any]) -> str:
     report = _redact(report)
+    scenario, target_service = _detect_scenario(report)
+    deployment = _verified_deployment(report)
     telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
     observed_services = sorted({
         str(item.get("service", "")).strip()
@@ -82,25 +450,23 @@ def _remediation_prompt(report: dict[str, Any]) -> str:
     return f"""You are a Kubernetes platform engineer and SRE. Create an executable Kubernetes remediation patch for this RCA report:
 {json.dumps(report, indent=2)}
 
+Detected scenario: {scenario}
+Target service to remediate: {target_service}
 Observed service names from live telemetry: {json.dumps(observed_services)}
+Verified Kubernetes Deployment from read-only discovery: {json.dumps(deployment)}
 
 Return ONLY valid JSON matching this schema, with no markdown:
 {json.dumps(REMEDIATION_SCHEMA)}
 
 Requirements:
-- Return an actual Kubernetes strategic-merge YAML patch, not evidence, a ConfigMap, prose, or a demo artifact.
+- Return operator guidance instead of a manifest if the verified Deployment above is null.
 - The manifest kind MUST be Deployment and apiVersion MUST be apps/v1.
-- Use namespace performance-demo unless the report explicitly provides another verified namespace.
-- Use only a service name from the observed service list or the RCA affected_services list.
-- Never use unknown-service, unknown, placeholder names, or invented deployment names.
-- Do not invent a Jaeger service hostname. Only use an endpoint explicitly present in the report evidence; otherwise omit endpoint changes and explain that operator configuration is required.
-- For a SERVICE_DOWN or unavailable-service finding, generate the minimal recovery patch with metadata.name set to the real target service and spec.replicas: 1. Do not invent an image, container, ports, or environment variables.
-- For a trace propagation finding, add only verified environment fields to the existing target Deployment; do not replace the whole Deployment.
-- If no concrete target service is present, set risk_level to Critical and fail safely with a Deployment manifest named REVIEW_REQUIRED; explain the missing target in description. Never use unknown-service.
-- Do not invent secrets, image tags, namespaces, ports, or environment values.
+- If a manifest is justified, use the exact metadata.name and metadata.namespace from the verified Deployment. Never guess a namespace, replica count, image, port, resource limit, or container environment variable.
+- Base any change on explicit evidence in the report. If the evidence is insufficient, return concise operator guidance and no YAML.
+- Never add telemetry endpoints or tracing configuration unless the report contains the verified endpoint.
 - Never include kubectl delete, database destruction, privilege escalation, hostPath, or plaintext credentials.
 - Use High risk when assumptions or manual review are required.
-- Include exact rollback steps using kubectl rollout undo where applicable."""
+- Do not claim a rollback command is valid unless it reverses the proposed change."""
 
 
 # Parse provider output while tolerating markdown fences or a short preamble.
@@ -143,11 +509,26 @@ def _openrouter_payload(model: str, prompt: str) -> dict[str, Any]:
 
 
 # Validate YAML syntax, Deployment structure, security blacklist, and rollback data.
-def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
+def _validate_remediation(parsed: dict[str, Any], report: dict[str, Any] | None = None) -> dict[str, Any]:
     """Reject incomplete or unsafe model output before it reaches the UI."""
     script_value = parsed.get("script")
     if not isinstance(script_value, (str, dict)) or not script_value:
         raise ValueError("remediation response did not include a script")
+
+    if parsed.get("script_type") == "operator_guidance":
+        if not isinstance(script_value, str) or not script_value.strip():
+            raise ValueError("operator guidance must be non-empty text")
+        parsed.update({
+            "script": script_value.strip(),
+            "risk_level": "N/A",
+            "guardrail_status": "not_required",
+            "dry_run_status": "not_applicable",
+            "validation_checks": ["No Kubernetes manifest was generated."],
+        })
+        parsed.setdefault("description", "Operator guidance based on the provided telemetry.")
+        parsed.setdefault("estimated_impact", "No cluster resources are changed.")
+        parsed.setdefault("rollback_steps", [])
+        return parsed
 
     # Some structured-output models return the manifest as an object instead
     # of a YAML string. JSON is valid YAML 1.2 and preserves the manifest
@@ -184,6 +565,13 @@ def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
     metadata = manifest.get("metadata")
     if not isinstance(metadata, dict) or not isinstance(metadata.get("name"), str) or not metadata["name"].strip():
         raise ValueError("remediation manifest metadata.name is required")
+    verified_deployment = _verified_deployment(report or {})
+    if verified_deployment is None:
+        raise ValueError("no matching Kubernetes Deployment was verified by service discovery")
+    if metadata["name"] != verified_deployment["name"]:
+        raise ValueError("remediation deployment name does not match the discovered workload")
+    if metadata.get("namespace") != verified_deployment["namespace"]:
+        raise ValueError("remediation namespace does not match the discovered workload")
 
     required_yaml = ("apiVersion:", "kind:", "metadata:")
     if not structured_manifest and not all(marker in script for marker in required_yaml):
@@ -198,10 +586,16 @@ def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
     if "kind: deployment" not in lowered and '"kind": "Deployment"' not in script:
         raise ValueError("remediation response was not an executable Deployment patch")
 
+    # Guard against hallucinated jaeger hostnames or irrelevant trace configs when the actual fault is a service crash or error spike
+    scenario, _ = _detect_scenario(report or {})
+    if "jaeger-agent" in lowered or ("jaeger_" in lowered and scenario in {"SERVICE_DOWN", "ERROR_SPIKE", "LATENCY_SPIKE"}):
+        return _build_scenario_remediation(parsed.get("provider", "live"), report or {}, mode="live")
+
     risk = parsed.get("risk_level")
     if risk not in {"Low", "Medium", "High", "Critical"}:
         risk = "High"
     parsed["risk_level"] = risk
+    parsed["guardrail_status"] = "review_required"
     parsed["dry_run_status"] = "passed"
     parsed["validation_checks"] = [
         "Required Kubernetes apiVersion, kind, and metadata fields present",
@@ -215,62 +609,49 @@ def _validate_remediation(parsed: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
-# Return a clearly marked RCA fallback when a provider is unavailable.
-def _demo(provider: str, elapsed: int = 0, reason: str | None = None) -> dict[str, Any]:
+def _provider_error(
+    provider: str,
+    action: str,
+    reason: str,
+    elapsed: int = 0,
+) -> dict[str, Any]:
     return {
-        "summary": "The latest telemetry indicates elevated request latency and intermittent database connection failures in order-service.",
-        "root_cause": "Connection-pool pressure under load is creating slow downstream calls and repeated retries.",
-        "recommendations": [
-            "Increase the order-service database pool within the configured connection limit.",
-            "Add a circuit breaker and bounded retry policy for database calls.",
-            "Track pool saturation and p95 latency with an alert threshold.",
-        ],
-        "severity": "High",
-        "affected_services": ["order-service", "api-gateway"],
-        "evidence": [
-            "Metrics: elevated p95 request latency.",
-            "Traces: slow order-service downstream spans.",
-            "Logs: repeated database timeout signals.",
-        ],
+        "error": f"{provider} {action} unavailable: {reason}",
         "provider": provider,
-        "mode": "demo",
-        "model": "demo-fallback",
+        "mode": "unavailable",
         "ai_response_time_ms": elapsed,
-        "fallback_reason": reason,
     }
 
 
-# Return a safe demo patch when live remediation generation is unavailable.
-def _demo_remediation(provider: str, elapsed: int = 0, reason: str | None = None) -> dict[str, Any]:
+def _safe_provider_error(error: Exception) -> str:
+    response = getattr(error, "response", None)
+    if response is not None:
+        return f"provider returned HTTP {response.status_code}"
+    if isinstance(error, requests.Timeout):
+        return "provider request timed out"
+    return f"provider request failed ({type(error).__name__})"
+
+
+# Return recovery guidance instead of inventing a workload patch for a simulated metrics gap.
+def _simulated_metric_gap_guidance(provider: str) -> dict[str, Any]:
     return {
-        "script_type": "kubernetes_yaml",
-        "script": '''apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: order-service
-spec:
-  template:
-    spec:
-      containers:
-      - name: order-service
-        resources:
-          requests:
-            memory: \"256Mi\"
-          limits:
-            memory: "512Mi"''',
-        "guardrail_status": "safe",
-        "description": "Update memory limits for order-service to prevent OOM errors.",
-        "risk_level": "Low",
-        "estimated_impact": "Prevents out of memory kills, stabilizing order processing.",
-        "rollback_steps": [
-            "Run `kubectl rollout undo deployment/order-service`",
-            "Verify pods are running with previous memory limits.",
-        ],
+        "script_type": "operator_guidance",
+        "script": (
+            "No Kubernetes patch is required for this Chaos Lab experiment.\n"
+            "The experiment hides Prometheus metrics in the observability snapshot; "
+            "it does not stop or modify the Prometheus service.\n"
+            "Use the Chaos Lab > Restore Telemetry action, then wait for the next "
+            "telemetry refresh and confirm Prometheus is available."
+        ),
+        "guardrail_status": "not_required",
+        "description": "This is a simulated Prometheus metrics gap, not a Prometheus deployment failure.",
+        "risk_level": "N/A",
+        "estimated_impact": "Restores the simulated telemetry view without changing any Kubernetes workload.",
+        "rollback_steps": [],
         "provider": provider,
-        "mode": "demo",
-        "model": "demo-fallback",
-        "fallback_reason": reason,
-        "ai_response_time_ms": elapsed,
+        "mode": "simulation",
+        "model": "chaos-lab",
+        "ai_response_time_ms": 0,
     }
 
 
@@ -278,7 +659,7 @@ spec:
 def analyze_with_gemini(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
-        return _demo("gemini")
+        return _provider_error("gemini", "analysis", "GEMINI_API_KEY is not configured.")
     started = time.perf_counter()
     last_error = "unknown Gemini error"
     models = list(dict.fromkeys([GEMINI_MODEL, *GEMINI_FALLBACK_MODELS]))
@@ -294,15 +675,20 @@ def analyze_with_gemini(snapshot: dict[str, Any]) -> dict[str, Any]:
             output = response.json()["candidates"][0]["content"]["parts"][0]["text"]
             return {**_parse_json(output), "provider": "gemini", "mode": "live", "model": model, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
         except Exception as error:
-            last_error = f"{model}: {str(error)[:160]}"
-    return _demo("gemini", round((time.perf_counter() - started) * 1000), f"Gemini models unavailable after retry: {last_error}")
+            last_error = f"{model}: {_safe_provider_error(error)}"
+    return _provider_error(
+        "gemini",
+        "analysis",
+        f"all configured models failed ({last_error})",
+        round((time.perf_counter() - started) * 1000),
+    )
 
 
 # Call Claude and parse its structured RCA response.
 def analyze_with_claude(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("ANTHROPIC_API_KEY")
     if not key:
-        return _demo("claude")
+        return _provider_error("claude", "analysis", "ANTHROPIC_API_KEY is not configured.")
     started = time.perf_counter()
     try:
         response = requests.post(
@@ -315,14 +701,19 @@ def analyze_with_claude(snapshot: dict[str, Any]) -> dict[str, Any]:
         output = response.json()["content"][0]["text"]
         return {**_parse_json(output), "provider": "claude", "mode": "live", "model": CLAUDE_MODEL, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
     except Exception as error:
-        return _demo("claude", round((time.perf_counter() - started) * 1000), f"Claude unavailable: {str(error)[:180]}")
+        return _provider_error(
+            "claude",
+            "analysis",
+            _safe_provider_error(error),
+            round((time.perf_counter() - started) * 1000),
+        )
 
 
 # Call OpenRouter and parse its structured RCA response.
 def analyze_with_openrouter(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("OPENROUTER_API_KEY")
     if not key:
-        return _demo("openrouter")
+        return _provider_error("openrouter", "analysis", "OPENROUTER_API_KEY is not configured.")
     started = time.perf_counter()
     try:
         response = requests.post(
@@ -335,7 +726,12 @@ def analyze_with_openrouter(snapshot: dict[str, Any]) -> dict[str, Any]:
         output = response.json()["choices"][0]["message"]["content"]
         return {**_parse_json(output), "provider": "openrouter", "mode": "live", "model": OPENROUTER_MODEL, "ai_response_time_ms": round((time.perf_counter() - started) * 1000)}
     except Exception as error:
-        return _demo("openrouter", round((time.perf_counter() - started) * 1000), f"OpenRouter request/response error: {str(error)[:180]}")
+        return _provider_error(
+            "openrouter",
+            "analysis",
+            _safe_provider_error(error),
+            round((time.perf_counter() - started) * 1000),
+        )
 
 
 # Dispatch RCA analysis to the selected provider adapter.
@@ -350,9 +746,24 @@ def analyze(provider: str, snapshot: dict[str, Any]) -> dict[str, Any]:
 # Generate, validate, classify, and return a guarded remediation response.
 def generate_remediation(provider: str, report: dict[str, Any]) -> dict[str, Any]:
     """Generate a guarded remediation script through the selected provider."""
+    scenario, target_service = _detect_scenario(report)
+    telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
+    experiment = telemetry.get("activeExperiment", {}) if isinstance(telemetry, dict) else {}
+    simulated = isinstance(experiment, dict) and experiment.get("simulated") is True
+
+    if scenario in {"METRIC_GAP", "LOG_GAP", "TRACE_GAP"} or simulated:
+        return _build_scenario_remediation(provider, report, mode="simulation")
+    if not target_service or _verified_deployment(report) is None:
+        return _operator_guidance(provider, scenario, target_service, 0, False)
+
     key = {"gemini": os.getenv("GEMINI_API_KEY"), "claude": os.getenv("ANTHROPIC_API_KEY"), "openrouter": os.getenv("OPENROUTER_API_KEY")}.get(provider)
     if not key:
-        return _demo_remediation(provider)
+        variable = {
+            "gemini": "GEMINI_API_KEY",
+            "claude": "ANTHROPIC_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+        }.get(provider, "provider API key")
+        return _provider_error(provider, "remediation", f"{variable} is not configured.")
 
     started = time.perf_counter()
     prompt = _remediation_prompt(report)
@@ -395,16 +806,21 @@ def generate_remediation(provider: str, report: dict[str, Any]) -> dict[str, Any
             output = response.json()["choices"][0]["message"]["content"]
             model = OPENROUTER_MODEL
 
-        parsed = _validate_remediation(_parse_json(output))
-        risk = parsed["risk_level"]
+        parsed = _validate_remediation(_parse_json(output), report)
+        risk = parsed.get("risk_level", "Medium")
         return {
             **parsed,
-            "script_type": "kubernetes_yaml",
-            "guardrail_status": "dangerous" if risk == "Critical" else "review_required" if risk == "High" else "safe",
+            "script_type": parsed.get("script_type", "kubernetes_yaml"),
+            "guardrail_status": parsed.get("guardrail_status") or ("dangerous" if risk == "Critical" else "review_required" if risk == "High" else "safe"),
             "provider": provider,
             "mode": "live",
             "model": model,
             "ai_response_time_ms": round((time.perf_counter() - started) * 1000),
         }
     except Exception as error:
-        return _demo_remediation(provider, round((time.perf_counter() - started) * 1000), f"{provider.title()} unavailable: {str(error)[:180]}")
+        return _provider_error(
+            provider,
+            "remediation",
+            _safe_provider_error(error),
+            round((time.perf_counter() - started) * 1000),
+        )

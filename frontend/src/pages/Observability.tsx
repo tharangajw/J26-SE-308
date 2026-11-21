@@ -15,9 +15,8 @@ import CCIPanel from '../components/observability/CCIPanel';
 import RCAPanel from '../components/observability/RCAPanel';
 import RemediationPanel from '../components/observability/RemediationPanel';
 import ChaosPanel from '../components/observability/ChaosPanel';
+import KubernetesDiscoveryPanel from '../components/resilience/KubernetesDiscoveryPanel';
 import { ObservabilityMethodology } from '../components/observability/ObservabilityMethodology';
-
-import { INITIAL_MOCK_HISTORY, INITIAL_MOCK_DATA, INITIAL_MOCK_CCI } from '../components/observability/mockData';
 
 const MetricCard = ({ icon, title, value, description, source, isAlert = false }: any) => {
   const sourceColor =
@@ -51,6 +50,9 @@ const SourceBadge = ({ name, status }: { name: string; status: string }) => (
   </div>
 );
 
+const formatMilliseconds = (value: number | null | undefined): string =>
+  typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)} ms` : '—';
+
 export const Observability: React.FC = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -62,10 +64,6 @@ export const Observability: React.FC = () => {
   const [activeTab, setActiveTab] = useState(routeTab);
   const [rcaReport, setRcaReport] = useState<any>(null);
 
-  const [mockData, setMockData] = useState(INITIAL_MOCK_DATA);
-  const [mockCci, setMockCci] = useState(INITIAL_MOCK_CCI);
-  const [mockHistory, setMockHistory] = useState(INITIAL_MOCK_HISTORY);
-
   useEffect(() => {
     if (!isCalculationView) setActiveTab(routeTab);
   }, [isCalculationView, routeTab]);
@@ -76,70 +74,20 @@ export const Observability: React.FC = () => {
     blind_spot_count: record.blindSpots,
   }));
 
-  useEffect(() => {
-    if (!telemetry) return;
-
-    setMockData(prev => ({
-      ...prev,
-      oscore: telemetry.calculation.oScore,
-      realtime: telemetry,
-      details: {
-        ...prev.details,
-        metrics_coverage_rate: telemetry.sources.prometheus ? 1 : 0,
-        system_error_rate: telemetry.traces.errorRate / 100,
-        service_latency_p95_ms: telemetry.metrics.p95Latency || telemetry.traces.latency,
-        service_count: telemetry.traces.serviceCount,
-        log_structural_integrity: telemetry.sources.loki ? 1 : 0,
-        log_error_count: telemetry.logs.errorCount,
-        trace_id_propagation_rate: telemetry.sources.jaeger ? 1 : 0,
-        avg_trace_duration_ms: telemetry.traces.latency,
-      },
-    }));
-
-    setMockCci(telemetry.calculation.cciData);
-  }, [telemetry, oScore, cciIndex]);
-
-  const handleChaosExperiment = (expId: string) => {
-    let newData = JSON.parse(JSON.stringify(mockData));
-    let newCci = JSON.parse(JSON.stringify(mockCci));
-    let newHistory = [...mockHistory];
-
-    if (expId === 'exp-1') {
-      newData.oscore = 62.4;
-      newData.details.service_count = 5;
-      newData.details.system_error_rate = 0.15;
-      newCci.cci_index = 75;
-      newCci.blind_spots.push({ timestamp_utc: new Date().toISOString(), has_metric: true, has_trace: false, has_log: true, missing_pillars: ['Jaeger Trace'] });
-    } else if (expId === 'exp-2') {
-      newData.oscore = 75.1;
-      newData.details.service_latency_p95_ms = 850.5;
-      newData.details.system_error_rate = 0.30;
-    } else if (expId === 'exp-3') {
-      newData.oscore = 45.0;
-      newData.details.system_error_rate = 0.45;
-      newCci.cci_index = 50;
-      newCci.blind_spots.push({ timestamp_utc: new Date().toISOString(), has_metric: false, has_trace: true, has_log: false, missing_pillars: ['Prometheus Metric', 'Loki Log'] });
-    }
-
-    newHistory.push({
-      timestamp: new Date().toISOString(),
-      oscore: newData.oscore,
-      cci_index: newCci.cci_index,
-      blind_spot_count: newCci.blind_spots.length
-    });
-
-    setMockData(newData);
-    setMockCci(newCci);
-    setMockHistory(newHistory.slice(-20));
-
-    setTimeout(() => {
-      setMockData(INITIAL_MOCK_DATA);
-      setMockCci(INITIAL_MOCK_CCI);
-    }, 40000);
+  const cciData = telemetry?.calculation.cciData;
+  const d = {
+    metrics_coverage_rate: telemetry?.availability?.metrics ? 1 : 0,
+    system_error_rate: telemetry?.traces.errorRate == null ? null : telemetry.traces.errorRate / 100,
+    service_latency_p95_ms: telemetry?.metrics.p95Latency,
+    service_count: telemetry?.traces.serviceCount ?? 0,
+    log_structural_integrity: telemetry?.availability?.logs ? 1 : 0,
+    log_error_count: telemetry?.logs.errorCount ?? 0,
+    trace_id_propagation_rate: telemetry?.availability?.traces ? 1 : 0,
+    avg_trace_duration_ms: telemetry?.traces.latency,
   };
-
-  const d = mockData.details;
-  const maturityLabel = oScore >= 80 ? 'Proactive' : oScore >= 50 ? 'Intermediate' : 'Reactive';
+  const formatPercent = (value: number | null | undefined, digits = 0) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : '—';
+  const maturityLabel = !telemetry ? 'Waiting for telemetry' : oScore >= 80 ? 'Proactive' : oScore >= 50 ? 'Intermediate' : 'Reactive';
 
   return (
     <PageContainer className="space-y-6">
@@ -164,13 +112,13 @@ export const Observability: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <SourceBadge name="Prometheus" status={telemetry?.sources.prometheus ? 'live' : 'offline'} />
-          <SourceBadge name="Loki" status={telemetry?.sources.loki ? 'live' : 'offline'} />
-          <SourceBadge name="Jaeger" status={telemetry?.sources.jaeger ? 'live' : 'offline'} />
+          <SourceBadge name="Prometheus" status={telemetry?.sources?.prometheus ? 'live' : 'offline'} />
+          <SourceBadge name="Loki" status={telemetry?.sources?.loki ? 'live' : 'offline'} />
+          <SourceBadge name="Jaeger" status={telemetry?.sources?.jaeger ? 'live' : 'offline'} />
           {!isCalculationView && (
             <div className="text-right">
               <div className="font-mono text-4xl font-semibold text-brand-obs">
-                {oScore.toFixed(0)}
+                {telemetry ? oScore.toFixed(0) : '—'}
                 <span className="text-lg text-text-muted">/100</span>
               </div>
               <div className="mt-0.5 text-xs font-medium uppercase tracking-widest text-text-secondary">
@@ -209,42 +157,51 @@ export const Observability: React.FC = () => {
                 <Card className="border-brand-obs/40 bg-brand-obs/5">
                   <CardContent className="flex h-full flex-col justify-center p-6">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">Live O-Score</p>
-                    <div className="mt-3 font-mono text-5xl font-semibold text-brand-obs">{oScore.toFixed(1)}</div>
+                    <div className="mt-3 font-mono text-5xl font-semibold text-brand-obs">{telemetry ? oScore.toFixed(1) : '—'}</div>
                     <p className="mt-2 text-xs text-text-muted">/ 100 · {maturityLabel} maturity</p>
-                    {mockCci.blind_spots.length > 0 && (
+                    {(telemetry?.calculation.blindSpotCount ?? 0) > 0 && (
                       <div className="mt-5 flex items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
                         <AlertCircle className="h-4 w-4" />
-                        Penalty: -{mockData.scoring_weights.blind_spot_penalty} pts for blind spots
+                        Penalty: -{telemetry?.calculation.scoreBreakdown.blindSpotPenalty ?? 0} pts for blind spots
                       </div>
                     )}
                   </CardContent>
                 </Card>
 
                 <div className="lg:col-span-2">
-                  <ScoreHistory history={chartHistory.length ? chartHistory : mockHistory} />
+                  <ScoreHistory history={chartHistory} />
                 </div>
               </div>
 
+              <KubernetesDiscoveryPanel />
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard icon={<Database className="h-4 w-4 text-emerald-400" />} title="Metrics Coverage" value={`${(d.metrics_coverage_rate * 100).toFixed(0)}%`} description="Healthy scrape targets" source="prometheus" />
-                <MetricCard icon={<AlertCircle className="h-4 w-4 text-rose-400" />} title="HTTP Error Rate" value={`${(d.system_error_rate * 100).toFixed(2)}%`} description="5xx responses (5m)" source="prometheus" isAlert={d.system_error_rate > 0.05} />
-                <MetricCard icon={<Server className="h-4 w-4 text-amber-400" />} title="p95 Latency" value={`${d.service_latency_p95_ms.toFixed(1)} ms`} description="95th percentile request duration" source="prometheus" isAlert={d.service_latency_p95_ms > 1000} />
-                <MetricCard icon={<BarChart2 className="h-4 w-4 text-cyan-400" />} title="Active Services" value={d.service_count} description="Instrumented services" source="jaeger" />
-                <MetricCard icon={<ShieldCheck className="h-4 w-4 text-brand-obs" />} title="Log Integrity" value={`${(d.log_structural_integrity * 100).toFixed(0)}%`} description="Structured level labels" source="loki" />
-                <MetricCard icon={<Radio className="h-4 w-4 text-rose-400" />} title="Log Errors (15m)" value={d.log_error_count.toLocaleString()} description="Error-level log lines" source="loki" isAlert={d.log_error_count > 100} />
-                <MetricCard icon={<Zap className="h-4 w-4 text-amber-400" />} title="Trace Propagation" value={`${(d.trace_id_propagation_rate * 100).toFixed(0)}%`} description="Multi-service traces" source="jaeger" />
-                <MetricCard icon={<GitBranch className="h-4 w-4 text-cyan-400" />} title="Avg Trace Duration" value={`${d.avg_trace_duration_ms.toFixed(1)} ms`} description="End-to-end trace length" source="jaeger" />
+                <MetricCard icon={<Database className="h-4 w-4 text-emerald-400" />} title="Metrics Data" value={telemetry ? formatPercent(d.metrics_coverage_rate) : '—'} description="Live metric query results" source="prometheus" />
+                <MetricCard icon={<AlertCircle className="h-4 w-4 text-rose-400" />} title="HTTP Error Rate" value={formatPercent(d.system_error_rate, 2)} description="5xx responses (5m)" source="prometheus" isAlert={typeof d.system_error_rate === 'number' && d.system_error_rate > 0.05} />
+                <MetricCard
+                  icon={<Server className="h-4 w-4 text-amber-400" />}
+                  title="p95 Latency"
+                  value={formatMilliseconds(d.service_latency_p95_ms)}
+                  description="95th percentile request duration"
+                  source="prometheus"
+                  isAlert={typeof d.service_latency_p95_ms === 'number' && Number.isFinite(d.service_latency_p95_ms) && d.service_latency_p95_ms > 1000}
+                />
+                <MetricCard icon={<BarChart2 className="h-4 w-4 text-cyan-400" />} title="Active Services" value={telemetry?.traces.serviceCount ?? '—'} description="Services reported by Jaeger" source="jaeger" />
+                <MetricCard icon={<ShieldCheck className="h-4 w-4 text-brand-obs" />} title="Log Data" value={telemetry ? formatPercent(d.log_structural_integrity) : '—'} description="Logs observed in the query window" source="loki" />
+                <MetricCard icon={<Radio className="h-4 w-4 text-rose-400" />} title="Log Errors (15m)" value={telemetry?.availability?.logs ? d.log_error_count.toLocaleString() : '—'} description="Observed error-level log lines" source="loki" isAlert={telemetry?.availability?.logs === true && d.log_error_count > 100} />
+                <MetricCard icon={<Zap className="h-4 w-4 text-amber-400" />} title="Traces Observed" value={telemetry ? formatPercent(d.trace_id_propagation_rate) : '—'} description="Trace samples in the query window" source="jaeger" />
+                <MetricCard icon={<GitBranch className="h-4 w-4 text-cyan-400" />} title="Avg Trace Duration" value={formatMilliseconds(d.avg_trace_duration_ms)} description="End-to-end trace length" source="jaeger" />
               </div>
             </div>
           )}
 
-          {activeTab === 'metrics' && <MetricsDashboard data={mockData} />}
-          {activeTab === 'logs' && <LogsDashboard data={mockData} />}
-          {activeTab === 'traces' && <TracesDashboard data={mockData} />}
-          {activeTab === 'cci' && <CCIPanel cciData={{ ...mockCci, cci_index: cciIndex }} />}
-          {activeTab === 'rca' && <RCAPanel cciData={{ ...mockCci, cci_index: cciIndex, telemetry }} onRcaComplete={(report: any) => { setRcaReport(report); navigate('/dimensions/observability/remediation'); }} />}
-          {activeTab === 'remediation' && <RemediationPanel rcaReport={rcaReport} />}
-          {activeTab === 'chaos' && <ChaosPanel onExperimentRun={handleChaosExperiment} />}
+          {activeTab === 'metrics' && <MetricsDashboard data={{ realtime: telemetry }} />}
+          {activeTab === 'logs' && <LogsDashboard data={{ realtime: telemetry, details: d }} />}
+          {activeTab === 'traces' && <TracesDashboard data={{ realtime: telemetry, details: d }} />}
+          {activeTab === 'cci' && (cciData ? <CCIPanel cciData={{ ...cciData, cci_index: cciIndex }} /> : <p className="text-sm text-text-muted">Waiting for the observability engine telemetry snapshot.</p>)}
+          {activeTab === 'rca' && (cciData ? <RCAPanel cciData={{ ...cciData, cci_index: cciIndex, telemetry }} onRcaComplete={(report: any) => { setRcaReport(report); navigate('/dimensions/observability/remediation'); }} /> : <p className="text-sm text-text-muted">Waiting for telemetry before root-cause analysis is available.</p>)}
+          {activeTab === 'remediation' && <RemediationPanel rcaReport={rcaReport} currentTelemetry={telemetry} />}
+          {activeTab === 'chaos' && <ChaosPanel />}
         </>
       )}
     </PageContainer>

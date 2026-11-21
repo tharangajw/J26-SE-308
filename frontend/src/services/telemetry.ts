@@ -1,10 +1,16 @@
 // Client contract and API adapter for the backend's live Prometheus/Loki/Jaeger snapshot.
 export interface TelemetryData {
   metrics: {
-    cpuUsage: number;
-    memoryUsage: number;
-    requestCount: number;
-    p95Latency: number;
+    cpuUsage: number | null;
+    memoryUsage: number | null;
+    requestCount: number | null;
+    p95Latency: number | null;
+  };
+  metricAvailability: {
+    cpu: boolean;
+    memory: boolean;
+    requestCount: boolean;
+    p95Latency: boolean;
   };
   series: {
     cpu: Array<{ time: string; value: number }>;
@@ -19,16 +25,26 @@ export interface TelemetryData {
     series: Array<{ time: string; info: number; error: number }>;
   };
   traces: {
-    latency: number;
-    errorRate: number;
+    latency: number | null;
+    errorRate: number | null;
     serviceCount: number;
     samples: Array<{ id: string; time: number; duration: number; spans: number; isError: boolean; service: string; operation: string }>;
+  };
+  availability: {
+    metrics: boolean;
+    traces: boolean;
+    logs: boolean;
   };
   sources: {
     prometheus: boolean;
     loki: boolean;
     jaeger: boolean;
   };
+  activeExperiment?: {
+    faultType: string;
+    serviceId: string | null;
+    simulated: boolean;
+  } | null;
   lastUpdated: string;
   calculation: {
     oScore: number;
@@ -52,6 +68,37 @@ export interface TelemetryData {
     };
   };
   history: Array<{ timestamp: string; oscore: number; cci_index: number; blind_spot_count: number }>;
+}
+
+export interface DiscoveredService {
+  name: string;
+  namespace: string | null;
+  sources: string[];
+  type?: string;
+  clusterIP?: string;
+  ports?: Array<{ name?: string; port?: number; protocol?: string }>;
+}
+
+export interface DiscoveredWorkload {
+  name: string;
+  namespace: string | null;
+  desiredReplicas: number;
+  readyReplicas: number;
+  availableReplicas: number;
+}
+
+export interface ServiceDiscovery {
+  services: DiscoveredService[];
+  workloads: DiscoveredWorkload[];
+  sources: Record<string, {
+    configured: boolean;
+    connected: boolean;
+    count: number;
+    error?: string;
+    namespace?: string | null;
+    workloadsError?: string | null;
+  }>;
+  discoveredAt: string;
 }
 
 const PROMETHEUS_URL = '/proxy/prometheus';
@@ -163,9 +210,9 @@ export class TelemetryService {
   static async fetchPrometheusMetrics(): Promise<any> {
     try {
       const [cpu, memory, requests] = await Promise.all([
-        this.fetchPrometheusQuery('sum(rate(process_cpu_user_seconds_total{application="rp-core-product"}[1m]) + rate(process_cpu_system_seconds_total{application="rp-core-product"}[1m])) * 100'),
-        this.fetchPrometheusQuery('100 * sum(nodejs_heap_size_used_bytes{application="rp-core-product"}) / clamp_min(sum(nodejs_heap_size_total_bytes{application="rp-core-product"}), 1)'),
-        this.fetchPrometheusQuery('sum(rate(http_requests_total{application="rp-core-product"}[1m]))'),
+        this.fetchPrometheusQuery('sum(rate(process_cpu_time_seconds_total[1m])) * 100'),
+        this.fetchPrometheusQuery('avg(process_memory_utilization) * 100'),
+        this.fetchPrometheusQuery('sum(rate(http_server_request_duration_seconds_count[1m]))'),
       ]);
       return { cpu, memory, requests };
     } catch (error) {
@@ -178,7 +225,7 @@ export class TelemetryService {
     try {
       const start = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       return await fetchJson(`${LOKI_URL}/loki/api/v1/query_range`, {
-        query: '{project="rp-core-product", app_service=~"gateway|book-service|user-service|order-service"}',
+        query: '{service_name=~".+"}',
         start,
         end: new Date().toISOString(),
         limit: '100',
@@ -203,7 +250,66 @@ export class TelemetryService {
     const response = await fetch('/api/observability/telemetry');
     if (!response.ok) throw new Error(`Observability engine request failed (${response.status})`);
     const body = await response.json();
-    return { ...body.telemetry, calculation: body.calculation, history: body.history };
+    const telemetry = body.telemetry ?? {};
+    const metrics = telemetry.metrics ?? {};
+    const logs = telemetry.logs ?? {};
+    const traces = telemetry.traces ?? {};
+    const metricAvailability = telemetry.metricAvailability ?? {
+      cpu: metrics.cpuUsage != null,
+      memory: metrics.memoryUsage != null,
+      requestCount: metrics.requestCount != null,
+      p95Latency: metrics.p95Latency != null,
+    };
+
+    return {
+      ...telemetry,
+      metrics: {
+        cpuUsage: metrics.cpuUsage ?? null,
+        memoryUsage: metrics.memoryUsage ?? null,
+        requestCount: metrics.requestCount ?? null,
+        p95Latency: metrics.p95Latency ?? null,
+      },
+      metricAvailability,
+      series: telemetry.series ?? { cpu: [], memory: [], requests: [], latency: [] },
+      logs: {
+        errorCount: logs.errorCount ?? 0,
+        recentErrors: logs.recentErrors ?? [],
+        recentLogs: logs.recentLogs ?? [],
+        series: logs.series ?? [],
+      },
+      traces: {
+        latency: traces.latency ?? null,
+        errorRate: traces.errorRate ?? null,
+        serviceCount: traces.serviceCount ?? 0,
+        samples: traces.samples ?? [],
+      },
+      availability: telemetry.availability ?? {
+        metrics: Object.values(metricAvailability).some(Boolean),
+        logs: (logs.recentLogs?.length ?? 0) > 0,
+        traces: (traces.samples?.length ?? 0) > 0,
+      },
+      sources: telemetry.sources ?? { prometheus: false, loki: false, jaeger: false },
+      calculation: body.calculation,
+      history: body.history ?? [],
+    };
+  }
+
+  static async getServiceDiscovery(): Promise<ServiceDiscovery> {
+    const response = await fetch('/api/observability/discovery');
+    const body = await response.text();
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(
+          'The observability backend does not have the discovery endpoint. Rebuild and restart it with: docker compose up --build -d observability-engine',
+        );
+      }
+      throw new Error(`Service discovery failed (${response.status}): ${body || response.statusText}`);
+    }
+    try {
+      return JSON.parse(body) as ServiceDiscovery;
+    } catch {
+      throw new Error('Observability discovery endpoint returned invalid JSON.');
+    }
   }
 
   static async discoverServices(): Promise<{
@@ -215,107 +321,23 @@ export class TelemetryService {
     infrastructureServices: string[];
     allServices: string[];
   }> {
-    const storedCollected = this.getCollectedServices();
-
-    // Query FastAPI Anomaly / Performance Engine dynamic Docker discovery endpoint first (<50ms)
-    const fastApiUrls = [
-      '/api/anomaly/cluster/services',
-    ];
-    for (const url of fastApiUrls) {
-      try {
-        const res = await fetch(url);
-        if (res.ok) {
-          const body = await res.json();
-          if (body && Array.isArray(body.services) && body.services.length > 0) {
-            const discoveredServices: string[] = body.services;
-            const combined = Array.from(new Set([...storedCollected, ...discoveredServices]));
-            return {
-              prometheusJobs: [],
-              jaegerServices: [],
-              dockerContainers: discoveredServices,
-              lastCollectedServices: combined,
-              applicationServices: combined,
-              infrastructureServices: [],
-              allServices: combined,
-            };
-          }
-        }
-      } catch {
-        // continue to collector fallback
-      }
-    }
-
-    const collectorUrls = ['/api/telemetry/discovered-services'];
-    for (const url of collectorUrls) {
-      try {
-        const res = await fetch(url);
-        if (res.ok) {
-          const body = await res.json();
-          if (body && Array.isArray(body.allServices)) {
-            const backendCollected: string[] = Array.isArray(body.lastCollectedServices)
-              ? body.lastCollectedServices
-              : [];
-            const combinedCollected = Array.from(new Set([...storedCollected, ...backendCollected]));
-
-            // If user explicitly collected services in Data Collection, prioritize them
-            const appServices = Array.from(
-              new Set([...combinedCollected, ...(body.applicationServices || [])])
-            );
-            const allServices = Array.from(
-              new Set([...combinedCollected, ...(body.allServices || [])])
-            );
-
-            if (allServices.length > 0) {
-              return {
-                prometheusJobs: body.prometheusJobs || [],
-                jaegerServices: body.jaegerServices || [],
-                dockerContainers: body.dockerContainers || [],
-                lastCollectedServices: combinedCollected,
-                applicationServices: appServices,
-                infrastructureServices: body.infrastructureServices || [],
-                allServices,
-              };
-            }
-          }
-        }
-      } catch {
-        // fallback to direct queries below
-      }
-    }
-
-    let prometheusJobs: string[] = [];
-    let jaegerServices: string[] = [];
-
-    try {
-      const promRes = await fetchJson(`${PROMETHEUS_URL}/api/v1/label/job/values`, {}, 'Prometheus');
-      if (promRes?.status === 'success' && Array.isArray(promRes.data)) {
-        prometheusJobs = promRes.data;
-      }
-    } catch (error) {
-      console.warn('Prometheus service discovery failed.', error);
-    }
-
-    const jaegerRes = await this.fetchJaegerTraces();
-    if (jaegerRes?.data && Array.isArray(jaegerRes.data)) {
-      jaegerServices = jaegerRes.data;
-    }
-
-    const infraKeywords = ['prometheus', 'jaeger', 'loki', 'grafana', 'collector', 'performance-engine', 'pscore-'];
-    const isInfra = (name: string) => infraKeywords.some((kw) => name.toLowerCase().includes(kw));
-
-    const allSet = new Set<string>([...storedCollected, ...prometheusJobs, ...jaegerServices]);
-    const allServices = Array.from(allSet);
-    const applicationServices = allServices.filter((s) => !isInfra(s));
-    const infrastructureServices = allServices.filter((s) => isInfra(s));
-
+    const discovery = await this.getServiceDiscovery();
+    const collected = this.getCollectedServices();
+    const discoveredNames = discovery.services.map((service) => service.name);
+    const allServices = Array.from(new Set([...collected, ...discoveredNames]));
     return {
-      prometheusJobs,
-      jaegerServices,
+      prometheusJobs: discovery.services
+        .filter((service) => service.sources.includes('prometheus'))
+        .map((service) => service.name),
+      jaegerServices: discovery.services
+        .filter((service) => service.sources.includes('jaeger'))
+        .map((service) => service.name),
       dockerContainers: [],
-      lastCollectedServices: storedCollected,
-      applicationServices,
-      infrastructureServices,
+      lastCollectedServices: collected,
+      applicationServices: allServices,
+      infrastructureServices: [],
       allServices,
     };
+
   }
 }

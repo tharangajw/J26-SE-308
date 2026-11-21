@@ -11,8 +11,8 @@ export interface HistoryRecord {
   traces: number;
   logs: number;
   blindSpots: number;
-  errorRate: number;
-  latency: number;
+  errorRate: number | null;
+  latency: number | null;
   status: string;
 }
 

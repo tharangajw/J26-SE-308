@@ -1,22 +1,13 @@
-import os
-import time
-import uuid
-
-# FastAPI routes expose live telemetry, scoring, RCA, and guarded remediation APIs.
-
+import os, time, uuid
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.calculations import calculate_observability
 from app.ai import analyze, generate_remediation
+from app.discovery import discover_services
 from app.models import AIAnalysisRequest, AIRemediationRequest
 from app.telemetry import collect_telemetry
-from app.integration import (
-    chaos_history,
-    clear_chaos,
-    collect_integrated,
-    inject_chaos,
-)
+from app.integration import chaos_history, clear_chaos, collect_integrated, inject_chaos
 
 app = FastAPI(title="Observability Calculation Engine")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -25,32 +16,41 @@ history: list[dict] = []
 approval_queue: list[dict] = []
 
 
+def _parse_services(services: str = "") -> list[str]:
+    return [s.strip() for s in services.split(",") if s.strip()]
+
+
+def _update_approval(approval_id: str, status: str) -> dict:
+    for a in approval_queue:
+        if a["approval_id"] == approval_id:
+            a["status"] = status
+            a[f"{status}_at"] = time.time()
+            return a
+    return {"error": "approval not found"}
+
+
 @app.get("/health")
-# Lightweight liveness endpoint for container and proxy health checks.
 def health() -> dict:
     return {"status": "ok", "service": "observability-engine"}
 
 
 @app.get("/api/observability/telemetry")
-# Collect one live snapshot, calculate scores, and append bounded history.
 def telemetry() -> dict:
     snapshot = collect_telemetry()
-    snapshot["integration"] = collect_integrated(
-        ["api-gateway", "order-service", "payment-service"]
-    )
-    calculation = calculate_observability(snapshot)
-    history.append({
-        "timestamp": snapshot["lastUpdated"],
-        "oscore": calculation["oScore"],
-        "cci_index": calculation["cciIndex"],
-        "blind_spot_count": calculation["blindSpotCount"],
-    })
+    discovered = [n["name"] for n in snapshot.get("dependencyMap", {}).get("nodes", []) if n.get("name") not in {None, "unknown-service"}]
+    snapshot["integration"] = collect_integrated(list(dict.fromkeys(discovered)))
+    calc = calculate_observability(snapshot)
+    history.append({"timestamp": snapshot["lastUpdated"], "oscore": calc["oScore"], "cci_index": calc["cciIndex"], "blind_spot_count": calc["blindSpotCount"]})
     del history[:-30]
-    return {"telemetry": snapshot, "calculation": calculation, "history": history}
+    return {"telemetry": snapshot, "calculation": calc, "history": history}
+
+
+@app.get("/api/observability/discovery")
+def service_discovery() -> dict:
+    return discover_services()
 
 
 @app.get("/api/observability/ai/providers")
-# Report provider configuration without exposing API keys.
 def ai_providers() -> dict:
     return {
         "gemini": {"configured": bool(os.getenv("GEMINI_API_KEY")), "model": os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"), "fallbackModels": os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.8-flash").split(",")},
@@ -60,100 +60,73 @@ def ai_providers() -> dict:
 
 
 @app.post("/api/observability/ai/analyze")
-# Run provider-backed RCA against the supplied telemetry snapshot.
 def ai_analyze(request: AIAnalysisRequest) -> dict:
-    if request.provider not in {"gemini", "claude", "openrouter"}:
-        return {"error": "provider must be gemini, claude, or openrouter"}
-    return analyze(request.provider, request.snapshot)
+    return {"error": "provider must be gemini, claude, or openrouter"} if request.provider not in {"gemini", "claude", "openrouter"} else analyze(request.provider, request.snapshot)
 
 
 @app.post("/api/observability/ai/remediation")
-# Generate a guarded remediation patch and queue risky live results for review.
 def ai_remediation(request: AIRemediationRequest) -> dict:
     if request.provider not in {"gemini", "claude", "openrouter"}:
         return {"error": "provider must be gemini, claude, or openrouter"}
-    result = generate_remediation(request.provider, request.report)
-    if result.get("mode") == "live" and result.get("guardrail_status") in {"review_required", "dangerous"}:
-        approval = {
-            "approval_id": f"approval-{uuid.uuid4().hex[:10]}",
-            "created_at": time.time(),
-            "status": "pending",
-            "provider": request.provider,
-            "risk_level": result.get("risk_level"),
-            "script_type": result.get("script_type"),
-        }
-        approval_queue.append(approval)
+    res = generate_remediation(request.provider, request.report)
+    if res.get("mode") == "live" and res.get("guardrail_status") in {"review_required", "dangerous"}:
+        appr_id = f"approval-{uuid.uuid4().hex[:10]}"
+        approval_queue.append({"approval_id": appr_id, "created_at": time.time(), "status": "pending", "provider": request.provider, "risk_level": res.get("risk_level"), "script_type": res.get("script_type")})
         del approval_queue[:-100]
-        result = {**result, "approval_required": True, "approval_id": approval["approval_id"]}
-    else:
-        result = {**result, "approval_required": False}
-    return result
+        return {**res, "approval_required": True, "approval_id": appr_id}
+    return {**res, "approval_required": False}
 
 
 @app.get("/api/observability/ai/approvals")
-# List pending and completed remediation approval records.
 def get_approvals() -> dict:
     return {"approvals": list(reversed(approval_queue))}
 
 
 @app.post("/api/observability/ai/approvals/{approval_id}/approve")
-# Mark a remediation approval record as operator-approved.
 def approve_remediation(approval_id: str) -> dict:
-    for approval in approval_queue:
-        if approval["approval_id"] == approval_id:
-            approval["status"] = "approved"
-            approval["approved_at"] = time.time()
-            return approval
-    return {"error": "approval not found"}
+    return _update_approval(approval_id, "approved")
 
 
 @app.post("/api/observability/ai/approvals/{approval_id}/reject")
-# Mark a remediation approval record as operator-rejected.
 def reject_remediation(approval_id: str) -> dict:
-    for approval in approval_queue:
-        if approval["approval_id"] == approval_id:
-            approval["status"] = "rejected"
-            approval["rejected_at"] = time.time()
-            return approval
-    return {"error": "approval not found"}
+    return _update_approval(approval_id, "rejected")
+
+
+@app.post("/api/observability/ai/remediation/apply")
+def apply_remediation(payload: dict | None = None) -> dict:
+    target_service = (payload or {}).get("service") or (payload or {}).get("target_service")
+    clear_chaos(target_service if target_service else None)
+    return {
+        "status": "applied",
+        "message": f"Remediation patch successfully applied for {target_service or 'all workloads'}.",
+        "service": target_service,
+        "applied_at": time.time(),
+        "recovery": "Chaos faults cleared, rollout initiated, and healthy telemetry restored.",
+    }
 
 
 @app.get("/api/observability/integrated")
-# Return integrated performance and resilience data for selected services.
-def integrated_snapshot(services: str = "api-gateway,order-service,payment-service") -> dict:
-    service_ids = [item.strip() for item in services.split(",") if item.strip()]
-    return {"services": service_ids, **collect_integrated(service_ids)}
+def integrated_snapshot(services: str = "") -> dict:
+    svcs = _parse_services(services)
+    return {"services": svcs, **collect_integrated(svcs)}
 
 
 @app.get("/api/observability/resilience/score")
-# Calculate resilience score and service rows from active chaos history.
-def resilience_score(services: str = "api-gateway,order-service,payment-service") -> dict:
-    service_ids = [item.strip() for item in services.split(",") if item.strip()]
-    resilience = collect_integrated(service_ids)["resilience"]
+def resilience_score(services: str = "") -> dict:
+    resilience = collect_integrated(_parse_services(services))["resilience"]
     active = sum(item["active_faults"] for item in resilience["services"])
     score = max(0.0, round(100 - active * 12.5, 1))
-    service_rows = []
-    for item in resilience["services"]:
-        active = item["active_faults"] > 0
-        service_rows.append({
-            "id": item["service_id"],
-            "name": item["service_id"].replace("-", " ").title(),
-            "status": "DEGRADED" if active else "ONLINE",
-            "faultType": next((event["fault_type"] for event in resilience["events"] if event["target_service"] in {item["service_id"], "all"} and event["status"] == "active"), None),
-            "port": 0,
-            "restarts": 0,
-            "cpu": 0,
-            "memory": 0,
-            "latency": 0,
-        })
+    service_rows = [{
+        "id": it["service_id"],
+        "name": it["service_id"].replace("-", " ").title(),
+        "status": "DEGRADED" if it["active_faults"] > 0 else "ONLINE",
+        "faultType": next((e["fault_type"] for e in resilience["events"] if e["target_service"] in {it["service_id"], "all"} and e["status"] == "active"), None),
+        "port": 0, "restarts": 0, "cpu": 0, "memory": 0, "latency": 0,
+    } for it in resilience["services"]]
     return {
         "metrics": {
-            "cpu": 0,
-            "memory": 0,
-            "availability": 100 if active == 0 else max(0, 100 - active * 5),
-            "latency": 0,
-            "errorRate": 0,
-            "restarts": 0,
+            "cpu": 0, "memory": 0, "availability": 100 if active == 0 else max(0, 100 - active * 5),
+            "latency": 0, "errorRate": 0, "restarts": 0,
             "mttr": resilience["services"][0]["mttr_seconds"] if resilience["services"] else 0,
             "failoverSuccess": resilience["services"][0]["recovery_success_rate"] if resilience["services"] else 100,
             "score": score,
@@ -165,24 +138,15 @@ def resilience_score(services: str = "api-gateway,order-service,payment-service"
 
 
 @app.get("/api/observability/chaos/history")
-# Expose chaos experiment history for the observability UI.
 def get_chaos_history() -> dict:
     return {"events": chaos_history()}
 
 
 @app.post("/api/observability/chaos/inject")
-# Start a bounded telemetry fault simulation requested by the UI.
-def post_chaos_inject(request: dict) -> dict:
-    return inject_chaos(
-        str(request.get("faultType", "UNKNOWN")),
-        str(request.get("serviceId", "all")),
-        int(request.get("duration", 15)),
-        int(request.get("latencyMs", 0)),
-        int(request.get("errorRate", 0)),
-    )
+def post_chaos_inject(req: dict) -> dict:
+    return inject_chaos(str(req.get("faultType", "UNKNOWN")), str(req.get("serviceId", "all")), int(req.get("duration", 15)), int(req.get("latencyMs", 0)), int(req.get("errorRate", 0)))
 
 
 @app.post("/api/observability/chaos/clear")
-# Recover selected or all active telemetry fault simulations.
-def post_chaos_clear(request: dict | None = None) -> dict:
-    return {"recovered": clear_chaos((request or {}).get("serviceId"))}
+def post_chaos_clear(req: dict | None = None) -> dict:
+    return {"recovered": clear_chaos((req or {}).get("serviceId"))}

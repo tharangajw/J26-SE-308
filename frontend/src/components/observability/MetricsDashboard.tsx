@@ -18,9 +18,11 @@ export default function MetricsDashboard({ data }: any) {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-orange-300">
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-orange-400" />
-          <span>Prometheus scraped telemetry — resource footprint, latency tails, and HTTP throughput</span>
+          <span>Configured metrics backend — resource utilization, latency tails, and request throughput when exported</span>
         </div>
-        <span className="font-medium uppercase tracking-wider text-emerald-400">1st pillar active</span>
+        <span className={`font-medium uppercase tracking-wider ${realtime?.availability?.metrics ? 'text-emerald-400' : 'text-amber-400'}`}>
+          {realtime?.availability?.metrics ? 'Live metric data' : realtime?.sources?.prometheus ? 'No matching metric data' : 'Metrics backend unavailable'}
+        </span>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

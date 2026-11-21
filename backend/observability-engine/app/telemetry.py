@@ -1,48 +1,93 @@
-"""Collect and normalise telemetry before handing it to the scoring engine."""
+"""Collect and normalize telemetry from Prometheus, Loki, and Jaeger."""
 
+import math
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import requests
 
 from app.integration import telemetry_experiment
 
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090").rstrip("/")
+LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100").rstrip("/")
+JAEGER_URL = os.getenv("JAEGER_URL", "http://localhost:16686").rstrip("/")
+TIMEOUT = float(os.getenv("OBSERVABILITY_TIMEOUT_SECONDS", "2"))
+PROMETHEUS_LABEL_FILTER = os.getenv(
+    "PROMETHEUS_LABEL_FILTER", os.getenv("APP_LABEL_FILTER", "")
+).strip().strip("{}")
+LOKI_QUERY = os.getenv("LOKI_QUERY_FILTER", '{job=~".+"}')
 
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
-LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100")
-JAEGER_URL = os.getenv("JAEGER_URL", "http://localhost:16686")
-TIMEOUT_SECONDS = float(os.getenv("OBSERVABILITY_TIMEOUT_SECONDS", "2"))
+
+def backend_request_options(url: str) -> dict[str, Any]:
+    for base_url, prefix in (
+        (PROMETHEUS_URL, "PROMETHEUS"),
+        (LOKI_URL, "LOKI"),
+        (JAEGER_URL, "JAEGER"),
+    ):
+        if not url.startswith(base_url):
+            continue
+        token = os.getenv(f"{prefix}_BEARER_TOKEN", "").strip()
+        username = os.getenv(f"{prefix}_USERNAME", "")
+        password = os.getenv(f"{prefix}_PASSWORD", "")
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        options: dict[str, Any] = {
+            "headers": headers,
+            "verify": os.getenv(f"{prefix}_CA_CERT") or True,
+        }
+        if username or password:
+            options["auth"] = (username, password)
+        return options
+    return {"headers": {}, "verify": True}
 
 
-# Fetch one telemetry source without allowing source failure to crash collection.
 def _get_json(url: str, params: dict[str, str] | None = None) -> dict | None:
     try:
-        response = requests.get(url, params=params, timeout=TIMEOUT_SECONDS)
+        response = requests.get(
+            url, params=params, timeout=TIMEOUT, **backend_request_options(url)
+        )
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
     except (requests.RequestException, ValueError):
         return None
 
 
-# Extract a safe scalar value from a Prometheus instant-query response.
-def _prometheus_value(payload: dict | None) -> float:
-    result = (payload or {}).get("data", {}).get("result", [])
+def _get_text(url: str) -> bool:
     try:
-        return float(result[0]["value"][1]) if result else 0.0
-    except (KeyError, IndexError, TypeError, ValueError):
-        return 0.0
+        response = requests.get(url, timeout=TIMEOUT, **backend_request_options(url))
+        response.raise_for_status()
+        return True
+    except requests.RequestException:
+        return False
 
 
-# Convert Prometheus range-query values into chart-ready points.
+def _prometheus_value(payload: dict | None) -> float | None:
+    try:
+        if payload.get("status") != "success":
+            return None
+        value = float(payload["data"]["result"][0]["value"][1])
+        return value if math.isfinite(value) else None
+    except (AttributeError, KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
 def _prometheus_series(payload: dict | None, name: str) -> list[dict]:
     points = []
     for result in (payload or {}).get("data", {}).get("result", []):
         for timestamp, value in result.get("values", []):
             try:
-                points.append({"time": datetime.fromtimestamp(float(timestamp), timezone.utc).isoformat(), name: float(value)})
-            except (TypeError, ValueError):
+                number = float(value)
+                if math.isfinite(number):
+                    points.append({
+                        "time": datetime.fromtimestamp(
+                            float(timestamp), timezone.utc
+                        ).isoformat(),
+                        name: number,
+                    })
+            except (TypeError, ValueError, OSError):
                 continue
     return points
 
@@ -51,7 +96,7 @@ def _detect_log_level(labels: dict, message: str) -> str:
     level = str(labels.get("level", labels.get("severity", ""))).upper()
     if level in {"ERROR", "CRITICAL", "FATAL", "WARN", "WARNING", "DEBUG", "INFO"}:
         return "WARN" if level == "WARNING" else level
-    if "❌" in message or re.search(r"\b(ERROR|CRITICAL|FATAL|EXCEPTION|PANIC)\b", message, re.I):
+    if re.search(r"\b(ERROR|CRITICAL|FATAL|EXCEPTION|PANIC)\b", message, re.I):
         return "ERROR"
     if re.search(r"\b(WARN|WARNING)\b", message, re.I):
         return "WARN"
@@ -60,131 +105,214 @@ def _detect_log_level(labels: dict, message: str) -> str:
     return "INFO"
 
 
-# Query a bounded Prometheus time range for live dashboard history.
-def _query_range(query: str, start: datetime, end: datetime, step: str = "60s") -> dict | None:
-    return _get_json(f"{PROMETHEUS_URL}/api/v1/query_range", {
-        "query": query,
-        "start": start.isoformat(),
-        "end": end.isoformat(),
-        "step": step,
-    })
+def _selector(metric: str, extra_matchers: str = "") -> str:
+    matchers = ",".join(
+        part for part in (PROMETHEUS_LABEL_FILTER, extra_matchers) if part
+    )
+    return f"{metric}{{{matchers}}}" if matchers else metric
 
 
-# Build a service dependency graph strictly from real Jaeger spans.
+def _metric_queries() -> dict[str, list[str]]:
+    queries = {
+        "cpu": [
+            f"sum(rate({_selector('process_cpu_time_seconds_total')}[1m])) * 100",
+            f"sum(rate({_selector('process_cpu_seconds_total')}[1m])) * 100",
+            f"sum(rate({_selector('process_cpu_user_seconds_total')}[1m]) + rate({_selector('process_cpu_system_seconds_total')}[1m])) * 100",
+            f"avg({_selector('process_cpu_utilization')}) * 100",
+        ],
+        "memory": [
+            f"avg({_selector('process_memory_utilization')}) * 100",
+            f"100 * sum({_selector('nodejs_heap_size_used_bytes')}) / clamp_min(sum({_selector('nodejs_heap_size_total_bytes')}), 1)",
+            f"100 * sum({_selector('container_memory_working_set_bytes')}) / clamp_min(sum({_selector('kube_pod_container_resource_limits', 'resource=\"memory\"')}), 1)",
+            f"100 * sum({_selector('container_memory_working_set_bytes')}) / clamp_min(sum({_selector('container_spec_memory_limit_bytes')}), 1)",
+        ],
+        "requests": [
+            f"sum(rate({_selector('http_server_request_duration_seconds_count')}[1m]))",
+            f"sum(rate({_selector('http_requests_total')}[1m]))",
+            f"sum(rate({_selector('http_server_requests_seconds_count')}[1m]))",
+            f"sum(rate({_selector('http_server_requests_total')}[1m]))",
+        ],
+        "latency": [
+            f"histogram_quantile(0.95, sum(rate({_selector('http_server_request_duration_seconds_bucket')}[5m])) by (le)) * 1000",
+            f"histogram_quantile(0.95, sum(rate({_selector('http_request_duration_seconds_bucket')}[5m])) by (le)) * 1000",
+            f"histogram_quantile(0.95, sum(rate({_selector('http_server_requests_seconds_bucket')}[5m])) by (le)) * 1000",
+        ],
+        "errors": [
+            f"100 * sum(rate({_selector('http_server_request_duration_seconds_count', 'http_response_status_code=~\"5..\"')}[5m])) / clamp_min(sum(rate({_selector('http_server_request_duration_seconds_count')}[5m])), 1)",
+            f"100 * sum(rate({_selector('http_requests_total', 'status=~\"5..\"')}[5m])) / clamp_min(sum(rate({_selector('http_requests_total')}[5m])), 1)",
+            f"100 * sum(rate({_selector('http_server_requests_seconds_count', 'status_code=~\"5..\"')}[5m])) / clamp_min(sum(rate({_selector('http_server_requests_seconds_count')}[5m])), 1)",
+        ],
+    }
+    for key in queries:
+        configured = os.getenv(f"PROMETHEUS_{key.upper()}_QUERY", "").strip()
+        if configured:
+            queries[key] = [configured]
+    return queries
+
+
+def _query_range(
+    query: str, start: datetime, end: datetime, step: str = "60s"
+) -> dict | None:
+    return _get_json(
+        f"{PROMETHEUS_URL}/api/v1/query_range",
+        {
+            "query": query,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "step": step,
+        },
+    )
+
+
 def _dependency_map(traces_payload: dict | None) -> dict:
-    """Build a dynamic service graph from real Jaeger parent/child spans.
-    No mock or hardcoded fallback edges are injected.
-    """
     edges: dict[tuple[str, str], dict] = {}
-    discovered_edges = False
     root = "unknown-service"
-
     for trace in (traces_payload or {}).get("data", []):
         spans = trace.get("spans", [])
         if not spans:
             continue
-        services_by_span = {
-            span.get("spanID"): (span.get("process", {}) or {}).get("serviceName", "unknown-service")
+        services = {
+            span.get("spanID"): (span.get("process", {}) or {}).get(
+                "serviceName", "unknown-service"
+            )
             for span in spans
         }
         root_span = min(spans, key=lambda span: span.get("startTime", 0))
-        root = services_by_span.get(root_span.get("spanID"), root)
+        root = services.get(root_span.get("spanID"), root)
         for span in spans:
-            child_service = services_by_span.get(span.get("spanID"))
-            if not child_service:
+            child = services.get(span.get("spanID"))
+            if not child:
                 continue
+            tags = {tag.get("key"): tag.get("value") for tag in span.get("tags", [])}
             for reference in span.get("references", []):
-                parent_service = services_by_span.get(reference.get("spanID"))
-                if parent_service and parent_service != child_service:
-                    key = (parent_service, child_service)
-                    tags = {tag.get("key"): tag.get("value") for tag in span.get("tags", [])}
-                    edges[key] = {"source": parent_service, "target": child_service, "status": "Degraded" if tags.get("error") is True else "Healthy"}
-                    discovered_edges = True
-
+                parent = services.get(reference.get("spanID"))
+                if parent and parent != child:
+                    edges[(parent, child)] = {
+                        "source": parent,
+                        "target": child,
+                        "status": "Degraded" if tags.get("error") is True else "Healthy",
+                    }
     if not edges:
         return {"root": None, "nodes": [], "edges": [], "live": False}
 
     children: dict[str, list[str]] = {}
     for edge in edges.values():
         children.setdefault(edge["source"], []).append(edge["target"])
-    depths = {root: 0}
-    queue = [root]
+    depths, queue = {root: 0}, [root]
     while queue:
-        service = queue.pop(0)
-        for child in children.get(service, []):
+        current = queue.pop(0)
+        for child in children.get(current, []):
             if child not in depths:
-                depths[child] = depths[service] + 1
+                depths[child] = depths[current] + 1
                 queue.append(child)
-    nodes = [{"name": service, "depth": depth, "status": "Healthy"} for service, depth in depths.items()]
+    nodes = [{"name": name, "depth": depth, "status": "Healthy"} for name, depth in depths.items()]
     for edge in edges.values():
-        for node in nodes:
-            if node["name"] == edge["target"] and edge["status"] == "Degraded":
-                node["status"] = "Degraded"
-    return {"root": root, "nodes": nodes, "edges": list(edges.values()), "live": discovered_edges}
+        if edge["status"] == "Degraded":
+            for node in nodes:
+                if node["name"] == edge["target"]:
+                    node["status"] = "Degraded"
+    return {"root": root, "nodes": nodes, "edges": list(edges.values()), "live": True}
 
 
-# Collect and normalize the complete Prometheus/Loki/Jaeger snapshot in real-time.
 def collect_telemetry() -> dict:
     now = datetime.now(timezone.utc)
     start = now - timedelta(minutes=30)
-    # Define Prometheus queries for CPU, memory, request count, latency, and error rate.
-    prom_queries = (
-        'sum(rate(process_cpu_user_seconds_total{application="rp-core-product"}[1m]) + rate(process_cpu_system_seconds_total{application="rp-core-product"}[1m])) * 100',
-        '100 * sum(nodejs_heap_size_used_bytes{application="rp-core-product"}) / clamp_min(sum(nodejs_heap_size_total_bytes{application="rp-core-product"}), 1)',
-        'sum(rate(http_requests_total{application="rp-core-product"}[1m]))',
-        'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{application="rp-core-product"}[5m])) by (le)) * 1000',
-        '100 * sum(rate(http_requests_total{application="rp-core-product",status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{application="rp-core-product"}[5m])), 1)',
-    )
-    # Query all active services from Loki for the last 15 minutes
+    queries = _metric_queries()
+    query_items = [
+        (key, query)
+        for key, candidates in queries.items()
+        for query in candidates
+    ]
     loki_params = {
-        "query": '{project="rp-core-product", app_service=~"gateway|book-service|user-service|order-service"}',
+        "query": LOKI_QUERY,
         "start": (now - timedelta(minutes=15)).isoformat(),
         "end": now.isoformat(),
         "limit": "100",
         "direction": "backward",
     }
 
-    # Query all pillars concurrently via real endpoints
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        prom_futures = [executor.submit(_get_json, f"{PROMETHEUS_URL}/api/v1/query", {"query": query}) for query in prom_queries]
-        series_futures = [executor.submit(_query_range, query, start, now) for query in prom_queries[:4]]
-        loki_future = executor.submit(_get_json, f"{LOKI_URL}/loki/api/v1/query_range", loki_params)
+    with ThreadPoolExecutor(max_workers=24) as executor:
+        query_futures = {
+            (key, query): executor.submit(
+                _get_json,
+                f"{PROMETHEUS_URL}/api/v1/query",
+                {"query": query},
+            )
+            for key, query in query_items
+        }
+        status_future = executor.submit(
+            _get_json, f"{PROMETHEUS_URL}/api/v1/status/buildinfo"
+        )
+        loki_future = executor.submit(
+            _get_json, f"{LOKI_URL}/loki/api/v1/query_range", loki_params
+        )
         jaeger_future = executor.submit(_get_json, f"{JAEGER_URL}/api/services")
-        traces_future = executor.submit(_get_json, f"{JAEGER_URL}/api/traces", {"lookback": "1h", "limit": "100"})
-        prom = [future.result() for future in prom_futures]
-        series = [future.result() for future in series_futures]
+        traces_future = executor.submit(
+            _get_json,
+            f"{JAEGER_URL}/api/traces",
+            {"lookback": "1h", "limit": "100"},
+        )
+
+        chosen: dict[str, tuple[str | None, dict | None, float | None]] = {}
+        for key, candidates in queries.items():
+            chosen[key] = (None, None, None)
+            for query in candidates:
+                payload = query_futures[(key, query)].result()
+                value = _prometheus_value(payload)
+                if value is not None:
+                    chosen[key] = (query, payload, value)
+                    break
+
+        range_futures = {
+            key: executor.submit(_query_range, query, start, now)
+            for key, (query, _, _) in chosen.items()
+            if query is not None and key != "errors"
+        }
+        prometheus_status = status_future.result()
         loki = loki_future.result()
         jaeger = jaeger_future.result()
         traces_payload = traces_future.result()
+        series_payloads = {
+            key: future.result() for key, future in range_futures.items()
+        }
 
-    cpu_series, memory_series, request_series, latency_series = series
     streams = (loki or {}).get("data", {}).get("result", [])
-    services = (jaeger or {}).get("data", [])
+    jaeger_services = (jaeger or {}).get("data", [])
     recent_logs = []
     for stream in streams:
         labels = stream.get("stream", {})
         for entry in stream.get("values", []):
-            if len(entry) < 2:
-                continue
-            message = entry[1]
-            recent_logs.append({
-                "timestamp": entry[0],# nanoseconds since epoch
-                "level": _detect_log_level(labels, message),
-                "service": labels.get("service", labels.get("app", "unknown-service")),# service name
-                "message": message,
-                "traceId": labels.get("trace_id", labels.get("traceId", "-")),# trace ID
-            })
-    error_count = sum(1 for item in recent_logs if item["level"] in {"ERROR", "CRITICAL"})
-    log_buckets = {}
+            if len(entry) >= 2:
+                recent_logs.append({
+                    "timestamp": entry[0],
+                    "level": _detect_log_level(labels, entry[1]),
+                    "service": next(
+                        (
+                            labels[key]
+                            for key in ("service_name", "service", "app_service", "app", "job")
+                            if labels.get(key)
+                        ),
+                        "unknown-service",
+                    ),
+                    "message": entry[1],
+                    "traceId": labels.get("trace_id", labels.get("traceId", "-")),
+                })
+    error_count = sum(
+        1 for item in recent_logs if item["level"] in {"ERROR", "CRITICAL"}
+    )
+    log_buckets: dict[str, dict[str, Any]] = {}
     for item in recent_logs:
         try:
-            bucket = datetime.fromtimestamp(int(item["timestamp"]) / 1_000_000_000, timezone.utc).strftime("%H:%M")
+            bucket = datetime.fromtimestamp(
+                int(item["timestamp"]) / 1e9, timezone.utc
+            ).strftime("%H:%M")
         except (TypeError, ValueError, OSError):
             bucket = "now"
-        counts = log_buckets.setdefault(bucket, {"time": bucket, "info": 0, "error": 0})
+        counts = log_buckets.setdefault(
+            bucket, {"time": bucket, "info": 0, "error": 0}
+        )
         counts["error" if item["level"] in {"ERROR", "CRITICAL"} else "info"] += 1
 
-    # Real Jaeger trace parsing - no synthetic fallbacks
     trace_samples = []
     for trace in (traces_payload or {}).get("data", []):
         spans = trace.get("spans", [])
@@ -193,80 +321,129 @@ def collect_telemetry() -> dict:
         root = min(spans, key=lambda span: span.get("startTime", 0))
         tags = {tag.get("key"): tag.get("value") for tag in root.get("tags", [])}
         trace_samples.append({
-            "id": trace.get("traceID", root.get("traceID", "trace-unknown")),# trace ID
-            "time": root.get("startTime", 0) / 1000,# start time in seconds since epoch
-            "duration": max(0, root.get("duration", 0) / 1000),# duration in seconds
-            "spans": len(spans),# number of spans in the trace
-            "isError": tags.get("error") is True or tags.get("otel.status_code") == "ERROR",# whether the trace indicates an error
-            "service": (root.get("process", {}) or {}).get("serviceName", "unknown-service"),# service name
-            "operation": root.get("operationName", "unknown-operation"),# operation name
+            "id": trace.get("traceID", root.get("traceID", "trace-unknown")),
+            "time": root.get("startTime", 0) / 1000,
+            "duration": max(0, root.get("duration", 0) / 1000),
+            "spans": len(spans),
+            "isError": tags.get("error") is True or tags.get("otel.status_code") == "ERROR",
+            "service": (root.get("process", {}) or {}).get("serviceName", "unknown-service"),
+            "operation": root.get("operationName", "unknown-operation"),
         })
-    trace_samples.sort(key=lambda item: item["time"])
+    trace_samples.sort(key=lambda sample: sample["time"])
 
-    error_trace_count = sum(1 for trace in trace_samples if trace["isError"])
-    average_trace_latency = sum(trace["duration"] for trace in trace_samples) / len(trace_samples) if trace_samples else 0.0
-    error_rate = (error_trace_count / len(trace_samples) * 100) if trace_samples else _prometheus_value(prom[4])
+    cpu_query, cpu_payload, cpu_value = chosen["cpu"]
+    memory_query, memory_payload, memory_value = chosen["memory"]
+    requests_query, requests_payload, requests_value = chosen["requests"]
+    latency_query, latency_payload, latency_value = chosen["latency"]
+    _, _, metric_error_rate = chosen["errors"]
+    error_trace_count = sum(1 for sample in trace_samples if sample["isError"])
+    trace_latency = (
+        sum(sample["duration"] for sample in trace_samples) / len(trace_samples)
+        if trace_samples
+        else None
+    )
+    error_rate = (
+        error_trace_count / len(trace_samples) * 100
+        if trace_samples
+        else metric_error_rate
+    )
 
     experiment = telemetry_experiment()
     active_gap = experiment["fault_type"] if experiment else None
     service_fault = experiment.get("service_id") if active_gap == "SERVICE_DOWN" else None
     if active_gap == "TRACE_GAP":
-        traces_payload = None
-        trace_samples = []
-        services = []
-    if active_gap == "LOG_GAP":
-        loki = None
-        recent_logs = []
-        error_count = 0
-    if active_gap == "METRIC_GAP":
-        prom = [None] * len(prom)
-    if active_gap == "ERROR_SPIKE":
+        traces_payload, trace_samples, jaeger_services = None, [], []
+        trace_latency, error_rate = None, None
+    elif active_gap == "LOG_GAP":
+        loki, recent_logs, error_count = None, [], 0
+    elif active_gap == "METRIC_GAP":
+        cpu_value = memory_value = requests_value = latency_value = metric_error_rate = None
+    elif active_gap == "ERROR_SPIKE":
+        service_name = experiment.get("service_id") or "unknown-service"
         recent_logs.append({
-            "timestamp": str(int(now.timestamp() * 1_000_000_000)),
+            "timestamp": str(int(now.timestamp() * 1e9)),
             "level": "ERROR",
-            "service": "payment-service",
-            "message": "Chaos fault injection: upstream error spike",
+            "service": service_name,
+            "message": "Controlled chaos experiment: injected error spike",
             "traceId": "-",
         })
         error_count += 1
-        error_rate = max(error_rate, 25.0)
+        error_rate = max(error_rate or 0, 25.0)
+
+    if active_gap == "LATENCY_SPIKE":
+        latency_value = max(latency_value or 0, 1500.0)
+        trace_latency = max(trace_latency or 0, 1500.0)
 
     metrics_payload = {
-        "cpuUsage": _prometheus_value(prom[0]),
-        "memoryUsage": _prometheus_value(prom[1]),
-        "requestCount": _prometheus_value(prom[2]),
-        "p95Latency": _prometheus_value(prom[3]),
+        "cpuUsage": cpu_value,
+        "memoryUsage": memory_value,
+        "requestCount": requests_value,
+        "p95Latency": latency_value,
     }
-    if active_gap == "LATENCY_SPIKE":
-        metrics_payload["p95Latency"] = max(metrics_payload["p95Latency"], 1500.0)
-        average_trace_latency = max(average_trace_latency, 1500.0)
+    metric_series = {
+        key: _prometheus_series(series_payloads.get(key), "value")
+        for key in ("cpu", "memory", "requests", "latency")
+    }
+    metric_series["cpu"] = _prometheus_series(
+        series_payloads.get("cpu") or cpu_payload, "value"
+    ) if "cpu" in series_payloads else []
+    metric_series["memory"] = _prometheus_series(
+        series_payloads.get("memory") or memory_payload, "value"
+    ) if "memory" in series_payloads else []
+    metric_series["requests"] = _prometheus_series(
+        series_payloads.get("requests") or requests_payload, "value"
+    ) if "requests" in series_payloads else []
+    metric_series["latency"] = _prometheus_series(
+        series_payloads.get("latency") or latency_payload, "value"
+    ) if "latency" in series_payloads else []
+    if active_gap == "METRIC_GAP":
+        metric_series = {key: [] for key in metric_series}
 
+    error_count = sum(
+        1 for item in recent_logs if item["level"] in {"ERROR", "CRITICAL"}
+    )
+    availability = {
+        "metrics": any(value is not None for value in (cpu_value, memory_value, requests_value, latency_value, metric_error_rate)),
+        "logs": bool(recent_logs),
+        "traces": bool(trace_samples),
+    }
     return {
         "metrics": metrics_payload,
-        "series": {
-            "cpu": _prometheus_series(cpu_series, "value"),
-            "memory": _prometheus_series(memory_series, "value"),
-            "requests": _prometheus_series(request_series, "value"),
-            "latency": _prometheus_series(latency_series, "value")
+        "metricAvailability": {
+            "cpu": cpu_value is not None,
+            "memory": memory_value is not None,
+            "requestCount": requests_value is not None,
+            "p95Latency": latency_value is not None,
         },
+        "series": metric_series,
         "logs": {
             "errorCount": error_count,
-            "recentErrors": [item["message"] for item in recent_logs if item["level"] in {"ERROR", "CRITICAL"}][-20:],
+            "recentErrors": [
+                item["message"]
+                for item in recent_logs
+                if item["level"] in {"ERROR", "CRITICAL"}
+            ][-20:],
             "recentLogs": recent_logs[-100:],
-            "series": list(log_buckets.values())
+            "series": list(log_buckets.values()),
         },
         "traces": {
-            "latency": average_trace_latency or _prometheus_value(prom[3]),
+            "latency": trace_latency,
             "errorRate": error_rate,
-            "serviceCount": len(services) if isinstance(services, list) else 0,
-            "samples": trace_samples[-100:]
+            "serviceCount": len(jaeger_services) if isinstance(jaeger_services, list) else 0,
+            "samples": trace_samples[-100:],
         },
         "dependencyMap": _dependency_map(traces_payload),
         "serviceFault": {"type": "SERVICE_DOWN", "service": service_fault} if service_fault else None,
         "sources": {
-            "prometheus": any(item is not None for item in prom),
+            "prometheus": prometheus_status is not None,
             "loki": loki is not None,
-            "jaeger": jaeger is not None and active_gap != "TRACE_GAP"
+            "jaeger": jaeger is not None and active_gap != "TRACE_GAP",
         },
+        "availability": availability,
+        "activeExperiment": {
+            "faultType": active_gap,
+            "serviceId": experiment.get("service_id"),
+            "simulated": True,
+        } if experiment else None,
         "lastUpdated": now.isoformat(),
     }

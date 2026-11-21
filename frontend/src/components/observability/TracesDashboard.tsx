@@ -6,9 +6,7 @@ import { Share2, Clock, GitCommit } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 
 export default function TracesDashboard({ data }: any) {
-  const liveTraceData = data?.realtime?.traces?.samples ?? [];
-  const traceData = liveTraceData;
-  const usingTracePreview = liveTraceData.length === 0;
+  const traceData = data?.realtime?.traces?.samples ?? [];
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -42,13 +40,13 @@ export default function TracesDashboard({ data }: any) {
         <Card className="border-border bg-surface-secondary/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">Propagation Rate</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">Trace Data</span>
               <Share2 className="h-4 w-4 text-indigo-400" />
             </div>
             <div className="mt-2 font-mono text-2xl font-semibold text-text-primary">
-              {data?.details?.trace_id_propagation_rate != null ? `${(data.details.trace_id_propagation_rate * 100).toFixed(0)}%` : '—'}
+              {data?.realtime?.availability?.traces ? 'Observed' : 'No data'}
             </div>
-            <p className="mt-1 text-[11px] text-text-muted">W3C TraceContext coverage</p>
+            <p className="mt-1 text-[11px] text-text-muted">Samples received in the query window</p>
           </CardContent>
         </Card>
 
@@ -84,7 +82,6 @@ export default function TracesDashboard({ data }: any) {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm uppercase tracking-wider text-text-secondary">Trace Durations (Last Hour)</CardTitle>
-              {usingTracePreview && <span className="text-[10px] font-medium uppercase tracking-wider text-amber-400">Waiting for Jaeger traces</span>}
               <div className="flex items-center gap-4 text-[11px] text-text-secondary">
                 <div className="flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-emerald-400" /> Success</div>
                 <div className="flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-rose-400" /> Error</div>
@@ -92,7 +89,7 @@ export default function TracesDashboard({ data }: any) {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="h-[360px] w-full">
+            {traceData.length > 0 ? <div className="h-[360px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: -10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#252C35" />
@@ -107,7 +104,9 @@ export default function TracesDashboard({ data }: any) {
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
-            </div>
+            </div> : <p className="py-16 text-center text-sm text-text-muted">
+              {data?.realtime?.sources?.jaeger ? 'No trace samples were returned for this query window.' : 'Jaeger is unavailable. Configure the tracing backend to view live data.'}
+            </p>}
           </CardContent>
         </Card>
 
@@ -139,6 +138,9 @@ export default function TracesDashboard({ data }: any) {
                     <td className="px-4 py-3 text-right font-mono font-semibold text-amber-400">{trace.duration.toFixed(1)}</td>
                   </tr>
                 ))}
+                {traceData.length === 0 && (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">No live traces available.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
