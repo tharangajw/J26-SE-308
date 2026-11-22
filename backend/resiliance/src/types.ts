@@ -1,3 +1,4 @@
+// Defines shared TypeScript data contracts for resilience metrics, services, and experiments.
 export type MaturityLevel = 'Initial' | 'Developing' | 'Mature' | 'Optimized';
 
 export interface FaultMetrics {
@@ -22,7 +23,11 @@ export interface Service {
   memory: number;
   latency: number;
   errorRate: number;
-  restarts: number;
+  restarts: number | null;
+  processUptimeSeconds?: number | null;
+  recoveriesObserved?: number;
+  port?: number | null;
+  chaosSupported?: boolean;
   faultType?: string;
 }
 
@@ -49,6 +54,23 @@ export interface KubernetesValidationSnapshot {
   deploymentCount: number;
   desiredReplicas: number;
   readyReplicas: number;
+  coreServices: Array<{
+    name: string;
+    podCount: number;
+    readyPodCount: number;
+    restartCount: number;
+  }>;
+  corePods: Array<{
+    id: string;
+    namespace: string;
+    podName: string;
+    name: string;
+    phase: string;
+    ready: boolean;
+    chaosFaultActive: boolean;
+    restartCount: number;
+    port: number | null;
+  }>;
   hpas: Array<{
     name: string;
     namespace: string;
@@ -70,13 +92,13 @@ export interface ChaosInjectRequest {
   duration?: number;
   latencyMs?: number;
   errorRate?: number;
-  engine?: 'Chaos Mesh';
+  engine?: 'Chaos Mesh' | 'Docker Compose';
 }
 
 export interface KubernetesChaosLog {
   timestamp: string;
   level: 'INFO' | 'WARN' | 'ERROR' | 'SYSTEM';
-  source: 'Chaos Mesh' | 'Kubernetes' | 'Prometheus' | 'Grafana';
+  source: 'Chaos Mesh' | 'Docker Compose' | 'Kubernetes' | 'Prometheus' | 'Grafana';
   message: string;
 }
 
@@ -87,8 +109,10 @@ export interface ActiveChaosEvent {
   injectedAt: number;
   durationSec: number;
   status: string;
-  engine: 'Chaos Mesh';
+  engine: 'Chaos Mesh' | 'Docker Compose';
   experimentName: string;
+  latencyMs?: number;
+  errorRatePercent?: number;
   kubernetesLogs: KubernetesChaosLog[];
   metricsSnapshot?: {
     preChaosAvailability: number;

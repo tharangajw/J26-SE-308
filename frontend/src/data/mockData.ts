@@ -200,8 +200,11 @@ export interface Service {
   id: string;
   status: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
   faultType: string | null;
-  port: number;
-  restarts: number;
+  port: number | null;
+  restarts: number | null;
+  processUptimeSeconds?: number | null;
+  recoveriesObserved?: number;
+  chaosSupported?: boolean;
   cpu: number;
   memory: number;
   latency: number;
@@ -272,7 +275,7 @@ export interface ActiveFault {
 export interface KubernetesChaosLog {
   timestamp: string;
   level: 'INFO' | 'WARN' | 'ERROR' | 'SYSTEM';
-  source: 'Chaos Mesh' | 'Kubernetes' | 'Prometheus' | 'Grafana';
+  source: 'Chaos Mesh' | 'Docker Compose' | 'Kubernetes' | 'Prometheus' | 'Grafana';
   message: string;
 }
 
@@ -284,8 +287,10 @@ export interface ActiveChaosEvent {
   type: string;
   status: string;
   recoveryTime?: string;
-  engine?: 'Chaos Mesh';
+  engine?: 'Chaos Mesh' | 'Docker Compose';
   experimentName?: string;
+  latencyMs?: number;
+  errorRatePercent?: number;
   kubernetesLogs?: KubernetesChaosLog[];
   metricsSnapshot?: {
     preChaosAvailability: number;
@@ -301,6 +306,18 @@ export interface ActiveChaosEvent {
     circuitBreakerTripped: boolean;
     validationStatus: 'VALIDATING' | 'PASSED' | 'FAILED' | 'RECOVERED';
   };
+}
+
+export interface KubernetesValidationSnapshot {
+  podCount: number;
+  podRestartCount: number;
+  deploymentCount: number;
+  desiredReplicas: number;
+  readyReplicas: number;
+  coreServices: Array<{ name: string; podCount: number; readyPodCount: number; restartCount: number }>;
+  corePods: Array<{ id: string; namespace: string; podName: string; name: string; phase: string; ready: boolean; chaosFaultActive: boolean; restartCount: number; port: number | null }>;
+  hpas: Array<{ name: string; namespace: string; currentReplicas: number; desiredReplicas: number; currentCpuPercent: number | null; targetCpuPercent: number | null }>;
+  circuitBreaker: { configured: false; status: 'NOT_MEASURED'; reason: string };
 }
 
 // Mock AI Recommendation Type
@@ -332,54 +349,61 @@ export const mockFaultToleranceServices: Service[] = [
 
 // Mock Fault Injection Types
 export const mockFaultTypes: FaultType[] = [
-  { 
-    id: 'SERVICE_DOWN', 
-    name: 'Service Outage / Pod Kill', 
-    icon: 'Power', 
+  {
+    id: 'SERVICE_DOWN',
+    name: 'Service HTTP Outage',
+    icon: 'Power',
     badgeClass: 'fault-down',
-    desc: 'Simulates target container crash or complete network kill' 
+    desc: 'Returns HTTP 503 from the selected service for the experiment duration'
   },
-  { 
-    id: 'LATENCY', 
-    name: 'Network Latency Delay', 
-    icon: 'Clock', 
+  {
+    id: 'POD_RESTART',
+    name: 'Pod Restart',
+    icon: 'RotateCcw',
+    badgeClass: 'fault-down',
+    desc: 'Kills the selected Kubernetes pod so its controller recreates it'
+  },
+  {
+    id: 'LATENCY',
+    name: 'Network Latency Delay',
+    icon: 'Clock',
     badgeClass: 'fault-latency',
-    desc: 'Injects high response latency (+1500ms to +4000ms delay)' 
+    desc: 'Delays requests handled by the selected service'
   },
-  { 
-    id: 'API_ERROR', 
-    name: 'API Error Spike (500)', 
-    icon: 'AlertTriangle', 
+  {
+    id: 'API_ERROR',
+    name: 'API Error Spike (500)',
+    icon: 'AlertTriangle',
     badgeClass: 'fault-error',
-    desc: 'Forces HTTP 500 / 502 Internal Server Error responses' 
+    desc: 'Returns HTTP 500 responses at the configured rate (Compose); Chaos Mesh targets a percentage of pods'
   },
-  { 
-    id: 'HIGH_CPU', 
-    name: 'High CPU Stress (90%+)', 
-    icon: 'Cpu', 
+  {
+    id: 'HIGH_CPU',
+    name: 'High CPU Stress (90%+)',
+    icon: 'Cpu',
     badgeClass: 'fault-cpu',
-    desc: 'Triggers CPU burn computation overload on target node' 
+    desc: 'Uses one bounded worker thread to drive CPU load; auto-stops with the experiment'
   },
-  { 
-    id: 'HIGH_MEMORY', 
-    name: 'High Memory Pressure', 
-    icon: 'HardDrive', 
+  {
+    id: 'HIGH_MEMORY',
+    name: 'High Memory Pressure',
+    icon: 'HardDrive',
     badgeClass: 'fault-memory',
-    desc: 'Consumes target RAM, pushing memory load above 90%' 
+    desc: 'Allocates up to 128 MiB in the selected service; releases it when the experiment ends'
   },
-  { 
-    id: 'RATE_LIMIT', 
-    name: 'Rate Limit (HTTP 429)', 
-    icon: 'ShieldAlert', 
+  {
+    id: 'RATE_LIMIT',
+    name: 'Rate Limit (HTTP 429)',
+    icon: 'ShieldAlert',
     badgeClass: 'fault-ratelimit',
-    desc: 'Simulates request throttling & 429 Too Many Requests errors' 
+    desc: 'Returns HTTP 429 responses from the selected service'
   },
-  { 
-    id: 'CASCADING_FAILURE', 
-    name: 'Cascading Outage', 
-    icon: 'Flame', 
+  {
+    id: 'CASCADING_FAILURE',
+    name: 'Cascading Outage',
+    icon: 'Flame',
     badgeClass: 'fault-cascading',
-    desc: 'Triggers multi-point upstream service failures simultaneously' 
+    desc: 'Fails a Book or User dependency so dependent order requests fail naturally'
   }
 ];
 
@@ -399,12 +423,12 @@ export const mockInitialFaultMetrics: FaultMetrics = {
 
 // Mock Default Fault Card Studio Parameters
 export const mockDefaultCardSettings: Record<string, CardSetting> = {
-  SERVICE_DOWN: { target: 'gateway', duration: 15, latencyMs: 2500, errorRate: 35 },
-  LATENCY: { target: 'order-service', duration: 15, latencyMs: 2500, errorRate: 35 },
-  API_ERROR: { target: 'user-service', duration: 15, latencyMs: 2500, errorRate: 35 },
-  HIGH_CPU: { target: 'order-service', duration: 15, latencyMs: 2500, errorRate: 35 },
-  HIGH_MEMORY: { target: 'user-service', duration: 15, latencyMs: 2500, errorRate: 35 },
-  RATE_LIMIT: { target: 'gateway', duration: 12, latencyMs: 2500, errorRate: 35 },
+  SERVICE_DOWN: { target: 'all', duration: 15, latencyMs: 2500, errorRate: 35 },
+  LATENCY: { target: 'all', duration: 15, latencyMs: 2500, errorRate: 35 },
+  API_ERROR: { target: 'all', duration: 15, latencyMs: 2500, errorRate: 35 },
+  HIGH_CPU: { target: 'all', duration: 15, latencyMs: 2500, errorRate: 35 },
+  HIGH_MEMORY: { target: 'all', duration: 15, latencyMs: 2500, errorRate: 35 },
+  RATE_LIMIT: { target: 'all', duration: 12, latencyMs: 2500, errorRate: 35 },
   CASCADING_FAILURE: { target: 'all', duration: 15, latencyMs: 3000, errorRate: 40 }
 };
 

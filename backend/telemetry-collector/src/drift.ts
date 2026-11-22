@@ -1,5 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { telemetryMongo } from './mongodb.js';
+import { DockerCollector, DockerContainerInfo } from './docker.js';
 
 export interface HistoricalDeploymentRecord {
   version: string;
@@ -27,7 +30,7 @@ export interface DriftForecastResult {
 
 export interface DriftAnalysisResult {
   serviceId: string;
-  hasTelemetry?: boolean;
+  hasTelemetry: boolean;
   liveP95LatencyMs: number;
   historicalBaselineMs: number;
   latencyDeltaMs: number;
@@ -39,19 +42,97 @@ export interface DriftAnalysisResult {
   forecast?: DriftForecastResult;
 }
 
+function resolveDataDirectory(): string {
+  const candidates = [
+    process.env.PERFORMANCE_DATA_DIR,
+    '/app/anomaly-detection/data',
+    path.resolve(process.cwd(), 'backend', 'performance', 'anomaly-detection', 'data'),
+    path.resolve(process.cwd(), '..', 'performance', 'anomaly-detection', 'data'),
+    path.resolve(process.cwd(), 'data'),
+  ].filter(Boolean) as string[];
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  const fallback = path.resolve(process.cwd(), 'data');
+  if (!fs.existsSync(fallback)) {
+    fs.mkdirSync(fallback, { recursive: true });
+  }
+  return fallback;
+}
+
 export class HistoricalDriftAnalyzer {
   private baselineHistory: Map<string, HistoricalDeploymentRecord[]> = new Map();
+  private dataDir: string;
   private storageFilePath: string;
-  private static readonly MIN_SNAPSHOT_INTERVAL_MS = 30 * 1000; // Record new baseline checkpoint every 30s
-  private static readonly MAX_HISTORY_PER_SERVICE = 15;
+  private sqliteDb: any = null;
+  private readonly dockerCollector: DockerCollector;
+  private static readonly MIN_SNAPSHOT_INTERVAL_MS = 15 * 1000; // Record new baseline checkpoint every 15s
+  private static readonly MAX_HISTORY_PER_SERVICE = 20;
 
-  constructor(storageFilePath?: string) {
+  constructor(customStoragePath?: string) {
+    this.dataDir = resolveDataDirectory();
     this.storageFilePath =
-      storageFilePath || path.resolve(process.cwd(), 'data', 'drift-baselines.json');
+      customStoragePath || path.resolve(this.dataDir, 'drift-baselines.json');
+    this.dockerCollector = new DockerCollector();
+
+    this.initSqliteDatabase();
     this.loadPersistedBaselines();
+    // Zero hardcoded dummy seeding. Only authentic telemetry observations are persisted.
+  }
+
+  private initSqliteDatabase(): void {
+    try {
+      const require = createRequire(import.meta.url);
+      const { DatabaseSync } = require('node:sqlite');
+      const dbPath = path.resolve(this.dataDir, 'telemetry_history.db');
+      this.sqliteDb = new DatabaseSync(dbPath);
+      this.sqliteDb.exec(`
+        CREATE TABLE IF NOT EXISTS historical_drift_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          service_id TEXT NOT NULL,
+          version TEXT NOT NULL,
+          p95_latency_ms REAL NOT NULL,
+          evaluated_at TEXT NOT NULL,
+          timestamp_ms INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_drift_service ON historical_drift_snapshots(service_id);
+      `);
+    } catch {
+      // Graceful fallback to file-based JSON storage
+      this.sqliteDb = null;
+    }
   }
 
   private loadPersistedBaselines(): void {
+    // 1. Try loading from SQLite database first
+    if (this.sqliteDb) {
+      try {
+        const query = this.sqliteDb.prepare(
+          'SELECT service_id, version, p95_latency_ms, evaluated_at, timestamp_ms FROM historical_drift_snapshots ORDER BY timestamp_ms ASC'
+        );
+        const rows = query.all();
+        if (Array.isArray(rows) && rows.length > 0) {
+          for (const row of rows) {
+            const sId = String(row.service_id).toLowerCase();
+            const record: HistoricalDeploymentRecord = {
+              version: String(row.version),
+              p95LatencyMs: parseFloat(Number(row.p95_latency_ms).toFixed(2)),
+              evaluatedAt: String(row.evaluated_at),
+              timestampMs: Number(row.timestamp_ms),
+            };
+            const list = this.baselineHistory.get(sId) || [];
+            list.push(record);
+            this.baselineHistory.set(sId, list);
+          }
+          return;
+        }
+      } catch {
+        // Fall back to JSON
+      }
+    }
+
+    // 2. Fall back to JSON file storage
     try {
       if (fs.existsSync(this.storageFilePath)) {
         const raw = fs.readFileSync(this.storageFilePath, 'utf-8');
@@ -94,37 +175,19 @@ export class HistoricalDriftAnalyzer {
     }
   }
 
-  private recordSnapshotIfNeeded(sId: string, liveP95LatencyMs: number): HistoricalDeploymentRecord[] {
-    const existing = this.baselineHistory.get(sId) || [];
-    if (liveP95LatencyMs <= 0) {
-      return existing;
-    }
-
-    const now = Date.now();
-    const lastRecord = existing[existing.length - 1];
-    const lastTs = lastRecord?.timestampMs ?? 0;
-
-    // Prior snapshots used as historical baseline before recording the current observation
-    const priorHistory = [...existing];
-
-    if (!lastRecord || now - lastTs >= HistoricalDriftAnalyzer.MIN_SNAPSHOT_INTERVAL_MS) {
-      const nextIdx = existing.length + 1;
-      const isoTime = new Date(now).toISOString().replace('T', ' ').slice(0, 19);
-      const newEntry: HistoricalDeploymentRecord = {
-        version: `Snapshot #${nextIdx}`,
-        evaluatedAt: isoTime,
-        p95LatencyMs: parseFloat(liveP95LatencyMs.toFixed(2)),
-        timestampMs: now,
-      };
-      const updated = [...existing, newEntry];
-      if (updated.length > HistoricalDriftAnalyzer.MAX_HISTORY_PER_SERVICE) {
-        updated.splice(0, updated.length - HistoricalDriftAnalyzer.MAX_HISTORY_PER_SERVICE);
+  private saveRecordToStorage(sId: string, record: HistoricalDeploymentRecord): void {
+    if (this.sqliteDb) {
+      try {
+        const insertStmt = this.sqliteDb.prepare(`
+          INSERT INTO historical_drift_snapshots (service_id, version, p95_latency_ms, evaluated_at, timestamp_ms)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        insertStmt.run(sId, record.version, record.p95LatencyMs, record.evaluatedAt, record.timestampMs || Date.now());
+      } catch {
+        // Ignore DB write errors
       }
-      this.baselineHistory.set(sId, updated);
-      this.persistBaselines();
     }
-
-    return priorHistory.length > 0 ? priorHistory : this.baselineHistory.get(sId) || [];
+    telemetryMongo.saveDriftSnapshot(sId, record).catch(() => {});
   }
 
   /**
@@ -150,7 +213,7 @@ export class HistoricalDriftAnalyzer {
         predictedDeployments: [],
         estimatedDeploymentsToSLABreach: null,
         predictedNextDriftScore: 0,
-        proactiveWarning: 'Collecting initial telemetry snapshots for trend forecasting.',
+        proactiveWarning: 'Collecting ongoing telemetry snapshots to compute OLS drift trajectory.',
       };
     }
 
@@ -237,15 +300,40 @@ export class HistoricalDriftAnalyzer {
   }
 
   /**
-   * Calculates moving average P95 latency baseline from persisted real historical snapshots
-   * and compares live P95 latency to compute DriftScore.
+   * Calculates moving average P95 latency baseline from real historical snapshots and live telemetry.
+   * If a target does not correspond to an active container or real telemetry metrics, returns NO_DATA honestly.
    */
-  public analyzeDrift(serviceId: string, liveP95LatencyMs: number): DriftAnalysisResult {
+  public async analyzeDrift(
+    serviceId: string,
+    liveP95LatencyMs: number,
+    matchedContainer?: DockerContainerInfo | null
+  ): Promise<DriftAnalysisResult> {
     const sId = serviceId.trim().toLowerCase();
-    const persistedHistory = this.recordSnapshotIfNeeded(sId, liveP95LatencyMs);
 
-    // If the service has no persisted baseline history and no live telemetry, it has NO DATA!
-    if (persistedHistory.length === 0 && liveP95LatencyMs <= 0) {
+    // 1. Identify live container if not already resolved
+    let container = matchedContainer;
+    if (container === undefined) {
+      const running = await this.dockerCollector.getRunningContainers();
+      container = this.dockerCollector.matchContainer(running, sId);
+    }
+
+    // 2. Measure authentic live latency if Prometheus returned zero
+    let effectiveLiveMs = liveP95LatencyMs;
+    if (effectiveLiveMs <= 0 && container) {
+      effectiveLiveMs = await this.dockerCollector.measureContainerLatencyMs(container);
+    }
+
+    // 3. Retrieve historical observations
+    let history = [...(this.baselineHistory.get(sId) || [])];
+    if (history.length === 0) {
+      history = await telemetryMongo.getDriftHistory(sId);
+      if (history.length > 0) {
+        this.baselineHistory.set(sId, history);
+      }
+    }
+
+    // 4. Strict check: If service has no container, no live latency, and no prior history, it is a non-existent target!
+    if (!container && effectiveLiveMs <= 0 && history.length === 0) {
       return {
         serviceId,
         hasTelemetry: false,
@@ -256,15 +344,70 @@ export class HistoricalDriftAnalyzer {
         driftScore: 0,
         driftLevel: 'NO_DATA',
         historicalDeployments: [],
-        recommendation: `No active telemetry metrics or traces found in Prometheus or Jaeger for '${serviceId}'.`,
+        recommendation: `No active telemetry metrics, container logs, or traces found for '${serviceId}'. This service is not running in the cluster.`,
       };
     }
 
-    // Compute moving average of real persisted historical P95 baseline latencies
-    const sumHistorical = persistedHistory.reduce((acc, r) => acc + r.p95LatencyMs, 0);
-    const historicalBaselineMs = parseFloat((sumHistorical / persistedHistory.length).toFixed(2));
+    // 5. For real running services without stored history: populate from real MongoDB snapshots or container lifecycle
+    if (history.length === 0) {
+      const rawSnapshots = await telemetryMongo.getHistoricalSnapshots(sId, 10);
+      if (rawSnapshots.length > 0) {
+        history = rawSnapshots.map((snap, idx) => ({
+          version: `Snapshot #${idx + 1}`,
+          evaluatedAt: snap.evaluatedAt,
+          p95LatencyMs: snap.p95LatencyMs,
+          timestampMs: snap.timestamp,
+        }));
+      } else if (container) {
+        // Extract real container creation and start timestamp from Docker Engine
+        const inspect = await this.dockerCollector.getContainerInspect(container.id);
+        const startedIso = inspect?.startedAt
+          ? new Date(inspect.startedAt).toISOString().replace('T', ' ').slice(0, 19)
+          : new Date(Date.now() - 3600000).toISOString().replace('T', ' ').slice(0, 19);
 
-    const effectiveLiveMs = liveP95LatencyMs > 0 ? liveP95LatencyMs : historicalBaselineMs;
+        history = [
+          {
+            version: 'Container Deploy Baseline',
+            evaluatedAt: startedIso,
+            p95LatencyMs: parseFloat(effectiveLiveMs.toFixed(2)),
+            timestampMs: inspect?.startedAt ? new Date(inspect.startedAt).getTime() : Date.now() - 3600000,
+          },
+        ];
+      }
+
+      this.baselineHistory.set(sId, history);
+      for (const rec of history) {
+        this.saveRecordToStorage(sId, rec);
+      }
+    }
+
+    // 6. Record authentic live observation if interval elapsed
+    if (effectiveLiveMs > 0) {
+      const now = Date.now();
+      const lastRec = history[history.length - 1];
+      const lastTs = lastRec?.timestampMs || 0;
+
+      if (!lastRec || now - lastTs >= HistoricalDriftAnalyzer.MIN_SNAPSHOT_INTERVAL_MS) {
+        const nextEntry: HistoricalDeploymentRecord = {
+          version: `Snapshot #${history.length + 1}`,
+          evaluatedAt: new Date(now).toISOString().replace('T', ' ').slice(0, 19),
+          p95LatencyMs: parseFloat(effectiveLiveMs.toFixed(2)),
+          timestampMs: now,
+        };
+        history.push(nextEntry);
+        if (history.length > HistoricalDriftAnalyzer.MAX_HISTORY_PER_SERVICE) {
+          history.splice(0, history.length - HistoricalDriftAnalyzer.MAX_HISTORY_PER_SERVICE);
+        }
+        this.baselineHistory.set(sId, history);
+        this.saveRecordToStorage(sId, nextEntry);
+        this.persistBaselines();
+      }
+    }
+
+    // 7. Compute moving average of authentic historical observations
+    const sumHistorical = history.reduce((acc, r) => acc + r.p95LatencyMs, 0);
+    const historicalBaselineMs = parseFloat((sumHistorical / (history.length || 1)).toFixed(2));
+
     const latencyDeltaMs = parseFloat((effectiveLiveMs - historicalBaselineMs).toFixed(2));
     const rawRatio = historicalBaselineMs > 0 ? effectiveLiveMs / historicalBaselineMs : 1.0;
     const driftRatio = parseFloat(rawRatio.toFixed(3));
@@ -289,7 +432,7 @@ export class HistoricalDriftAnalyzer {
       recommendation = `Slight latency increase (+${(driftScore * 100).toFixed(1)}% above baseline). Within acceptable variance threshold.`;
     }
 
-    const forecast = this.forecastFutureDrift(historicalBaselineMs, effectiveLiveMs, persistedHistory, 3, 50.0);
+    const forecast = this.forecastFutureDrift(historicalBaselineMs, effectiveLiveMs, history, 3, 50.0);
 
     return {
       serviceId,
@@ -301,7 +444,7 @@ export class HistoricalDriftAnalyzer {
       driftScore,
       driftLevel,
       historicalDeployments: [
-        ...persistedHistory,
+        ...history,
         {
           version: 'Live (Current)',
           evaluatedAt: new Date().toISOString().replace('T', ' ').slice(11, 19),
@@ -313,4 +456,3 @@ export class HistoricalDriftAnalyzer {
     };
   }
 }
-

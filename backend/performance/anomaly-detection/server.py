@@ -308,6 +308,15 @@ def evaluate_composite_pscore(
     w_drift: float = Query(0.40, description="AHP weight for Historical Latency Drift"),
     w_fanout: float = Query(0.40, description="AHP weight for Call-Tree Fan-Out"),
     w_anomaly: float = Query(0.20, description="AHP weight for ML Anomaly"),
+    a12: Optional[float] = Query(
+        None, description="Optional Saaty 1-9 pairwise judgment: Drift vs FanOut"
+    ),
+    a13: Optional[float] = Query(
+        None, description="Optional Saaty 1-9 pairwise judgment: Drift vs Anomaly"
+    ),
+    a23: Optional[float] = Query(
+        None, description="Optional Saaty 1-9 pairwise judgment: FanOut vs Anomaly"
+    ),
 ):
     """
     Phase 4 & 5 Python Composite P-Score, AHP Validator, Apdex & Context-Aware Recommendation Engine:
@@ -319,6 +328,9 @@ def evaluate_composite_pscore(
         [s.strip() for s in services.split(",") if s.strip()] if services else None
     )
     custom_weights = {"drift": w_drift, "fanout": w_fanout, "anomaly": w_anomaly}
+    pairwise_judgments = None
+    if a12 is not None and a13 is not None and a23 is not None:
+        pairwise_judgments = {"a12": a12, "a13": a13, "a23": a23}
     return pscore_engine.evaluate_cluster_pscore(
-        req_list, latest_telemetry, custom_weights
+        req_list, latest_telemetry, custom_weights, pairwise_judgments
     )

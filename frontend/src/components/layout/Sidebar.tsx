@@ -133,6 +133,12 @@ export const Sidebar: React.FC = () => {
               </NavGroup>
             </NavGroup>
             <NavGroup icon={<Zap />} label="Performance">
+              <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="1. Telemetry Collection" />
+              <NavItem to="/dimensions/performance/drift" icon={<TrendingUp />} label="2A. Latency Drift (40%)" />
+              <NavItem to="/dimensions/performance/fanout" icon={<GitMerge />} label="2B. Call-Tree Fan-Out (40%)" />
+              <NavItem to="/dimensions/performance/anomaly" icon={<ShieldAlert />} label="2C. ML Anomaly (20%)" />
+              <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="3. Composite P-Score" end />
+              <NavItem to="/dimensions/performance/calculation" icon={<Calculator />} label="Calculation Logic" />
               <NavItem to="/dimensions/performance" icon={<LayoutDashboard />} label="Overview" end />
               <NavItem to="/dimensions/performance/collection" icon={<ServerCog />} label="Telemetry Collection Data" />
               <NavItem to="/dimensions/performance/pipeline" icon={<Activity />} label="Data Pipeline Outputs" />
