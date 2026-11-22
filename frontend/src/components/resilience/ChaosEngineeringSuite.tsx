@@ -11,7 +11,8 @@ import {
   Radio, 
   BarChart3,
   History,
-  Clock
+  Clock,
+  HeartPulse
 } from 'lucide-react';
 import {
   mockFaultTypes,
@@ -117,7 +118,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
   const isMeshActive = activeChaosEvent?.engine === 'Chaos Mesh';
   const showKubernetesStatus = isMeshActive || kubernetesConnected;
   const composeFaultTypes = new Set(['SERVICE_DOWN', 'API_ERROR', 'LATENCY', 'RATE_LIMIT', 'HIGH_CPU', 'HIGH_MEMORY', 'CASCADING_FAILURE']);
-  const [activeTab, setActiveTab] = useState<'EXPERIMENTS' | 'K8S_LOGS' | 'SELF_HEALING_AUDIT' | 'HISTORY'>('EXPERIMENTS');
+  const [activeTab, setActiveTab] = useState<'EXPERIMENTS' | 'K8S_LOGS' | 'SELF_HEALING_AUDIT' | 'HISTORY' | 'TEST_SELF_HEALING'>('EXPERIMENTS');
   const [experimentHistory, setExperimentHistory] = useState<ChaosExperimentRecord[]>([]);
   const [historyError, setHistoryError] = useState('');
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -330,6 +331,19 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
             }}
           >
             <History size={14} /> Experiment History <span>({experimentHistory.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('TEST_SELF_HEALING')}
+            style={{
+              background: activeTab === 'TEST_SELF_HEALING' ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
+              border: activeTab === 'TEST_SELF_HEALING' ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid transparent',
+              color: activeTab === 'TEST_SELF_HEALING' ? '#6ee7b7' : '#94a3b8',
+              padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+            }}
+          >
+            <HeartPulse size={14} /> Test Self-Healing
           </button>
         </div>
 
@@ -745,7 +759,53 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
           </div>
         )}
 
-        {activeTab !== 'HISTORY' && <>
+        {activeTab === 'TEST_SELF_HEALING' && (
+          <div style={{ background: 'rgba(15, 23, 42, 0.75)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '18px', marginBottom: '20px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <HeartPulse size={18} style={{ color: '#6ee7b7' }} /> Test Self-Healing
+              </h3>
+              <p style={{ margin: '6px 0 0', color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>
+                Select an unhealthy service and trigger its existing recovery action. Service status refreshes with live telemetry.
+              </p>
+            </div>
+            {displayedServices.length === 0 ? (
+              <p style={{ margin: 0, color: '#fcd34d', fontSize: '13px' }}>
+                {selectedEngine === 'Chaos Mesh' ? 'No Kubernetes pod targets are available. Connect Kubernetes and deploy the core services to run this test.' : 'No live service targets are available. Start the core product and Prometheus to run this test.'}
+              </p>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' }}>
+                {displayedServices.map(service => {
+                  const canHeal = service.chaosSupported !== false && (service.status === 'OFFLINE' || service.status === 'DEGRADED');
+                  return (
+                    <div key={service.id} style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                        <strong style={{ color: '#e2e8f0', fontSize: '13px' }}>{service.name}</strong>
+                        <span style={{ color: service.status === 'ONLINE' ? '#6ee7b7' : service.status === 'DEGRADED' ? '#fcd34d' : '#fda4af', fontSize: '11px', fontWeight: 700 }}>{service.status}</span>
+                      </div>
+                      <div style={{ margin: '8px 0 12px', color: '#94a3b8', fontSize: '11px' }}>
+                        Restarts: {service.restarts ?? 'N/A'}{service.faultType ? ` · Active fault: ${service.faultType}` : ''}
+                      </div>
+                      {canHeal ? (
+                        <button type="button" className="btn-heal-card" onClick={() => onHealService(service.id)}>
+                          Run Self-Healing Test
+                        </button>
+                      ) : service.chaosSupported === false ? (
+                        <span className="chaos-unavailable">Recovery action unavailable for this monitoring-only target.</span>
+                      ) : (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#6ee7b7', fontSize: '11px' }}>
+                          <CheckCircle2 size={13} /> Healthy — induce a fault first to test recovery.
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab !== 'HISTORY' && activeTab !== 'TEST_SELF_HEALING' && <>
         {/* Microservice Health Grid */}
         <h3 className="section-subheading" style={{ marginTop: '24px' }}>Services Cluster Health</h3>
         {selectedEngine === 'Chaos Mesh' && displayedServices.length === 0 && <p className="empty-services-message">No Kubernetes core-product Pods found. Deploy the services to Kubernetes and make sure the Kubernetes API is connected.</p>}
