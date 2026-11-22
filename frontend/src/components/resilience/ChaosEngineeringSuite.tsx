@@ -115,6 +115,7 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
   const observedRecoveries = coreServices.reduce((total, service) => total + (service.recoveriesObserved ?? 0), 0);
   const hasProcessRestartMetrics = coreServices.some(service => service.restarts !== null);
   const isMeshActive = activeChaosEvent?.engine === 'Chaos Mesh';
+  const showKubernetesStatus = isMeshActive || kubernetesConnected;
   const composeFaultTypes = new Set(['SERVICE_DOWN', 'API_ERROR', 'LATENCY', 'RATE_LIMIT', 'HIGH_CPU', 'HIGH_MEMORY', 'CASCADING_FAILURE']);
   const [activeTab, setActiveTab] = useState<'EXPERIMENTS' | 'K8S_LOGS' | 'SELF_HEALING_AUDIT' | 'HISTORY'>('EXPERIMENTS');
   const [experimentHistory, setExperimentHistory] = useState<ChaosExperimentRecord[]>([]);
@@ -600,9 +601,9 @@ export const ChaosEngineeringSuite: React.FC<ChaosEngineeringSuiteProps> = ({
                 </p>
               </div>
 
-              <div style={{ background: coreProductConnected ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)', border: `1px solid ${coreProductConnected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`, padding: '6px 14px', borderRadius: '8px' }}>
-                <span style={{ fontSize: '11px', color: coreProductConnected ? '#6ee7b7' : '#fcd34d', fontWeight: 700 }}>
-                  {isMeshActive ? `KUBERNETES: ${kubernetesConnected ? 'CONNECTED' : 'NOT CONNECTED'}` : `CORE PROMETHEUS: ${coreProductConnected ? 'CONNECTED' : 'NOT CONNECTED'}`}
+              <div style={{ background: (showKubernetesStatus ? kubernetesConnected : coreProductConnected) ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)', border: `1px solid ${(showKubernetesStatus ? kubernetesConnected : coreProductConnected) ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`, padding: '6px 14px', borderRadius: '8px' }}>
+                <span style={{ fontSize: '11px', color: (showKubernetesStatus ? kubernetesConnected : coreProductConnected) ? '#6ee7b7' : '#fcd34d', fontWeight: 700 }}>
+                  {showKubernetesStatus ? `KUBERNETES: ${kubernetesConnected ? 'CONNECTED' : 'NOT CONNECTED'}` : `CORE PROMETHEUS: ${coreProductConnected ? 'CONNECTED' : 'NOT CONNECTED'}`}
                 </span>
               </div>
             </div>
