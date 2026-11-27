@@ -1,4 +1,8 @@
-"""Collect and normalize telemetry from Prometheus, Loki, and Jaeger."""
+"""Telemetry-Only RCA-to-Kubernetes Remediation Pipeline - Step 1.
+
+Collect and normalize telemetry from Prometheus, Loki, and Jaeger without
+reading or ingesting application source code.
+"""
 
 import math
 import os
@@ -11,6 +15,10 @@ import requests
 
 from app.integration import telemetry_experiment
 
+PIPELINE_NAME = "Telemetry-Only RCA-to-Kubernetes Remediation Pipeline"
+
+# Base URLs and request defaults are configurable so the telemetry collector
+# works consistently across local development and deployed environments.
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090").rstrip("/")
 LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100").rstrip("/")
 JAEGER_URL = os.getenv("JAEGER_URL", "http://localhost:16686").rstrip("/")
@@ -22,6 +30,7 @@ LOKI_QUERY = os.getenv("LOKI_QUERY_FILTER", '{job=~".+"}')
 
 
 def backend_request_options(url: str) -> dict[str, Any]:
+    """Return authentication and TLS options for the matching observability backend."""
     for base_url, prefix in (
         (PROMETHEUS_URL, "PROMETHEUS"),
         (LOKI_URL, "LOKI"),
@@ -44,6 +53,7 @@ def backend_request_options(url: str) -> dict[str, Any]:
 
 
 def _get_json(url: str, params: dict[str, str] | None = None) -> dict | None:
+    """Fetch JSON data and treat network, HTTP, or decoding failures as unavailable."""
     try:
         response = requests.get(
             url, params=params, timeout=TIMEOUT, **backend_request_options(url)
@@ -56,6 +66,7 @@ def _get_json(url: str, params: dict[str, str] | None = None) -> dict | None:
 
 
 def _get_text(url: str) -> bool:
+    """Check whether an endpoint responds successfully without reading the response body."""
     try:
         response = requests.get(url, timeout=TIMEOUT, **backend_request_options(url))
         response.raise_for_status()
@@ -65,6 +76,7 @@ def _get_text(url: str) -> bool:
 
 
 def _prometheus_value(payload: dict | None) -> float | None:
+    """Extract one finite scalar value from a Prometheus instant-query response."""
     try:
         if payload.get("status") != "success":
             return None
@@ -75,6 +87,7 @@ def _prometheus_value(payload: dict | None) -> float | None:
 
 
 def _prometheus_series(payload: dict | None, name: str) -> list[dict]:
+    """Convert Prometheus range-query samples into dashboard time-series points."""
     points = []
     for result in (payload or {}).get("data", {}).get("result", []):
         for timestamp, value in result.get("values", []):
@@ -93,6 +106,7 @@ def _prometheus_series(payload: dict | None, name: str) -> list[dict]:
 
 
 def _detect_log_level(labels: dict, message: str) -> str:
+    """[STEP 1 / LOKI] Normalize runtime log severity from labels or log text."""
     level = str(labels.get("level", labels.get("severity", ""))).upper()
     if level in {"ERROR", "CRITICAL", "FATAL", "WARN", "WARNING", "DEBUG", "INFO"}:
         return "WARN" if level == "WARNING" else level
@@ -106,6 +120,7 @@ def _detect_log_level(labels: dict, message: str) -> str:
 
 
 def _selector(metric: str, extra_matchers: str = "") -> str:
+    """Build a metric selector with optional global and query-specific label filters."""
     matchers = ",".join(
         part for part in (PROMETHEUS_LABEL_FILTER, extra_matchers) if part
     )
@@ -113,6 +128,11 @@ def _selector(metric: str, extra_matchers: str = "") -> str:
 
 
 def _metric_queries() -> dict[str, list[str]]:
+    """[STEP 1 / PROMETHEUS] Return runtime metric queries only.
+
+    CPU, memory, request, latency, and error-rate signals are collected
+    from Prometheus. No application source code is requested or ingested.
+    """
     queries = {
         "cpu": [
             f"sum(rate({_selector('process_cpu_time_seconds_total')}[1m])) * 100",
@@ -153,6 +173,7 @@ def _metric_queries() -> dict[str, list[str]]:
 def _query_range(
     query: str, start: datetime, end: datetime, step: str = "60s"
 ) -> dict | None:
+    """Fetch the historical samples used to draw a metric chart."""
     return _get_json(
         f"{PROMETHEUS_URL}/api/v1/query_range",
         {
@@ -165,6 +186,11 @@ def _query_range(
 
 
 def _dependency_map(traces_payload: dict | None) -> dict:
+    """[STEP 1 / JAEGER] Build a service graph from trace span relationships only.
+
+    Parent and child references come from Jaeger span metadata. This analysis
+    does not inspect application source code.
+    """
     edges: dict[tuple[str, str], dict] = {}
     root = "unknown-service"
     for trace in (traces_payload or {}).get("data", []):
@@ -215,6 +241,18 @@ def _dependency_map(traces_payload: dict | None) -> dict:
 
 
 def collect_telemetry() -> dict:
+    """[PIPELINE STEP 1] Collect telemetry only and build a normalized JSON snapshot.
+
+    Data sources:
+    - Prometheus: CPU, memory, request, latency, and error-rate metrics.
+    - Loki: Runtime log lines and normalized error levels.
+    - Jaeger: Distributed trace spans, latency, and error information.
+
+    Source-code exclusion:
+    - This function does not read application source files or repository code.
+    - It does not use AST, code search, file contents, or code embeddings.
+    - The returned value is a telemetry-only JSON snapshot.
+    """
     now = datetime.now(timezone.utc)
     start = now - timedelta(minutes=30)
     queries = _metric_queries()
@@ -223,6 +261,9 @@ def collect_telemetry() -> dict:
         for key, candidates in queries.items()
         for query in candidates
     ]
+
+    # [STEP 1 / LOKI] Limit collection to runtime error and informational log lines
+    # from the most recent 15 minutes. Application source files are not accessed.
     loki_params = {
         "query": LOKI_QUERY,
         "start": (now - timedelta(minutes=15)).isoformat(),
@@ -231,6 +272,8 @@ def collect_telemetry() -> dict:
         "direction": "backward",
     }
 
+    # [STEP 1 / SOURCES] Fetch Prometheus, Loki, and Jaeger independently.
+    # Concurrent requests keep collection fast without touching application source code.
     with ThreadPoolExecutor(max_workers=24) as executor:
         query_futures = {
             (key, query): executor.submit(
@@ -254,8 +297,10 @@ def collect_telemetry() -> dict:
         )
 
         chosen: dict[str, tuple[str | None, dict | None, float | None]] = {}
+        # [STEP 1 / PROMETHEUS] Select CPU, memory, request, latency, and error metrics.
         for key, candidates in queries.items():
             chosen[key] = (None, None, None)
+            # Use the first query variant that returns a usable numeric value.
             for query in candidates:
                 payload = query_futures[(key, query)].result()
                 value = _prometheus_value(payload)
@@ -279,6 +324,7 @@ def collect_telemetry() -> dict:
     streams = (loki or {}).get("data", {}).get("result", [])
     jaeger_services = (jaeger or {}).get("data", [])
     recent_logs = []
+    # [STEP 1 / LOKI] Normalize runtime log entries for the JSON snapshot.
     for stream in streams:
         labels = stream.get("stream", {})
         for entry in stream.get("values", []):
@@ -297,9 +343,11 @@ def collect_telemetry() -> dict:
                     "message": entry[1],
                     "traceId": labels.get("trace_id", labels.get("traceId", "-")),
                 })
+    # Count only ERROR and CRITICAL entries; WARN and INFO remain display-only.
     error_count = sum(
         1 for item in recent_logs if item["level"] in {"ERROR", "CRITICAL"}
     )
+    # Bucket log volume by minute for the log trend chart.
     log_buckets: dict[str, dict[str, Any]] = {}
     for item in recent_logs:
         try:
@@ -314,6 +362,8 @@ def collect_telemetry() -> dict:
         counts["error" if item["level"] in {"ERROR", "CRITICAL"} else "info"] += 1
 
     trace_samples = []
+    # [STEP 1 / JAEGER] Convert distributed trace spans into trace samples.
+    # The earliest span represents the trace root; no source code is ingested.
     for trace in (traces_payload or {}).get("data", []):
         spans = trace.get("spans", [])
         if not spans:
@@ -331,6 +381,7 @@ def collect_telemetry() -> dict:
         })
     trace_samples.sort(key=lambda sample: sample["time"])
 
+    # Keep the selected Prometheus query alongside its value for chart fallback.
     cpu_query, cpu_payload, cpu_value = chosen["cpu"]
     memory_query, memory_payload, memory_value = chosen["memory"]
     requests_query, requests_payload, requests_value = chosen["requests"]
@@ -348,6 +399,7 @@ def collect_telemetry() -> dict:
         else metric_error_rate
     )
 
+    # Controlled chaos experiments modify the normalized output to simulate outages.
     experiment = telemetry_experiment()
     active_gap = experiment["fault_type"] if experiment else None
     service_fault = experiment.get("service_id") if active_gap == "SERVICE_DOWN" else None
@@ -380,6 +432,7 @@ def collect_telemetry() -> dict:
         "requestCount": requests_value,
         "p95Latency": latency_value,
     }
+    # Try range-query samples first and reuse instant-query payloads as a fallback.
     metric_series = {
         key: _prometheus_series(series_payloads.get(key), "value")
         for key in ("cpu", "memory", "requests", "latency")
@@ -402,12 +455,23 @@ def collect_telemetry() -> dict:
     error_count = sum(
         1 for item in recent_logs if item["level"] in {"ERROR", "CRITICAL"}
     )
+    # Availability reflects whether each source has at least one usable signal.
     availability = {
         "metrics": any(value is not None for value in (cpu_value, memory_value, requests_value, latency_value, metric_error_rate)),
         "logs": bool(recent_logs),
         "traces": bool(trace_samples),
     }
+
+    # [STEP 1 / SNAPSHOT] Return one normalized, telemetry-only JSON payload.
+    # Prometheus metrics, Loki logs, and Jaeger traces are the only data sources.
+    # This snapshot is suitable for downstream analysis and later patch generation.
     return {
+        "pipeline": {
+            "name": PIPELINE_NAME,
+            "step": 1,
+            "label": "Telemetry Collection",
+            "sourceCodeIngested": False,
+        },
         "metrics": metrics_payload,
         "metricAvailability": {
             "cpu": cpu_value is not None,

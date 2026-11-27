@@ -56,6 +56,9 @@ def _number_or_zero(value: Any) -> float:
         return 0.0
 
 
+# ==================== CCI: TIME-WINDOW CORRELATION ====================
+# Normalize timestamps to milliseconds, then allow matching events from the
+# same service (or an unknown service) when they are within the 2-second window.
 def _within_window(left: dict[str, Any], right: dict[str, Any], window_ms: int = 2_000) -> bool:
     lt, rt = _timestamp_ms(left.get("timestamp", left.get("time"))), _timestamp_ms(right.get("timestamp", right.get("time")))
     if lt is None or rt is None:
@@ -65,6 +68,7 @@ def _within_window(left: dict[str, Any], right: dict[str, Any], window_ms: int =
 
 
 def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Calculate pillar coverage, error-event correlation, and CCI blind spots."""
     sources = snapshot["sources"]
     error_count = int(snapshot["logs"]["errorCount"])
     error_rate = _number_or_zero(snapshot["traces"].get("errorRate"))
@@ -84,6 +88,9 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
     trace_ids = {item.get("id") for item in traces if item.get("id")}
     log_trace_ids = {item.get("traceId") for item in logs if item.get("traceId") not in {None, "", "-"}}
 
+    # ==================== CCI: ERROR LOG <-> ERROR TRACE MATCHING ====================
+    # Match by trace ID when available, otherwise by the time window. A trace
+    # can be paired only once so duplicate logs cannot inflate the match count.
     matched_pairs, matched_trace_indexes = 0, set()
     for log in error_logs:
         lid = log.get("traceId")
@@ -97,6 +104,9 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
     matched_events = 0 if observed_events == 0 else min(matched_pairs, observed_events)
     correlation_confidence = 100.0 if not missing else 0.0 if observed_events == 0 else round((matched_events / observed_events) * 100, 2)
 
+    # ==================== CCI: BLIND-SPOT CLASSIFICATION ====================
+    # Record missing pillars, missing log trace IDs, service outages, and
+    # observed trace/log context that could not be correlated.
     now_iso = datetime.now(timezone.utc).isoformat()
     def _spot(pillars: list[str], reason: str | None = None, trace_ok: bool | None = None, log_ok: bool | None = None) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -110,15 +120,22 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
         return d
 
     blind_spots = []
+    # Flag a service outage while monitoring backends are reachable.
     if service_fault.get("type") == "SERVICE_DOWN":
         blind_spots.append(_spot(["Service telemetry: " + str(service_fault.get("service") or "selected service")], "The selected service is down while the observability backends remain reachable."))
+    # Flag any unavailable telemetry pillar.
     if missing:
         blind_spots.append(_spot(missing))
+    # Flag error logs that have no trace ID.
     if error_logs and any(item.get("traceId") in {None, "", "-"} for item in error_logs):
         blind_spots.append(_spot(["Trace context propagation"], "Error logs were received without a trace identifier.", trace_ok=bool(error_traces)))
+    # Flag observed trace/log IDs when no error log and trace can be matched.
     if observed_events and (trace_ids or log_trace_ids) and not matched_pairs:
         blind_spots.append(_spot(["Trace-log context correlation"], "No shared trace identifier was found in the current observation window.", trace_ok=bool(trace_ids), log_ok=bool(log_trace_ids)))
 
+    # ==================== CCI INDEX: COVERAGE x CORRELATION ====================
+    # With observed error events, combine three-pillar coverage with correlation
+    # confidence. If no events were observed, use pillar coverage alone.
     coverage_score = (available / 3) * 100
     cci_index = round(coverage_score * (correlation_confidence / 100)) if observed_events else round(coverage_score)
     return {
@@ -139,6 +156,7 @@ def calculate_cci(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 
 def calculate_observability(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Calculate the weighted observability score and apply the blind-spot penalty."""
     metrics, traces, logs = (
         1.0 if _pillar_available(snapshot, pillar) else 0.0
         for pillar in ("metrics", "traces", "logs")
@@ -146,6 +164,8 @@ def calculate_observability(snapshot: dict[str, Any]) -> dict[str, Any]:
     cci = calculate_cci(snapshot)
     w = OBS_AHP["weights"]
     raw_score = (metrics * w[0] + traces * w[1] + logs * w[2]) * 100
+    # ==================== O-SCORE: BLIND-SPOT PENALTY ====================
+    # Deduct 2 points per detected blind spot, capped at 15, without going below 0.
     penalty = min(len(cci["blind_spots"]) * 2, 15)
     score = max(0.0, raw_score - penalty)
     status = "HEALTHY" if score >= 80 else "WARNING" if score >= 60 else "CRITICAL"

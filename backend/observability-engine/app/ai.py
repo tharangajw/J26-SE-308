@@ -1,4 +1,8 @@
-"""Provider adapters for observability root-cause analysis."""
+"""Telemetry-Only RCA-to-Kubernetes Remediation Pipeline - Steps 2 and 3.
+
+Scrub sensitive telemetry, generate root-cause analysis, and create validated
+Kubernetes remediation patches without ingesting application source code.
+"""
 
 import json
 import os
@@ -12,7 +16,7 @@ import yaml
 
 # Provider adapters also enforce AI-output, YAML, security, and rollback guardrails.
 
-
+PIPELINE_NAME = "Telemetry-Only RCA-to-Kubernetes Remediation Pipeline"
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 GEMINI_FALLBACK_MODELS = [model.strip() for model in os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.8-flash").split(",") if model.strip()]
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
@@ -47,7 +51,12 @@ _SECRET_PATTERNS = (
 
 # Remove credentials and personal identifiers before sending data to AI providers.
 def _redact(value: Any) -> Any:
-    """Remove common credentials and personal identifiers before external AI calls."""
+    """[PIPELINE STEP 2] Scrub PII and secrets before sending telemetry to an AI provider.
+
+    This recursive scrub removes bearer credentials, API keys, tokens, passwords,
+    IP addresses, and email addresses. Only the scrubbed telemetry snapshot is
+    sent to Gemini or Claude for RCA; application source code is not included.
+    """
     if isinstance(value, dict):
         return {str(key): _redact(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -60,7 +69,7 @@ def _redact(value: Any) -> Any:
     return redacted
 
 
-# Build the strict JSON-only RCA prompt from a redacted telemetry snapshot.
+# [PIPELINE STEP 2] Build the strict JSON-only RCA prompt from a redacted telemetry snapshot.
 def _prompt(snapshot: dict[str, Any]) -> str:
     snapshot = _redact(snapshot)
     return f"""You are an observability SRE performing root-cause analysis.
@@ -71,9 +80,9 @@ Return ONLY valid JSON matching this schema, with no markdown:
 {json.dumps(SCHEMA)}"""
 
 
-# Helper to detect scenario and primary target service from telemetry & RCA report.
+# [PIPELINE STEP 2 / RCA] Classify the fault scenario and identify the primary target service.
 def _detect_scenario(report: dict[str, Any]) -> tuple[str, str]:
-    """Detect the active fault/scenario type and the target service."""
+    """Detect ERROR_SPIKE, SERVICE_DOWN, latency, memory, or data-gap scenarios."""
     telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
     experiment = telemetry.get("activeExperiment", {}) if isinstance(telemetry, dict) else {}
     service_fault = telemetry.get("serviceFault", {}) if isinstance(telemetry, dict) else {}
@@ -310,6 +319,7 @@ spec:
         }
 
     if scenario == "SERVICE_DOWN":
+        # [PIPELINE STEP 3 / SERVICE_DOWN] Restore availability with a one-replica patch.
         return {
             "script_type": "kubernetes_yaml",
             "script": f"""apiVersion: apps/v1
@@ -336,6 +346,7 @@ spec:
         }
 
     if scenario == "ERROR_SPIKE":
+        # [PIPELINE STEP 3 / ERROR_SPIKE] Scale to 2 replicas and restart poisoned pods.
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         return {
             "script_type": "kubernetes_yaml",
@@ -367,6 +378,7 @@ spec:
         }
 
     if scenario == "LATENCY_SPIKE":
+        # [PIPELINE STEP 3 / LATENCY] Scale out and raise CPU limits for bottleneck mitigation.
         return {
             "script_type": "kubernetes_yaml",
             "script": f"""apiVersion: apps/v1
@@ -402,6 +414,7 @@ spec:
         }
 
     # Default / OOM / Memory limit scenario
+    # [PIPELINE STEP 3 / OOM] Add memory request and limit changes to reduce memory pressure.
     return {
         "script_type": "kubernetes_yaml",
         "script": f"""apiVersion: apps/v1
@@ -436,7 +449,7 @@ spec:
     }
 
 
-# Build a constrained Kubernetes remediation prompt from RCA evidence.
+# [PIPELINE STEP 3] Build a constrained Kubernetes YAML patch prompt from RCA evidence.
 def _remediation_prompt(report: dict[str, Any]) -> str:
     report = _redact(report)
     scenario, target_service = _detect_scenario(report)
@@ -508,9 +521,14 @@ def _openrouter_payload(model: str, prompt: str) -> dict[str, Any]:
     }
 
 
-# Validate YAML syntax, Deployment structure, security blacklist, and rollback data.
+# [PIPELINE STEP 3 / VALIDATION] Validate syntax, Deployment identity, security, and rollback data.
 def _validate_remediation(parsed: dict[str, Any], report: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Reject incomplete or unsafe model output before it reaches the UI."""
+    """[PIPELINE STEP 3 / GUARDRAILS] Reject unsafe YAML before it reaches the UI.
+
+    Checks include YAML parsing, apps/v1 Deployment structure, exact discovered
+    workload identity, destructive-operation and credential blacklists, and the
+    presence of rollback steps.
+    """
     script_value = parsed.get("script")
     if not isinstance(script_value, (str, dict)) or not script_value:
         raise ValueError("remediation response did not include a script")
@@ -655,7 +673,7 @@ def _simulated_metric_gap_guidance(provider: str) -> dict[str, Any]:
     }
 
 
-# Call Gemini and parse its structured RCA response.
+# [PIPELINE STEP 2 / GEMINI] Send only the redacted telemetry snapshot and parse its RCA JSON.
 def analyze_with_gemini(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
@@ -684,7 +702,7 @@ def analyze_with_gemini(snapshot: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-# Call Claude and parse its structured RCA response.
+# [PIPELINE STEP 2 / CLAUDE] Send only the redacted telemetry snapshot and parse its RCA JSON.
 def analyze_with_claude(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("ANTHROPIC_API_KEY")
     if not key:
@@ -709,7 +727,7 @@ def analyze_with_claude(snapshot: dict[str, Any]) -> dict[str, Any]:
         )
 
 
-# Call OpenRouter and parse its structured RCA response.
+# [PIPELINE STEP 2 / OPENROUTER] Send only the redacted telemetry snapshot and parse its RCA JSON.
 def analyze_with_openrouter(snapshot: dict[str, Any]) -> dict[str, Any]:
     key = os.getenv("OPENROUTER_API_KEY")
     if not key:
@@ -736,16 +754,26 @@ def analyze_with_openrouter(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 # Dispatch RCA analysis to the selected provider adapter.
 def analyze(provider: str, snapshot: dict[str, Any]) -> dict[str, Any]:
+    """[PIPELINE] Run Step 2 and attach the pipeline name to the RCA response."""
     if provider == "gemini":
-        return analyze_with_gemini(snapshot)
-    if provider == "claude":
-        return analyze_with_claude(snapshot)
-    return analyze_with_openrouter(snapshot)
+        result = analyze_with_gemini(snapshot)
+    elif provider == "claude":
+        result = analyze_with_claude(snapshot)
+    else:
+        result = analyze_with_openrouter(snapshot)
+    return {
+        **result,
+        "pipeline": {
+            "name": PIPELINE_NAME,
+            "step": 2,
+            "label": "PII-Scrubbed Telemetry RCA",
+        },
+    }
 
 
 # Generate, validate, classify, and return a guarded remediation response.
 def generate_remediation(provider: str, report: dict[str, Any]) -> dict[str, Any]:
-    """Generate a guarded remediation script through the selected provider."""
+    """[PIPELINE STEP 3] Generate and guard a Kubernetes remediation patch."""
     scenario, target_service = _detect_scenario(report)
     telemetry = report.get("telemetry", {}) if isinstance(report, dict) else {}
     experiment = telemetry.get("activeExperiment", {}) if isinstance(telemetry, dict) else {}
@@ -812,6 +840,11 @@ def generate_remediation(provider: str, report: dict[str, Any]) -> dict[str, Any
             **parsed,
             "script_type": parsed.get("script_type", "kubernetes_yaml"),
             "guardrail_status": parsed.get("guardrail_status") or ("dangerous" if risk == "Critical" else "review_required" if risk == "High" else "safe"),
+            "pipeline": {
+                "name": PIPELINE_NAME,
+                "step": 3,
+                "label": "Guarded Kubernetes YAML Patch",
+            },
             "provider": provider,
             "mode": "live",
             "model": model,
